@@ -15,13 +15,20 @@ function ToolButton({ icon: Icon, label, onClick, disabled }) {
   )
 }
 
+// onSwap is optional — only the Rackium Editor's source/destination
+// picking needs it. Pages without that concept (e.g. Survey) just get
+// Undo/Redo.
 export default function EditorToolbar({ onUndo, canUndo, onRedo, canRedo, onSwap, canSwap }) {
   return (
     <div className="flex items-center gap-1 rounded-xl border border-border bg-surface p-1.5">
       <ToolButton icon={Undo2} label="Undo" onClick={onUndo} disabled={!canUndo} />
       <ToolButton icon={Redo2} label="Redo" onClick={onRedo} disabled={!canRedo} />
-      <div className="mx-1 h-5 w-px bg-border" />
-      <ToolButton icon={ArrowLeftRight} label="Swap source and destination" onClick={onSwap} disabled={!canSwap} />
+      {onSwap && (
+        <>
+          <div className="mx-1 h-5 w-px bg-border" />
+          <ToolButton icon={ArrowLeftRight} label="Swap source and destination" onClick={onSwap} disabled={!canSwap} />
+        </>
+      )}
     </div>
   )
 }

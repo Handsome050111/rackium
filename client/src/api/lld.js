@@ -1,12 +1,9 @@
-import { floors, rooms, racks, devices, patchPanels, connections as seedConnections } from '../mock/b001-site.js'
+import { devices, patchPanels, connections as seedConnections } from '../mock/b001-site.js'
 import { getDevicePortMap, getPatchPanelPortMap } from '../lib/portMap.js'
 import { portKindFor } from '../lib/validation.js'
 import { computeSuggestedLength } from '../lib/cableLength.js'
 import { suggestNextCableId, isCableIdUnique } from '../lib/cableId.js'
-
-function resolveAfter(value, ms = 120) {
-  return new Promise((resolve) => setTimeout(() => resolve(value), ms))
-}
+import { resolveAfter, findRack, findRoom } from './site.js'
 
 // Per-session mutable store, seeded from the mock dataset. Mapping changes
 // made in the Rackium Editor live here (not in mock/), simulating the real
@@ -24,29 +21,29 @@ function revisionFor(rackId) {
   return store.revisionByRack[rackId]
 }
 
-function findRack(rackId) {
-  return racks.find((r) => r.id === rackId)
-}
-
-function findRoom(roomId) {
-  return rooms.find((r) => r.id === roomId)
-}
-
 // Normalizes a device or patch panel into one shape the editor can work
 // with regardless of which it is: id, display label, rack/room placement,
 // port map, and a way to classify a given port as copper or SFP/fibre.
+// The returned shape doubles as a RackElevation placement (ru, heightU,
+// face, mounting, fullDepth, kind, label, sublabel) so the same component
+// used by Survey can render the Rackium Editor's rack context.
 function resolveEntity(entityId) {
   const device = devices.find((d) => d.id === entityId)
   if (device) {
     const rack = findRack(device.rackId)
     return {
       id: device.id,
-      kind: 'device',
+      kind: 'device', // RackElevation placement kind (styling)
+      entityType: 'device', // Rackium Editor's own device-vs-patchpanel distinction
       label: device.hostname,
       sublabel: device.model,
       rackId: device.rackId,
       roomId: rack?.roomId ?? null,
       ru: device.ru,
+      heightU: device.heightU,
+      face: device.face,
+      mounting: 'rack',
+      fullDepth: false,
       portMap: getDevicePortMap(device),
       portKind: (portId) => portKindFor(portId),
     }
@@ -56,12 +53,17 @@ function resolveEntity(entityId) {
     const rack = findRack(panel.rackId)
     return {
       id: panel.id,
-      kind: 'patchpanel',
+      kind: 'device', // RackElevation placement kind (styling)
+      entityType: 'patchpanel', // Rackium Editor's own device-vs-patchpanel distinction
       label: panel.code,
       sublabel: panel.type === 'copper' ? 'Cat6A · 24 port' : 'Fibre · 24 port',
       rackId: panel.rackId,
       roomId: rack?.roomId ?? null,
       ru: panel.ru,
+      heightU: panel.heightU,
+      face: panel.face,
+      mounting: 'rack',
+      fullDepth: false,
       portMap: getPatchPanelPortMap(panel),
       portKind: () => (panel.type === 'copper' ? 'copper' : 'sfp'),
     }
@@ -77,26 +79,6 @@ function occupiedPorts(entityId, excludeConnectionId) {
     if (conn.dest.deviceId === entityId) used.add(conn.dest.port)
   }
   return used
-}
-
-export async function getBuildingRackTree() {
-  const tree = floors
-    .slice()
-    .sort((a, b) => a.order - b.order)
-    .map((floor) => ({
-      id: floor.id,
-      name: floor.name,
-      rooms: rooms
-        .filter((r) => r.floorId === floor.id)
-        .map((room) => ({
-          id: room.id,
-          code: room.code,
-          racks: racks
-            .filter((r) => r.roomId === room.id)
-            .map((rack) => ({ id: rack.id, code: rack.code, heightU: rack.heightU })),
-        })),
-    }))
-  return resolveAfter(tree)
 }
 
 export async function getRackEditorContext(rackId) {
