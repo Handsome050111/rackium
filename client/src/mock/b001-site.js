@@ -22,11 +22,11 @@ export const rooms = [
 export const racks = [
   { id: 'rack-ug1705-r01', roomId: 'room-ug1705', code: 'R01', heightU: 42 },
   { id: 'rack-ug1705-r02', roomId: 'room-ug1705', code: 'R02', heightU: 42 },
-  { id: 'rack-tr-eg-01-r01', roomId: 'room-tr-eg-01', code: 'R01', heightU: 24 },
-  { id: 'rack-tr-eg-02-r01', roomId: 'room-tr-eg-02', code: 'R01', heightU: 24 },
-  { id: 'rack-tr-1og-01-r01', roomId: 'room-tr-1og-01', code: 'R01', heightU: 24 },
-  { id: 'rack-tr-1og-02-r01', roomId: 'room-tr-1og-02', code: 'R01', heightU: 24 },
-  { id: 'rack-tr-2og-01-r01', roomId: 'room-tr-2og-01', code: 'R01', heightU: 24 },
+  { id: 'rack-tr-eg-01-r01', roomId: 'room-tr-eg-01', code: 'R01', heightU: 42 },
+  { id: 'rack-tr-eg-02-r01', roomId: 'room-tr-eg-02', code: 'R01', heightU: 42 },
+  { id: 'rack-tr-1og-01-r01', roomId: 'room-tr-1og-01', code: 'R01', heightU: 42 },
+  { id: 'rack-tr-1og-02-r01', roomId: 'room-tr-1og-02', code: 'R01', heightU: 42 },
+  { id: 'rack-tr-2og-01-r01', roomId: 'room-tr-2og-01', code: 'R01', heightU: 42 },
 ]
 
 // Edge/AP rooms, in the order the five access rooms are numbered.
@@ -80,7 +80,9 @@ export const devices = [
       model: 'Cisco C9300-48UX',
       rackId,
       roomId,
-      ru: 20,
+      // RU40 in every edge rack — the §6.3 worked example (RU40 -> RU42
+      // same rack = 0.59m -> 1m stock) runs against this exact placement.
+      ru: 40,
       heightU: 1,
       face: 'front',
       status: 'planned',
@@ -99,24 +101,30 @@ export const devices = [
 ]
 
 export const patchPanels = [
-  { id: 'pp-ug1705-r01-cu', rackId: 'rack-ug1705-r01', ru: 30, heightU: 1, type: 'copper', ports: 24 },
-  { id: 'pp-ug1705-r01-fi', rackId: 'rack-ug1705-r01', ru: 29, heightU: 1, type: 'fibre', ports: 24 },
-  ...EDGE_ROOMS.map(({ rackId }, i) => ({
-    id: `pp-edge-${i + 1}-cu`,
-    rackId,
-    ru: 18,
-    heightU: 1,
-    type: 'copper',
-    ports: 24,
-  })),
-  ...EDGE_ROOMS.map(({ rackId }, i) => ({
-    id: `pp-edge-${i + 1}-fi`,
-    rackId,
-    ru: 17,
-    heightU: 1,
-    type: 'fibre',
-    ports: 24,
-  })),
+  { id: 'pp-ug1705-r01-cu', code: 'PP-CORE-CU', rackId: 'rack-ug1705-r01', ru: 30, heightU: 1, type: 'copper', ports: 24 },
+  { id: 'pp-ug1705-r01-fi', code: 'PP-CORE-FI', rackId: 'rack-ug1705-r01', ru: 29, heightU: 1, type: 'fibre', ports: 24 },
+  // PP-01..PP-10, two per edge room (copper then fibre), RU42/RU41 above
+  // the Edge switch at RU40 — matches render page 15's rack layout.
+  ...EDGE_ROOMS.flatMap(({ rackId }, i) => [
+    {
+      id: `pp-edge-${i + 1}-cu`,
+      code: `PP-${String(2 * i + 1).padStart(2, '0')}`,
+      rackId,
+      ru: 42,
+      heightU: 1,
+      type: 'copper',
+      ports: 24,
+    },
+    {
+      id: `pp-edge-${i + 1}-fi`,
+      code: `PP-${String(2 * i + 2).padStart(2, '0')}`,
+      rackId,
+      ru: 41,
+      heightU: 1,
+      type: 'fibre',
+      ports: 24,
+    },
+  ]),
 ]
 
 // 8-digit cable IDs, unique per project (brief v2.3 §6.1).
@@ -166,6 +174,22 @@ export const connections = [
       media: isOm4Exception ? 'om4' : 'os2',
       speed: '10G',
     })
+  }),
+  // Pre-existing access patching in TR-EG-01 (Rackium Editor Revision 12),
+  // so the editor has real mappings to show alongside a fresh one.
+  directConnection({
+    id: 'conn-edge1-pp01-01',
+    source: { deviceId: 'dev-edge-1', port: 'Gi1/0/1' },
+    dest: { deviceId: 'pp-edge-1-cu', port: '01' },
+    media: 'cat6a',
+    speed: '1G',
+  }),
+  directConnection({
+    id: 'conn-edge1-pp01-02',
+    source: { deviceId: 'dev-edge-1', port: 'Gi1/0/2' },
+    dest: { deviceId: 'pp-edge-1-cu', port: '02' },
+    media: 'cat6a',
+    speed: '1G',
   }),
 ]
 
