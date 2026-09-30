@@ -46,3 +46,16 @@ export function getRackPermissions(role) {
     readOnly: !canEditAnything(role),
   }
 }
+
+// Site Structure (brief v2.3 §4.1/§4.3): Field Engineer creates/edits;
+// PM or Architect may pre-create. Architect separately verifies (not a
+// full workflow yet — see Step 4 scope notes). Everyone else, including
+// Org Admin, is read-only here.
+export function canEditSiteStructure(role) {
+  return role === 'field_engineer' || role === 'pm' || role === 'architect'
+}
+
+export function getSiteStructurePermissions(role) {
+  const canEdit = canEditSiteStructure(role)
+  return { canEdit, readOnly: !canEdit }
+}

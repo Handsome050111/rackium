@@ -6,6 +6,7 @@ import Breadcrumb from '../components/Breadcrumb.jsx'
 import RackElevation, { parseDroppableId } from '../components/RackElevation.jsx'
 import RackObjectLibrary from '../components/RackObjectLibrary.jsx'
 import DragPreviewCard from '../components/DragPreviewCard.jsx'
+import SurveyStepper from '../components/SurveyStepper.jsx'
 import RackFactCard from '../components/RackFactCard.jsx'
 import RackReadinessCard from '../components/RackReadinessCard.jsx'
 import DeviceIdentityPanel from '../components/DeviceIdentityPanel.jsx'
@@ -376,17 +377,14 @@ export default function SurveyRackLayout() {
           />
         )}
 
-        <div className="flex items-center justify-center gap-2 rounded-xl border border-border bg-surface px-4 py-3 text-xs text-text-secondary">
-          {['Site Structure', 'Room Details', 'Rack Survey', 'Existing Connectivity', 'Validation'].map((step, i) => (
-            <div key={step} className="flex items-center gap-2">
-              <span
-                className={`h-2.5 w-2.5 rounded-full ${step === 'Rack Survey' ? 'bg-brand' : 'border border-border bg-surface'}`}
-              />
-              <span className={step === 'Rack Survey' ? 'font-semibold text-brand' : ''}>{step}</span>
-              {i < 4 && <span className="mx-1 h-px w-6 bg-border" />}
-            </div>
-          ))}
-        </div>
+        <SurveyStepper
+          active="rack-survey"
+          links={{
+            'site-structure': `/b/${buildingId}/survey`,
+            'building-connections': `/b/${buildingId}/survey?panel=connections`,
+            validation: `/b/${buildingId}/survey?panel=validation`,
+          }}
+        />
       </div>
 
       <DragOverlay dropAnimation={null}>

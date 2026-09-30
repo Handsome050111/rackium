@@ -3,7 +3,7 @@ import AppShell from './components/AppShell.jsx'
 import BuildingOverview from './pages/BuildingOverview.jsx'
 import LldLanding from './pages/LldLanding.jsx'
 import RackiumEditor from './pages/RackiumEditor.jsx'
-import SurveyLanding from './pages/SurveyLanding.jsx'
+import SiteStructure from './pages/SiteStructure.jsx'
 import SurveyRackLayout from './pages/SurveyRackLayout.jsx'
 import { PHASES } from './mock/phases.js'
 
@@ -29,7 +29,8 @@ export default function App() {
         <Route index element={<BuildingOverview />} />
         <Route path="lld" element={<LldLanding />} />
         <Route path="lld/editor" element={<RackiumEditor />} />
-        <Route path="survey" element={<SurveyLanding />} />
+        <Route path="survey" element={<SiteStructure mode="building" />} />
+        <Route path="survey/campus" element={<SiteStructure mode="campus" />} />
         <Route path="survey/rack" element={<SurveyRackLayout />} />
         <Route path=":phaseId" element={<PhasePlaceholder />} />
       </Route>
