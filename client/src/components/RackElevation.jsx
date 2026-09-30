@@ -63,11 +63,17 @@ function PlacementBlock({ placement, rackHeightU, draggable, isSelected, onSelec
       style={style}
       onClick={() => onSelect?.(placement)}
       {...(draggable ? { ...listeners, ...attributes } : {})}
-      // touch-none only when draggable — a read-only/view-mode block must
-      // stay scrollable under touch, not just non-draggable.
+      // touch-none/select-none/webkit-touch-callout only when draggable — a
+      // read-only/view-mode block must stay scrollable and selectable under
+      // touch, not just non-draggable. The callout/select suppression stops
+      // iOS Safari's long-press copy/share menu from hijacking a touch drag.
       className={`flex items-center overflow-hidden rounded border px-1.5 text-left text-[11px] leading-tight ${
         STATE_STYLE[placement.kind] ?? STATE_STYLE.device
-      } ${isSelected ? 'ring-2 ring-brand ring-offset-1' : ''} ${draggable ? 'cursor-grab touch-none active:cursor-grabbing' : 'cursor-pointer'}`}
+      } ${isSelected ? 'ring-2 ring-brand ring-offset-1' : ''} ${
+        draggable
+          ? 'cursor-grab touch-none select-none active:cursor-grabbing [-webkit-touch-callout:none]'
+          : 'cursor-pointer'
+      }`}
       title={placement.label}
     >
       <span className="min-w-0 flex-1 truncate">
