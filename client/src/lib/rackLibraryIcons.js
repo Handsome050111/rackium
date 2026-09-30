@@ -15,6 +15,9 @@ import {
   Package,
   Bookmark,
   Ban,
+  Wifi,
+  DoorOpen,
+  Building2,
 } from 'lucide-react'
 
 export const RACK_LIBRARY_ICONS = {
@@ -32,4 +35,7 @@ export const RACK_LIBRARY_ICONS = {
   Package,
   Bookmark,
   Ban,
+  Wifi,
+  DoorOpen,
+  Building2,
 }

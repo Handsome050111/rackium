@@ -3,10 +3,12 @@ import { NavLink, useParams } from 'react-router-dom'
 import { X, LayoutDashboard, FolderTree } from 'lucide-react'
 import { PHASE_ICONS } from '../lib/phaseIcons.js'
 import { PHASES } from '../mock/phases.js'
-import { getProjectTree } from '../api/index.js'
+import { getProjectTree, getPhaseCards } from '../api/index.js'
+import { subscribePhaseStatusChanges } from '../api/phaseStatusStore.js'
 import ProjectTree from './ProjectTree.jsx'
+import StatusDot from './StatusDot.jsx'
 
-function PhaseNavList({ buildingId, showLabels, onNavigate }) {
+function PhaseNavList({ buildingId, showLabels, onNavigate, phaseStatuses }) {
   return (
     <nav aria-label="Phases" className="px-2">
       <NavLink
@@ -25,6 +27,7 @@ function PhaseNavList({ buildingId, showLabels, onNavigate }) {
 
       {PHASES.map((phase) => {
         const Icon = PHASE_ICONS[phase.icon]
+        const status = phaseStatuses?.[phase.id]
         return (
           <NavLink
             key={phase.id}
@@ -38,7 +41,14 @@ function PhaseNavList({ buildingId, showLabels, onNavigate }) {
             title={phase.name}
           >
             <Icon size={18} strokeWidth={2} className="shrink-0" />
-            {showLabels && <span className="leading-tight">{phase.name}</span>}
+            {showLabels ? (
+              <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
+                <span className="truncate leading-tight">{phase.name}</span>
+                {status && <StatusDot status={status} />}
+              </span>
+            ) : (
+              status && <StatusDot status={status} className="absolute right-1.5 top-1.5" />
+            )}
           </NavLink>
         )
       })}
@@ -46,10 +56,10 @@ function PhaseNavList({ buildingId, showLabels, onNavigate }) {
   )
 }
 
-function SidebarContent({ buildingId, showLabels, tree, onNavigate, onOpenTree }) {
+function SidebarContent({ buildingId, showLabels, tree, onNavigate, onOpenTree, phaseStatuses }) {
   return (
     <div className="flex h-full flex-col overflow-y-auto">
-      <PhaseNavList buildingId={buildingId} showLabels={showLabels} onNavigate={onNavigate} />
+      <PhaseNavList buildingId={buildingId} showLabels={showLabels} onNavigate={onNavigate} phaseStatuses={phaseStatuses} />
       <div className="mx-3 my-2 border-t border-border" />
       {showLabels ? (
         <ProjectTree tree={tree} selectedBuildingId={buildingId} onNavigate={onNavigate} />
@@ -71,6 +81,7 @@ function SidebarContent({ buildingId, showLabels, tree, onNavigate, onOpenTree }
 export default function Sidebar({ mobileOpen, onOpenMobile, onCloseMobile }) {
   const { buildingId } = useParams()
   const [tree, setTree] = useState(null)
+  const [phaseStatuses, setPhaseStatuses] = useState(null)
 
   useEffect(() => {
     let active = true
@@ -82,16 +93,33 @@ export default function Sidebar({ mobileOpen, onOpenMobile, onCloseMobile }) {
     }
   }, [])
 
+  useEffect(() => {
+    if (!buildingId) return
+    let active = true
+    function load() {
+      getPhaseCards(buildingId).then((cards) => {
+        if (!active) return
+        setPhaseStatuses(Object.fromEntries(cards.map((c) => [c.id, c.status])))
+      })
+    }
+    load()
+    const unsubscribe = subscribePhaseStatusChanges(load)
+    return () => {
+      active = false
+      unsubscribe()
+    }
+  }, [buildingId])
+
   return (
     <>
       {/* Desktop / iPad: full rail with labels */}
       <aside className="hidden w-64 shrink-0 border-r border-border bg-surface md:block">
-        <SidebarContent buildingId={buildingId} showLabels tree={tree} />
+        <SidebarContent buildingId={buildingId} showLabels tree={tree} phaseStatuses={phaseStatuses} />
       </aside>
 
       {/* Tablet portrait: icon-only rail, with a trigger to open the tree as an overlay */}
       <aside className="hidden w-16 shrink-0 border-r border-border bg-surface sm:block md:hidden">
-        <SidebarContent buildingId={buildingId} showLabels={false} tree={tree} onOpenTree={onOpenMobile} />
+        <SidebarContent buildingId={buildingId} showLabels={false} tree={tree} onOpenTree={onOpenMobile} phaseStatuses={phaseStatuses} />
       </aside>
 
       {/* Phone drawer / tablet tree overlay (same panel, different trigger) */}
@@ -116,7 +144,7 @@ export default function Sidebar({ mobileOpen, onOpenMobile, onCloseMobile }) {
               </button>
             </div>
             <div className="flex-1 overflow-y-auto">
-              <SidebarContent buildingId={buildingId} showLabels tree={tree} onNavigate={onCloseMobile} />
+              <SidebarContent buildingId={buildingId} showLabels tree={tree} onNavigate={onCloseMobile} phaseStatuses={phaseStatuses} />
             </div>
           </aside>
         </div>

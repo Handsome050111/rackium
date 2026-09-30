@@ -1,24 +1,19 @@
-import { devices, patchPanels, connections as seedConnections } from '../mock/b001-site.js'
 import { getDevicePortMap, getPatchPanelPortMap } from '../lib/portMap.js'
 import { portKindFor } from '../lib/validation.js'
 import { computeSuggestedLength } from '../lib/cableLength.js'
 import { suggestNextCableId, isCableIdUnique } from '../lib/cableId.js'
 import { resolveAfter, findRack, findRoom } from './site.js'
+import { getDevices, getPatchPanels, getConnections, findDevice, findPatchPanel, upsertConnection } from './networkStore.js'
 
-// Per-session mutable store, seeded from the mock dataset. Mapping changes
-// made in the Rackium Editor live here (not in mock/), simulating the real
-// API layer this will become. One process-lifetime store is enough for a
-// prototype — no persistence across reloads.
-const store = {
-  connections: [...seedConnections],
-  revisionByRack: {}, // rackId -> { revision, unsavedChanges, lastSavedAt }
-}
+// Per-rack revision bookkeeping lives here (Rackium-Editor-specific, not
+// part of the shared network store).
+const revisionByRack = {}
 
 function revisionFor(rackId) {
-  if (!store.revisionByRack[rackId]) {
-    store.revisionByRack[rackId] = { revision: 12, unsavedChanges: 0, lastSavedAt: '2026-09-27T21:58:00Z' }
+  if (!revisionByRack[rackId]) {
+    revisionByRack[rackId] = { revision: 12, unsavedChanges: 0, lastSavedAt: '2026-09-27T21:58:00Z' }
   }
-  return store.revisionByRack[rackId]
+  return revisionByRack[rackId]
 }
 
 // Normalizes a device or patch panel into one shape the editor can work
@@ -28,7 +23,7 @@ function revisionFor(rackId) {
 // face, mounting, fullDepth, kind, label, sublabel) so the same component
 // used by Survey can render the Rackium Editor's rack context.
 function resolveEntity(entityId) {
-  const device = devices.find((d) => d.id === entityId)
+  const device = findDevice(entityId)
   if (device) {
     const rack = findRack(device.rackId)
     return {
@@ -48,7 +43,7 @@ function resolveEntity(entityId) {
       portKind: (portId) => portKindFor(portId),
     }
   }
-  const panel = patchPanels.find((p) => p.id === entityId)
+  const panel = findPatchPanel(entityId)
   if (panel) {
     const rack = findRack(panel.rackId)
     return {
@@ -73,7 +68,7 @@ function resolveEntity(entityId) {
 
 function occupiedPorts(entityId, excludeConnectionId) {
   const used = new Set()
-  for (const conn of store.connections) {
+  for (const conn of getConnections()) {
     if (conn.id === excludeConnectionId) continue
     if (conn.source.deviceId === entityId) used.add(conn.source.port)
     if (conn.dest.deviceId === entityId) used.add(conn.dest.port)
@@ -86,16 +81,16 @@ export async function getRackEditorContext(rackId) {
   if (!rack) return Promise.reject(new Error(`Unknown rack: ${rackId}`))
   const room = findRoom(rack.roomId)
 
-  const rackDevices = devices
+  const rackDevices = getDevices()
     .filter((d) => d.rackId === rackId)
     .map((d) => resolveEntity(d.id))
-  const rackPatchPanels = patchPanels
+  const rackPatchPanels = getPatchPanels()
     .filter((p) => p.rackId === rackId)
     .map((p) => resolveEntity(p.id))
 
   const entities = [...rackDevices, ...rackPatchPanels].sort((a, b) => b.ru - a.ru)
 
-  const touchingConnections = store.connections.filter(
+  const touchingConnections = getConnections().filter(
     (c) => entities.some((e) => e.id === c.source.deviceId) || entities.some((e) => e.id === c.dest.deviceId)
   )
 
@@ -105,7 +100,7 @@ export async function getRackEditorContext(rackId) {
     entities,
     connections: touchingConnections,
     revisionMeta: { ...revisionFor(rackId) },
-    allCableIds: store.connections.map((c) => c.cableId),
+    allCableIds: getConnections().map((c) => c.cableId),
   })
 }
 
@@ -115,14 +110,16 @@ export async function getEntityPortAvailability(entityId, excludeConnectionId = 
 }
 
 export async function suggestCableId() {
-  return resolveAfter(suggestNextCableId(store.connections.map((c) => c.cableId)))
+  return resolveAfter(suggestNextCableId(getConnections().map((c) => c.cableId)))
 }
 
 export async function checkCableIdUnique(cableId, excludeConnectionId = null) {
-  const excludeCableId = excludeConnectionId
-    ? store.connections.find((c) => c.id === excludeConnectionId)?.cableId
-    : null
-  return resolveAfter(isCableIdUnique(cableId, store.connections.map((c) => c.cableId), excludeCableId))
+  const excludeCableId = excludeConnectionId ? findConnectionCableId(excludeConnectionId) : null
+  return resolveAfter(isCableIdUnique(cableId, getConnections().map((c) => c.cableId), excludeCableId))
+}
+
+function findConnectionCableId(connectionId) {
+  return getConnections().find((c) => c.id === connectionId)?.cableId
 }
 
 export async function computeLength({ sourceEntityId, destEntityId, media }) {
@@ -143,8 +140,8 @@ export function getEntityPortKind(entityId, portId) {
 }
 
 // Creates or updates (when mapping.connectionId is given) a connection in
-// the session store. Does not touch revision bookkeeping — that only
-// advances on Save Revision.
+// the shared network store. Does not touch revision bookkeeping — that
+// only advances on Save Revision.
 export async function applyMapping(rackId, mapping) {
   const {
     connectionId,
@@ -173,12 +170,7 @@ export async function applyMapping(rackId, mapping) {
     testResult: null,
   }
 
-  const existingIndex = store.connections.findIndex((c) => c.id === record.id)
-  if (existingIndex >= 0) {
-    store.connections[existingIndex] = record
-  } else {
-    store.connections.push(record)
-  }
+  upsertConnection(record)
 
   const meta = revisionFor(rackId)
   meta.unsavedChanges += 1

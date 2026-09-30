@@ -1,4 +1,5 @@
 import { buildHostname } from '../lib/naming.js'
+import { getCompatibleSfps } from './sfpCatalog.js'
 
 const HN = { country: 'DE', sal: 'ERL', campus: 'C01', building: 'B001' }
 
@@ -118,6 +119,12 @@ export const patchPanels = [
       face: 'front',
       type: 'copper',
       ports: 24,
+      // PP-09 (TR-2OG-01) is fully patched from a prior deployment phase —
+      // ports occupied by legacy cabling outside this project's scope, so
+      // there's no full connection record for the far end. Used to
+      // demonstrate a genuine patch-panel-capacity block in HLD validation
+      // (brief v2.3 §6.4/§6.8) — distance is NOT the constraint here.
+      ...(i === 4 ? { preOccupiedPorts: Array.from({ length: 24 }, (_, n) => String(n + 1).padStart(2, '0')) } : {}),
     },
     {
       id: `pp-edge-${i + 1}-fi`,
@@ -139,14 +146,18 @@ function newCableId() {
 }
 
 function directConnection({ id, source, dest, media, speed }) {
+  // Cat6a is RJ45, not a pluggable optic — no SFP applies. Fibre links get
+  // a real code from the sfpCatalog (the same catalog HLD validation
+  // checks against), not a made-up placeholder.
+  const sfpCode = media === 'cat6a' ? null : (getCompatibleSfps(media, speed)[0]?.code ?? null)
   return {
     id,
     source,
     dest,
     media,
     speed,
-    sourceSfp: media === 'cat6a' ? null : `${speed}-${media.toUpperCase()}`,
-    destSfp: media === 'cat6a' ? null : `${speed}-${media.toUpperCase()}`,
+    sourceSfp: sfpCode,
+    destSfp: sfpCode,
     cableId: newCableId(),
     hops: [],
     lengths: { suggested: null, engineerSelected: null, installed: null },
