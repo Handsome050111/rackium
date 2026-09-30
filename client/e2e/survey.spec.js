@@ -1,11 +1,12 @@
 import { test, expect } from '@playwright/test'
 
 test.describe('Physical Site Survey — Rack Layout', () => {
-  test('Survey landing lists racks with an Open Rack Survey action', async ({ page }) => {
+  test('clicking a rack in Site Structure opens its Rack Survey screen', async ({ page }) => {
     await page.goto('/b/b001/survey')
-    await expect(page.getByRole('heading', { name: 'Physical Site Survey' })).toBeVisible()
-    const rackButton = page.getByRole('button', { name: /TR-EG-01 · Rack R01/ })
-    await expect(rackButton).toContainText('Open Rack Survey')
+    await expect(page.getByRole('heading', { name: /Building & Room Structure/ })).toBeVisible()
+    await page.locator('button[title="Rack R01 — open Rack Survey"]').first().click()
+    await expect(page).toHaveURL(/\/survey\/rack\?rack=/)
+    await expect(page.getByRole('heading', { name: /Rack Layout & Installation Readiness/ })).toBeVisible()
   })
 
   test('loads the rack with calculated readiness, no console errors, autosave does not fire on load', async ({ page }) => {

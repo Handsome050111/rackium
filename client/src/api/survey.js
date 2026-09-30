@@ -1,7 +1,15 @@
-import { devices, patchPanels } from '../mock/b001-site.js'
+import { devices as b001Devices, patchPanels as b001PatchPanels } from '../mock/b001-site.js'
 import { getRackSurveyMeta } from '../mock/rackSurveyMeta.js'
 import { getCmoForRoom, projectSerials } from '../mock/cmo.js'
-import { findRack, findRoom, findFloor, resolveAfter } from './site.js'
+import { resolveAfter } from './site.js'
+import { getRackLocation } from './siteStructure.js'
+
+// Only B001 has a device/patch-panel roster today (brief v2.3 build order:
+// dashboard -> Rackium Editor -> rack elevation, all B001-scoped so far);
+// B002/B003 racks still resolve their room/floor context correctly via
+// getRackLocation, they just start with an empty rack to survey.
+const devices = b001Devices
+const patchPanels = b001PatchPanels
 
 function baseDevicePlacements(rackId) {
   return devices
@@ -68,10 +76,9 @@ function revisionFor(rackId) {
 }
 
 export async function getRackSurveyContext(rackId) {
-  const rack = findRack(rackId)
-  if (!rack) return Promise.reject(new Error(`Unknown rack: ${rackId}`))
-  const room = findRoom(rack.roomId)
-  const floor = findFloor(room.floorId)
+  const location = getRackLocation(rackId)
+  if (!location) return Promise.reject(new Error(`Unknown rack: ${rackId}`))
+  const { rack, room, floor } = location
 
   if (!store.placementsByRack[rackId]) {
     store.placementsByRack[rackId] = seedPlacements(rackId)
