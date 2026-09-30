@@ -39,7 +39,7 @@ function corePortMap() {
 
 export function getDevicePortMap(device) {
   if (device.role === 'edge') return edgePortMap()
-  if (device.role === 'border' || device.role === 'fusion') return corePortMap()
+  if (device.role === 'border' || device.role === 'fusion' || device.role === 'distribution') return corePortMap()
   return { rows: [], modulePorts: [] }
 }
 

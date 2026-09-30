@@ -1,6 +1,11 @@
 import { organisation, project, country, sal, campus, getBuildingById } from '../mock/hierarchy.js'
 import { PHASES, PHASE_ORDER } from '../mock/phases.js'
 import { computeOverallProgress, findCurrentPhase, countByType } from '../lib/phaseCalculations.js'
+import { getPhaseStatusOverride, setPhaseStatusOverride } from './phaseStatusStore.js'
+
+function effectivePhaseEntry(buildingId, phaseId, staticEntry) {
+  return getPhaseStatusOverride(buildingId, phaseId) ?? staticEntry
+}
 
 function resolveAfter(value, ms = 120) {
   return new Promise((resolve) => setTimeout(() => resolve(value), ms))
@@ -35,7 +40,7 @@ export async function getPhaseCards(buildingId) {
   if (!building) return notFound(buildingId)
 
   const cards = PHASES.map((phase) => {
-    const entry = building.phases[phase.id]
+    const entry = effectivePhaseEntry(buildingId, phase.id, building.phases[phase.id])
     return {
       ...phase,
       status: entry.status,
@@ -50,7 +55,10 @@ export async function getBuildingKpis(buildingId) {
   const building = getBuildingById(buildingId)
   if (!building) return notFound(buildingId)
 
-  const phaseEntries = PHASE_ORDER.map((phaseId) => ({ phaseId, status: building.phases[phaseId].status }))
+  const phaseEntries = PHASE_ORDER.map((phaseId) => ({
+    phaseId,
+    status: effectivePhaseEntry(buildingId, phaseId, building.phases[phaseId]).status,
+  }))
   const currentPhaseId = findCurrentPhase(phaseEntries, PHASE_ORDER)
   const currentPhase = PHASES.find((p) => p.id === currentPhaseId)
 
@@ -62,6 +70,14 @@ export async function getBuildingKpis(buildingId) {
     lastSyncAt: building.lastSyncAt,
     nextMilestone: building.nextMilestone,
   })
+}
+
+// Any phase workflow (HLD's Submit/Approve/Request Changes, and later
+// phases' equivalents) calls this so the dashboard, stepper and sidebar
+// all pick up the change immediately.
+export async function updatePhaseStatus(buildingId, phaseId, status, subLabel = null) {
+  setPhaseStatusOverride(buildingId, phaseId, status, subLabel)
+  return resolveAfter({ phaseId, status, subLabel })
 }
 
 export async function getRecentHistory(buildingId) {

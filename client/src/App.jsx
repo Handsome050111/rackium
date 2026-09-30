@@ -5,6 +5,7 @@ import LldLanding from './pages/LldLanding.jsx'
 import RackiumEditor from './pages/RackiumEditor.jsx'
 import SiteStructure from './pages/SiteStructure.jsx'
 import SurveyRackLayout from './pages/SurveyRackLayout.jsx'
+import Hld from './pages/Hld.jsx'
 import { PHASES } from './mock/phases.js'
 
 function PhasePlaceholder() {
@@ -32,6 +33,7 @@ export default function App() {
         <Route path="survey" element={<SiteStructure mode="building" />} />
         <Route path="survey/campus" element={<SiteStructure mode="campus" />} />
         <Route path="survey/rack" element={<SurveyRackLayout />} />
+        <Route path="hld" element={<Hld />} />
         <Route path=":phaseId" element={<PhasePlaceholder />} />
       </Route>
     </Routes>
