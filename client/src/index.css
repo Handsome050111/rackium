@@ -1,0 +1,26 @@
+@import "tailwindcss";
+/* Loads tailwind.config.js, which imports src/tokens/design-tokens.js —
+   that JS file is the single source of truth for colour/spacing tokens,
+   reaching Tailwind utilities (bg-brand, text-status-amber, ...) through
+   this @config directive rather than a CSS @theme block. */
+@config "../tailwind.config.js";
+
+:root {
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  color: #111318;
+  background: #ffffff;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  min-height: 100vh;
+}
