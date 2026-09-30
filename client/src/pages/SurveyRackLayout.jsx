@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
-import { DndContext, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
+import { DndContext, DragOverlay } from '@dnd-kit/core'
 import { Trash2, ClipboardCheck, Ruler, Zap, Cable, Accessibility } from 'lucide-react'
 import Breadcrumb from '../components/Breadcrumb.jsx'
 import RackElevation, { parseDroppableId } from '../components/RackElevation.jsx'
 import RackObjectLibrary from '../components/RackObjectLibrary.jsx'
+import DragPreviewCard from '../components/DragPreviewCard.jsx'
 import RackFactCard from '../components/RackFactCard.jsx'
 import RackReadinessCard from '../components/RackReadinessCard.jsx'
 import DeviceIdentityPanel from '../components/DeviceIdentityPanel.jsx'
@@ -14,6 +15,7 @@ import EditorToolbar from '../components/EditorToolbar.jsx'
 import { getBuilding } from '../api/index.js'
 import { getRackSurveyContext, autosaveRackSurvey, saveRackSurveyVersion, getDeviceSerial, setDeviceSerial, getAllProjectSerials } from '../api/survey.js'
 import { useUndoableState } from '../lib/useUndoableState.js'
+import { useDragSensors } from '../lib/useDragSensors.js'
 import { useRole } from '../lib/RoleContext.jsx'
 import { getRackPermissions } from '../lib/permissions.js'
 import { findConflicts, computeFreeRU } from '../lib/rackValidation.js'
@@ -46,7 +48,7 @@ export default function SurveyRackLayout() {
   const autosaveTimer = useRef(null)
   const loadedSnapshot = useRef(null)
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
+  const sensors = useDragSensors()
 
   useEffect(() => {
     getBuilding(buildingId).then(setBuilding)
@@ -386,6 +388,10 @@ export default function SurveyRackLayout() {
           ))}
         </div>
       </div>
+
+      <DragOverlay dropAnimation={null}>
+        <DragPreviewCard dragData={activeDragData} />
+      </DragOverlay>
     </DndContext>
   )
 }

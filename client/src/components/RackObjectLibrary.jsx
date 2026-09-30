@@ -15,7 +15,11 @@ function LibraryItem({ item, enabled, disabledReason }) {
       ref={setNodeRef}
       {...(enabled ? { ...listeners, ...attributes } : {})}
       title={enabled ? `Drag onto the rack — ${item.heightU}U` : disabledReason}
-      className={`flex items-center gap-2 rounded-lg border border-border px-2.5 py-2 text-xs ${
+      // touch-none (touch-action: none) only on the handle itself, not the
+      // library or page — a quick swipe elsewhere still scrolls normally.
+      // The "lift" visual lives on the DragOverlay copy, not here — this
+      // source item just dims to show it's the one in flight.
+      className={`flex touch-none items-center gap-2 rounded-lg border border-border px-2.5 py-2 text-xs ${
         enabled ? 'cursor-grab bg-surface hover:border-brand/40 active:cursor-grabbing' : 'cursor-not-allowed bg-surface-muted opacity-50'
       } ${isDragging ? 'opacity-30' : ''}`}
     >
