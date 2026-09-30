@@ -1,6 +1,8 @@
 import { Routes, Route, Navigate, useParams } from 'react-router-dom'
 import AppShell from './components/AppShell.jsx'
 import BuildingOverview from './pages/BuildingOverview.jsx'
+import LldLanding from './pages/LldLanding.jsx'
+import RackiumEditor from './pages/RackiumEditor.jsx'
 import { PHASES } from './mock/phases.js'
 
 function PhasePlaceholder() {
@@ -23,6 +25,8 @@ export default function App() {
       <Route path="/" element={<Navigate to="/b/b001" replace />} />
       <Route path="/b/:buildingId" element={<AppShell />}>
         <Route index element={<BuildingOverview />} />
+        <Route path="lld" element={<LldLanding />} />
+        <Route path="lld/editor" element={<RackiumEditor />} />
         <Route path=":phaseId" element={<PhasePlaceholder />} />
       </Route>
     </Routes>
