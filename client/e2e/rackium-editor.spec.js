@@ -20,12 +20,13 @@ test.describe('Rackium Editor', () => {
     await page.goto('/b/b001/lld/editor?rack=rack-tr-eg-01-r01')
     await expect(page.getByRole('heading', { name: 'Rackium Editor — Port Mapping' })).toBeVisible()
 
-    // Entities render PP-01 (RU42), PP-02 (RU41), then the Edge switch (RU40).
-    await page.locator('button:has-text("Source")').nth(2).click() // Edge switch row
+    // RackElevation click-to-cycle: first click on a placement sets it as
+    // source, the next click on a different placement sets destination.
+    await page.locator('button', { hasText: 'E-DE-ERL-C01-B001-EG-001' }).click() // Edge switch
     await expect(page.getByText('Source · RU40')).toBeVisible()
     await page.click('button[title="Gi1/0/12"]')
 
-    await page.locator('button:has-text("Dest")').nth(0).click() // PP-01 row
+    await page.locator('button', { hasText: 'PP-01' }).click()
     await expect(page.getByText('Destination · RU42')).toBeVisible()
     await page.click('button[title="09"]')
 
@@ -61,6 +62,11 @@ test.describe('Rackium Editor', () => {
     await page.goto('/b/b001/lld/editor?rack=rack-tr-eg-01-r01')
     await expect(page.getByText('View-only on phone')).toBeVisible()
     await expect(page.getByRole('button', { name: 'Apply Mapping' })).toBeDisabled()
-    await expect(page.locator('button:has-text("Source")')).toHaveCount(0)
+
+    // Clicking a placement must not select it (no SRC badge, no PortFace
+    // panel opening) while view-only.
+    await page.locator('button', { hasText: 'E-DE-ERL-C01-B001-EG-001' }).click()
+    await expect(page.getByText('SRC')).toHaveCount(0)
+    await expect(page.getByText('Source · RU40')).toHaveCount(0)
   })
 })

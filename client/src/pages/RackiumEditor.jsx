@@ -3,19 +3,13 @@ import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
 import Breadcrumb from '../components/Breadcrumb.jsx'
 import EditorToolbar from '../components/EditorToolbar.jsx'
 import RackContextPicker from '../components/RackContextPicker.jsx'
-import MiniRackElevation from '../components/MiniRackElevation.jsx'
+import RackElevation from '../components/RackElevation.jsx'
 import PortFace from '../components/PortFace.jsx'
 import PatchDetailsPanel from '../components/PatchDetailsPanel.jsx'
 import ValidationPanel from '../components/ValidationPanel.jsx'
 import { getBuilding } from '../api/index.js'
-import {
-  getBuildingRackTree,
-  getRackEditorContext,
-  suggestCableId,
-  checkCableIdUnique,
-  applyMapping,
-  saveRevision,
-} from '../api/lld.js'
+import { getBuildingRackTree } from '../api/site.js'
+import { getRackEditorContext, suggestCableId, checkCableIdUnique, applyMapping, saveRevision } from '../api/lld.js'
 import { useUndoableState } from '../lib/useUndoableState.js'
 import { useMediaQuery } from '../lib/useMediaQuery.js'
 import { computeSuggestedLength, stockLengthsFor } from '../lib/cableLength.js'
@@ -163,6 +157,14 @@ export default function RackiumEditor() {
   function handleClearDest() {
     draft.setValue((d) => ({ ...d, destEntityId: null, destPort: null }))
   }
+  // Click-to-cycle: first click sets source, next click (on a different
+  // entity) sets destination, clicking an already-picked one clears it.
+  function handleSelectPlacement(placement) {
+    if (placement.id === draft.value.sourceEntityId) return handleClearSource()
+    if (placement.id === draft.value.destEntityId) return handleClearDest()
+    if (!draft.value.sourceEntityId) return handleSetSource(placement.id)
+    if (!draft.value.destEntityId) return handleSetDest(placement.id)
+  }
   function handleSelectSourcePort(portId) {
     draft.setValue((d) => ({ ...d, sourcePort: portId }))
   }
@@ -232,7 +234,7 @@ export default function RackiumEditor() {
     return <div className="p-6 text-sm text-text-secondary">Loading rack…</div>
   }
 
-  const connectionTypeLabel = destEntity ? (destEntity.kind === 'patchpanel' ? 'Patch panel' : 'Direct') : '—'
+  const connectionTypeLabel = destEntity ? (destEntity.entityType === 'patchpanel' ? 'Patch panel' : 'Direct') : '—'
 
   return (
     <div className="mx-auto max-w-[1600px] space-y-4 p-4 sm:p-6">
@@ -275,16 +277,15 @@ export default function RackiumEditor() {
         </div>
 
         <div className="space-y-4">
-          <MiniRackElevation
+          <RackElevation
             rack={context.rack}
-            entities={context.entities}
-            sourceEntityId={draft.value.sourceEntityId}
-            destEntityId={draft.value.destEntityId}
-            onSetSource={handleSetSource}
-            onSetDest={handleSetDest}
-            onClearSource={handleClearSource}
-            onClearDest={handleClearDest}
-            readOnly={isPhone}
+            placements={context.entities}
+            mode="view"
+            selectionBadges={{
+              ...(draft.value.sourceEntityId ? { [draft.value.sourceEntityId]: 'SRC' } : {}),
+              ...(draft.value.destEntityId ? { [draft.value.destEntityId]: 'DST' } : {}),
+            }}
+            onSelectPlacement={isPhone ? undefined : handleSelectPlacement}
           />
 
           {sourceEntity && (

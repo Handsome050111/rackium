@@ -23,6 +23,9 @@ export const racks = [
   { id: 'rack-ug1705-r01', roomId: 'room-ug1705', code: 'R01', heightU: 42 },
   { id: 'rack-ug1705-r02', roomId: 'room-ug1705', code: 'R02', heightU: 42 },
   { id: 'rack-tr-eg-01-r01', roomId: 'room-tr-eg-01', code: 'R01', heightU: 42 },
+  // Custom height, as found in the Siemens survey (brief v2.3 §4.1) — used
+  // to prove RackElevation isn't hardcoded to 42U.
+  { id: 'rack-tr-eg-01-r02', roomId: 'room-tr-eg-01', code: 'R02', heightU: 23 },
   { id: 'rack-tr-eg-02-r01', roomId: 'room-tr-eg-02', code: 'R01', heightU: 42 },
   { id: 'rack-tr-1og-01-r01', roomId: 'room-tr-1og-01', code: 'R01', heightU: 42 },
   { id: 'rack-tr-1og-02-r01', roomId: 'room-tr-1og-02', code: 'R01', heightU: 42 },
@@ -101,8 +104,8 @@ export const devices = [
 ]
 
 export const patchPanels = [
-  { id: 'pp-ug1705-r01-cu', code: 'PP-CORE-CU', rackId: 'rack-ug1705-r01', ru: 30, heightU: 1, type: 'copper', ports: 24 },
-  { id: 'pp-ug1705-r01-fi', code: 'PP-CORE-FI', rackId: 'rack-ug1705-r01', ru: 29, heightU: 1, type: 'fibre', ports: 24 },
+  { id: 'pp-ug1705-r01-cu', code: 'PP-CORE-CU', rackId: 'rack-ug1705-r01', ru: 30, heightU: 1, face: 'front', type: 'copper', ports: 24 },
+  { id: 'pp-ug1705-r01-fi', code: 'PP-CORE-FI', rackId: 'rack-ug1705-r01', ru: 29, heightU: 1, face: 'front', type: 'fibre', ports: 24 },
   // PP-01..PP-10, two per edge room (copper then fibre), RU42/RU41 above
   // the Edge switch at RU40 — matches render page 15's rack layout.
   ...EDGE_ROOMS.flatMap(({ rackId }, i) => [
@@ -112,6 +115,7 @@ export const patchPanels = [
       rackId,
       ru: 42,
       heightU: 1,
+      face: 'front',
       type: 'copper',
       ports: 24,
     },
@@ -121,6 +125,7 @@ export const patchPanels = [
       rackId,
       ru: 41,
       heightU: 1,
+      face: 'front',
       type: 'fibre',
       ports: 24,
     },

@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { FileText } from 'lucide-react'
+import { HardHat } from 'lucide-react'
 import Breadcrumb from '../components/Breadcrumb.jsx'
 import RackPickerList from '../components/RackPickerList.jsx'
 import { getBuilding } from '../api/index.js'
 import { getBuildingRackTree } from '../api/site.js'
 
-export default function LldLanding() {
+export default function SurveyLanding() {
   const { buildingId } = useParams()
   const navigate = useNavigate()
   const [building, setBuilding] = useState(null)
@@ -31,25 +31,25 @@ export default function LldLanding() {
 
   return (
     <div className="mx-auto max-w-[1400px] space-y-5 p-4 sm:p-6">
-      <Breadcrumb items={[...building.breadcrumb, { label: 'LLD' }]} />
+      <Breadcrumb items={[...building.breadcrumb, { label: 'Physical Site Survey' }]} />
 
       <div>
-        <h1 className="text-2xl font-bold text-text">LLD</h1>
+        <h1 className="text-2xl font-bold text-text">Physical Site Survey</h1>
         <p className="text-sm text-text-secondary">
-          Low-Level Design derives from the latest approved HLD. Full topology views arrive in a later step —
-          for now, open a rack in the Rackium Editor to map ports.
+          Site Structure, Room Details and Existing Connectivity arrive in a later step — for now, open a rack to
+          capture its layout and installation readiness.
         </p>
       </div>
 
       <div className="rounded-xl border border-border bg-surface p-4">
         <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-text">
-          <FileText size={16} strokeWidth={2} className="text-brand" />
+          <HardHat size={16} strokeWidth={2} className="text-brand" />
           Racks in {building.code}
         </div>
         <RackPickerList
           tree={tree}
-          actionLabel="Open in Rackium Editor"
-          onOpenRack={(rackId) => navigate(`/b/${buildingId}/lld/editor?rack=${rackId}`)}
+          actionLabel="Open Rack Survey"
+          onOpenRack={(rackId) => navigate(`/b/${buildingId}/survey/rack?rack=${rackId}`)}
         />
       </div>
     </div>

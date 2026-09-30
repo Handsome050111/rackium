@@ -1,5 +1,75 @@
-import { Search, Bell, Settings, ChevronDown, Menu } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Search, Bell, Settings, ChevronDown, Menu, FlaskConical, Check } from 'lucide-react'
 import Logo from './Logo.jsx'
+import { useRole } from '../lib/RoleContext.jsx'
+import { ROLES } from '../lib/permissions.js'
+
+function UserMenu() {
+  const { role, setRole } = useRole()
+  const [open, setOpen] = useState(false)
+  const menuRef = useRef(null)
+  const currentRole = ROLES.find((r) => r.id === role)
+
+  useEffect(() => {
+    if (!open) return
+    function onClickOutside(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onClickOutside)
+    return () => document.removeEventListener('mousedown', onClickOutside)
+  }, [open])
+
+  return (
+    <div className="relative" ref={menuRef}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex h-touch items-center gap-2 rounded-lg px-2 text-text hover:bg-surface-muted"
+        aria-label="User menu"
+        aria-expanded={open}
+      >
+        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand text-sm font-semibold text-white">
+          KR
+        </span>
+        <ChevronDown size={16} strokeWidth={2} className="hidden text-text-secondary sm:block" />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full z-50 mt-2 w-72 rounded-xl border border-border bg-surface p-2 shadow-lg">
+          <div className="px-2 py-1.5 text-sm font-medium text-text">Khaista Rehman</div>
+          <div className="mx-2 my-1 border-t border-border" />
+
+          <div className="flex items-center gap-1.5 px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-status-amber">
+            <FlaskConical size={12} strokeWidth={2} />
+            Prototype control — not part of the real product
+          </div>
+          <div className="px-2 pb-1.5 text-xs text-text-secondary">
+            View as role (gates rack survey actions per v2.3 §4.3):
+          </div>
+          <div className="space-y-0.5">
+            {ROLES.map((r) => (
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => {
+                  setRole(r.id)
+                  setOpen(false)
+                }}
+                className={`flex h-touch w-full items-center justify-between rounded-lg px-2 text-sm sm:h-8 ${
+                  r.id === role ? 'bg-brand/10 font-medium text-brand' : 'text-text hover:bg-surface-muted'
+                }`}
+              >
+                {r.label}
+                {r.id === role && <Check size={14} strokeWidth={2} />}
+              </button>
+            ))}
+          </div>
+          <div className="mt-1 px-2 text-[11px] text-text-secondary">Currently viewing as {currentRole?.label}.</div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function TopBar({ onMenuClick }) {
   return (
@@ -43,16 +113,7 @@ export default function TopBar({ onMenuClick }) {
         >
           <Settings size={20} strokeWidth={2} />
         </button>
-        <button
-          type="button"
-          className="flex h-touch items-center gap-2 rounded-lg px-2 text-text hover:bg-surface-muted"
-          aria-label="User menu"
-        >
-          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand text-sm font-semibold text-white">
-            KR
-          </span>
-          <ChevronDown size={16} strokeWidth={2} className="hidden text-text-secondary sm:block" />
-        </button>
+        <UserMenu />
       </div>
     </header>
   )
