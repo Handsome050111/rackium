@@ -30,6 +30,7 @@ import { getLogicalTopology } from '../mock/logicalTopology.js'
 import { useDragSensors } from '../lib/useDragSensors.js'
 import { useMediaQuery } from '../lib/useMediaQuery.js'
 import { useRole } from '../lib/RoleContext.jsx'
+import { isSolutionPackageApproved } from '../api/designFreeze.js'
 
 const EMPTY_DRAFT = {
   sourceDeviceId: null,
@@ -53,6 +54,7 @@ export default function Hld() {
   const [context, setContext] = useState(null)
   const [surveySummary, setSurveySummary] = useState(null)
   const [tab, setTab] = useState('physical')
+  const [frozen, setFrozen] = useState(false)
 
   const [selectedDeviceId, setSelectedDeviceId] = useState(null)
   const [editingConnectionId, setEditingConnectionId] = useState(null)
@@ -68,11 +70,12 @@ export default function Hld() {
 
   const reload = useCallback(() => {
     if (!buildingId) return
-    Promise.all([getHldContext(buildingId), getSurveyInputsSummary(buildingId), getPhaseCards(buildingId)]).then(
-      ([ctx, summary, cards]) => {
+    Promise.all([getHldContext(buildingId), getSurveyInputsSummary(buildingId), getPhaseCards(buildingId), isSolutionPackageApproved(buildingId)]).then(
+      ([ctx, summary, cards, approved]) => {
         setContext(ctx)
         setSurveySummary(summary)
         setHldStatus(cards.find((c) => c.id === 'hld')?.status ?? 'not_started')
+        setFrozen(approved)
       }
     )
   }, [buildingId])
@@ -235,7 +238,7 @@ export default function Hld() {
   const logical = getLogicalTopology(buildingId)
   const canUndo = history.index >= 0
   const canRedo = history.index < history.actions.length - 1
-  const viewOnly = isPhone
+  const viewOnly = isPhone || frozen
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
@@ -259,6 +262,12 @@ export default function Hld() {
             </button>
           </div>
         </div>
+
+        {frozen && (
+          <div className="rounded-xl border border-status-green/40 bg-status-green/5 px-4 py-2.5 text-xs text-status-green">
+            <strong>Design frozen</strong> — the Solution Package is approved. HLD is read-only until a change request reopens it.
+          </div>
+        )}
 
         <HldWorkflowControls status={hldStatus} role={role} onSubmit={handleSubmit} onApprove={handleApprove} onRequestChanges={handleRequestChanges} />
 
