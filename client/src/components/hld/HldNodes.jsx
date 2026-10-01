@@ -1,16 +1,24 @@
 import { Handle, Position } from '@xyflow/react'
-import { Server, Wifi, Cloud } from 'lucide-react'
+import { Server, Wifi, Cloud, Clock, CheckCircle2, BadgeCheck } from 'lucide-react'
 
 const ROLE_ICON = { fusion: Server, border: Server, distribution: Server, edge: Server, ap: Wifi, 'wan-circuit': Cloud }
+
+// Deployment (Step 8) overlays a Pending/Installed/Ready badge on top of
+// the same device node HLD/LLD already render — data.deploymentLabel is
+// only ever set by the Deployment canvas, so this is a no-op everywhere
+// else.
+const DEPLOYMENT_ICON = { Pending: Clock, Installed: CheckCircle2, Ready: BadgeCheck }
+const DEPLOYMENT_COLOR = { Pending: 'text-status-amber', Installed: 'text-brand', Ready: 'text-status-green' }
 
 // A network device — the only node type with connection handles, since
 // uplinks only ever run between devices (never touch a room/floor band).
 export function DeviceNode({ data, selected }) {
   const Icon = ROLE_ICON[data.role] ?? Server
+  const DeploymentIcon = DEPLOYMENT_ICON[data.deploymentLabel]
   return (
     <div
       onClick={() => data.onSelect?.(data.deviceId)}
-      className={`flex w-40 cursor-pointer items-center gap-2 rounded-lg border bg-surface px-2 py-1.5 shadow-sm ${
+      className={`relative flex w-40 cursor-pointer items-center gap-2 rounded-lg border bg-surface px-2 py-1.5 shadow-sm ${
         selected ? 'border-brand ring-2 ring-brand/30' : 'border-brand/60'
       }`}
     >
@@ -21,6 +29,9 @@ export function DeviceNode({ data, selected }) {
         <div className="truncate text-[11px] font-semibold text-text">{data.label}</div>
         {data.sublabel && <div className="truncate text-[10px] text-text-secondary">{data.sublabel}</div>}
       </div>
+      {DeploymentIcon && (
+        <DeploymentIcon size={14} strokeWidth={2} className={`absolute -right-1.5 -top-1.5 rounded-full bg-surface ${DEPLOYMENT_COLOR[data.deploymentLabel]}`} title={data.deploymentLabel} />
+      )}
     </div>
   )
 }

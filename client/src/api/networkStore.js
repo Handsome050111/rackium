@@ -37,6 +37,16 @@ export function addDevice(device) {
   return device
 }
 
+// Deployment (Step 8) patches a device's lifecycle/installation fields in
+// place — same store, same records HLD/LLD/BOM already read, so a device
+// marked Installed here is immediately reflected everywhere else.
+export function updateDevice(deviceId, patch) {
+  const device = store.devices.find((d) => d.id === deviceId)
+  if (!device) return null
+  Object.assign(device, patch)
+  return device
+}
+
 export function upsertConnection(connection) {
   const i = store.connections.findIndex((c) => c.id === connection.id)
   if (i >= 0) store.connections[i] = connection
