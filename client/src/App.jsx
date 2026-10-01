@@ -9,6 +9,8 @@ import Hld from './pages/Hld.jsx'
 import Bom from './pages/Bom.jsx'
 import SolutionPackage from './pages/SolutionPackage.jsx'
 import ClientApproval from './pages/ClientApproval.jsx'
+import Deployment from './pages/Deployment.jsx'
+import Cmdb from './pages/Cmdb.jsx'
 import { PHASES } from './mock/phases.js'
 
 function PhasePlaceholder() {
@@ -40,6 +42,8 @@ export default function App() {
         <Route path="hld" element={<Hld />} />
         <Route path="bom" element={<Bom />} />
         <Route path="solution-package" element={<SolutionPackage />} />
+        <Route path="deployment" element={<Deployment />} />
+        <Route path="cmdb" element={<Cmdb />} />
         <Route path=":phaseId" element={<PhasePlaceholder />} />
       </Route>
     </Routes>

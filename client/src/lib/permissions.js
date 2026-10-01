@@ -94,3 +94,22 @@ export function canEditSolutionPackage(role) {
 export function canSubmitSolutionPackageForApproval(role) {
   return role === 'pm'
 }
+
+// Deployment (brief v2.3 D14): Field Engineers record patching and
+// installation progress against the read-only LLD.
+export function canRecordDeployment(role) {
+  return role === 'field_engineer'
+}
+
+// Brief Step 8: only the Reviewer or PM may accept a device (the final
+// Accepted status), distinct from the Field Engineer who installs it.
+export function canAcceptDevice(role) {
+  return role === 'reviewer' || role === 'pm'
+}
+
+// CMDB (brief v2.3 D15): Architects and PMs make operational edits, each
+// flagged "operational change" in the audit trail. Field Engineers cannot
+// edit the CMDB.
+export function canEditCmdb(role) {
+  return role === 'architect' || role === 'pm'
+}
