@@ -5,9 +5,9 @@ import { exportCableScheduleXlsx } from '../../lib/lldExport.js'
 import { useRole } from '../../lib/RoleContext.jsx'
 import { canEditLld } from '../../lib/permissions.js'
 
-export default function CableScheduleTab({ rows, buildingCode, checks, onAssignCableId, onAssignAllMissing, onSetEngineerSelected }) {
+export default function CableScheduleTab({ rows, buildingCode, checks, onAssignCableId, onAssignAllMissing, onSetEngineerSelected, frozen }) {
   const { role } = useRole()
-  const editable = canEditLld(role)
+  const editable = canEditLld(role) && !frozen
   const missing = rows.filter((r) => !r.cableId).length
 
   return (

@@ -9,8 +9,10 @@ import CableScheduleTab from '../components/lld/CableScheduleTab.jsx'
 import HldBaselineBanner from '../components/lld/HldBaselineBanner.jsx'
 import { getBuilding } from '../api/index.js'
 import { getLldContext, rebaseLldToCurrentHld, assignCableId, assignMissingCableIds, setEngineerSelectedLength } from '../api/lldDesign.js'
+import { isSolutionPackageApproved } from '../api/designFreeze.js'
 import { useRole } from '../lib/RoleContext.jsx'
 import { canEditLld } from '../lib/permissions.js'
+import { Lock } from 'lucide-react'
 
 const TABS = [
   { id: 'connectivity', label: 'Connectivity' },
@@ -26,10 +28,14 @@ export default function Lld() {
   const [context, setContext] = useState(null)
   const [tab, setTab] = useState('connectivity')
   const [showValidation, setShowValidation] = useState(false)
+  const [frozen, setFrozen] = useState(false)
 
   const reload = useCallback(() => {
     if (!buildingId) return
-    getLldContext(buildingId).then(setContext)
+    Promise.all([getLldContext(buildingId), isSolutionPackageApproved(buildingId)]).then(([ctx, approved]) => {
+      setContext(ctx)
+      setFrozen(approved)
+    })
   }, [buildingId])
 
   useEffect(() => {
@@ -88,7 +94,14 @@ export default function Lld() {
         </button>
       </div>
 
-      <HldBaselineBanner hld={context.hld} canEdit={editable} onRebase={handleRebase} />
+      {frozen && (
+        <div className="flex items-center gap-2 rounded-xl border border-status-green/40 bg-status-green/5 px-4 py-2.5 text-xs text-status-green">
+          <Lock size={14} strokeWidth={2} />
+          <strong>Design frozen</strong> — the Solution Package is approved. LLD is read-only until a change request reopens it.
+        </div>
+      )}
+
+      <HldBaselineBanner hld={context.hld} canEdit={editable && !frozen} onRebase={handleRebase} />
 
       {showValidation && (
         <div
@@ -135,6 +148,7 @@ export default function Lld() {
           onAssignCableId={handleAssignCableId}
           onAssignAllMissing={handleAssignAllMissing}
           onSetEngineerSelected={handleSetEngineerSelected}
+          frozen={frozen}
         />
       )}
     </div>

@@ -6,6 +6,9 @@ import RackiumEditor from './pages/RackiumEditor.jsx'
 import SiteStructure from './pages/SiteStructure.jsx'
 import SurveyRackLayout from './pages/SurveyRackLayout.jsx'
 import Hld from './pages/Hld.jsx'
+import Bom from './pages/Bom.jsx'
+import SolutionPackage from './pages/SolutionPackage.jsx'
+import ClientApproval from './pages/ClientApproval.jsx'
 import { PHASES } from './mock/phases.js'
 
 function PhasePlaceholder() {
@@ -26,6 +29,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<Navigate to="/b/b001" replace />} />
+      <Route path="/approve/:token" element={<ClientApproval />} />
       <Route path="/b/:buildingId" element={<AppShell />}>
         <Route index element={<BuildingOverview />} />
         <Route path="lld" element={<Lld />} />
@@ -34,6 +38,8 @@ export default function App() {
         <Route path="survey/campus" element={<SiteStructure mode="campus" />} />
         <Route path="survey/rack" element={<SurveyRackLayout />} />
         <Route path="hld" element={<Hld />} />
+        <Route path="bom" element={<Bom />} />
+        <Route path="solution-package" element={<SolutionPackage />} />
         <Route path=":phaseId" element={<PhasePlaceholder />} />
       </Route>
     </Routes>

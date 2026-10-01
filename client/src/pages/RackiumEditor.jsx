@@ -10,12 +10,13 @@ import ValidationPanel from '../components/ValidationPanel.jsx'
 import { getBuilding } from '../api/index.js'
 import { getBuildingRackTree } from '../api/site.js'
 import { getRackEditorContext, suggestCableId, checkCableIdUnique, applyMapping, saveRevision } from '../api/lld.js'
+import { isSolutionPackageApproved } from '../api/designFreeze.js'
 import { useUndoableState } from '../lib/useUndoableState.js'
 import { useMediaQuery } from '../lib/useMediaQuery.js'
 import { computeSuggestedLength, stockLengthsFor } from '../lib/cableLength.js'
 import { validateMapping, hasBlockingFailure } from '../lib/validation.js'
 import { formatDateTime } from '../lib/time.js'
-import { CheckCircle2, AlertTriangle, Eye } from 'lucide-react'
+import { CheckCircle2, AlertTriangle, Eye, Lock } from 'lucide-react'
 
 const EMPTY_DRAFT = {
   sourceEntityId: null,
@@ -52,10 +53,13 @@ export default function RackiumEditor() {
   // HLD/LLD canvas editing is view-only on phone (brief v2.3 §7.4); the
   // Rackium Editor is a mode inside LLD, so the same rule applies here.
   const isPhone = useMediaQuery('(max-width: 767px)')
+  const [frozen, setFrozen] = useState(false)
+  const viewOnly = isPhone || frozen
 
   useEffect(() => {
     getBuilding(buildingId).then(setBuilding)
     getBuildingRackTree().then(setTree)
+    isSolutionPackageApproved(buildingId).then(setFrozen)
   }, [buildingId])
 
   useEffect(() => {
@@ -254,6 +258,11 @@ export default function RackiumEditor() {
             <Eye size={14} strokeWidth={2} />
             View-only on phone — open on tablet or desktop to edit
           </span>
+        ) : frozen ? (
+          <span className="flex h-touch items-center gap-1.5 rounded-lg bg-status-green/10 px-3 text-xs font-medium text-status-green">
+            <Lock size={14} strokeWidth={2} />
+            Design frozen — Solution Package approved
+          </span>
         ) : (
           <EditorToolbar
             onUndo={draft.undo}
@@ -285,7 +294,7 @@ export default function RackiumEditor() {
               ...(draft.value.sourceEntityId ? { [draft.value.sourceEntityId]: 'SRC' } : {}),
               ...(draft.value.destEntityId ? { [draft.value.destEntityId]: 'DST' } : {}),
             }}
-            onSelectPlacement={isPhone ? undefined : handleSelectPlacement}
+            onSelectPlacement={viewOnly ? undefined : handleSelectPlacement}
           />
 
           {sourceEntity && (
@@ -296,7 +305,7 @@ export default function RackiumEditor() {
               occupiedPortIds={[...sourceOccupied]}
               selectedPortId={draft.value.sourcePort}
               onSelectPort={handleSelectSourcePort}
-              disabled={isPhone}
+              disabled={viewOnly}
             />
           )}
 
@@ -308,7 +317,7 @@ export default function RackiumEditor() {
               occupiedPortIds={[...destOccupied]}
               selectedPortId={draft.value.destPort}
               onSelectPort={handleSelectDestPort}
-              disabled={isPhone}
+              disabled={viewOnly}
             />
           )}
         </div>
@@ -323,7 +332,7 @@ export default function RackiumEditor() {
             cableIdState={cableIdState}
             status={draft.value.status}
             onStatusChange={handleStatusChange}
-            disabled={isPhone}
+            disabled={viewOnly}
           />
 
           {readyForValidation ? (
@@ -332,7 +341,7 @@ export default function RackiumEditor() {
               engineerSelectedLength={engineerSelectedLength}
               stockOptions={stockOptions}
               onChangeEngineerSelectedLength={setEngineerSelectedLength}
-              disabled={isPhone}
+              disabled={viewOnly}
             />
           ) : (
             <div className="rounded-xl border border-dashed border-border p-4 text-xs text-text-secondary">
@@ -344,7 +353,7 @@ export default function RackiumEditor() {
             <button
               type="button"
               onClick={handleCancel}
-              disabled={isPhone}
+              disabled={viewOnly}
               className="h-touch rounded-lg border border-border px-4 text-sm font-medium text-text hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-60 sm:h-9"
             >
               Cancel
@@ -352,7 +361,7 @@ export default function RackiumEditor() {
             <button
               type="button"
               onClick={handleApply}
-              disabled={!canApply || isPhone}
+              disabled={!canApply || viewOnly}
               className="h-touch rounded-lg border border-brand px-4 text-sm font-medium text-brand hover:bg-brand/5 disabled:cursor-not-allowed disabled:border-border disabled:text-status-grey sm:h-9"
             >
               Apply Mapping
@@ -360,7 +369,7 @@ export default function RackiumEditor() {
             <button
               type="button"
               onClick={handleSaveRevision}
-              disabled={context.revisionMeta.unsavedChanges === 0 || isPhone}
+              disabled={context.revisionMeta.unsavedChanges === 0 || viewOnly}
               className="h-touch rounded-lg bg-brand px-4 text-sm font-medium text-white hover:bg-brand/90 disabled:cursor-not-allowed disabled:bg-status-grey sm:h-9"
             >
               Save Revision

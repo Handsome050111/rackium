@@ -65,3 +65,32 @@ export function getSiteStructurePermissions(role) {
 export function canEditLld(role) {
   return role === 'architect'
 }
+
+// BOM pricing/margin (brief v2.3 §6.5 D20): visible only to Org Admin, PM
+// and Reviewer — never Architect, Field Engineer or Viewer.
+export function canViewBomPricing(role) {
+  return role === 'org_admin' || role === 'pm' || role === 'reviewer'
+}
+
+// Vendor is editable any time; procurement status/PO/delivery fields are
+// additionally gated by Solution Package approval (api/bomDesign.js).
+export function canEditBomVendor(role) {
+  return role === 'pm' || role === 'org_admin'
+}
+
+// Brief D21: "PM approves the procurement BOM" — no separate reviewer step,
+// unlike HLD/Solution Package's architect-submits / pm-or-reviewer-approves
+// split.
+export function canApproveBom(role) {
+  return role === 'pm'
+}
+
+// Solution Package (brief v2.2 §3.7A.5): the Architect compiles/edits;
+// PM or Reviewer reviews before the package goes out for client approval.
+export function canEditSolutionPackage(role) {
+  return role === 'architect'
+}
+
+export function canSubmitSolutionPackageForApproval(role) {
+  return role === 'pm'
+}
