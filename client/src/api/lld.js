@@ -2,7 +2,8 @@ import { getDevicePortMap, getPatchPanelPortMap } from '../lib/portMap.js'
 import { portKindFor } from '../lib/validation.js'
 import { computeSuggestedLength } from '../lib/cableLength.js'
 import { suggestNextCableId, isCableIdUnique } from '../lib/cableId.js'
-import { resolveAfter, findRack, findRoom } from './site.js'
+import { resolveAfter, findRack } from './site.js'
+import { getRackLocation } from './siteStructure.js'
 import { getDevices, getPatchPanels, getConnections, findDevice, findPatchPanel, upsertConnection } from './networkStore.js'
 
 // Per-rack revision bookkeeping lives here (Rackium-Editor-specific, not
@@ -22,7 +23,7 @@ function revisionFor(rackId) {
 // The returned shape doubles as a RackElevation placement (ru, heightU,
 // face, mounting, fullDepth, kind, label, sublabel) so the same component
 // used by Survey can render the Rackium Editor's rack context.
-function resolveEntity(entityId) {
+export function resolveEntity(entityId) {
   const device = findDevice(entityId)
   if (device) {
     const rack = findRack(device.rackId)
@@ -77,9 +78,10 @@ function occupiedPorts(entityId, excludeConnectionId) {
 }
 
 export async function getRackEditorContext(rackId) {
-  const rack = findRack(rackId)
-  if (!rack) return Promise.reject(new Error(`Unknown rack: ${rackId}`))
-  const room = findRoom(rack.roomId)
+  // Campus-wide lookup, so racks added in Site Structure open here too.
+  const location = getRackLocation(rackId)
+  if (!location) return Promise.reject(new Error(`Unknown rack: ${rackId}`))
+  const { rack, room } = location
 
   const rackDevices = getDevices()
     .filter((d) => d.rackId === rackId)

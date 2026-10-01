@@ -169,8 +169,11 @@ function directConnection({ id, source, dest, media, speed }) {
 export const connections = [
   directConnection({
     id: 'conn-fusion-border',
+    // Border's own uplink to Fusion sits at the top of its 24-port core map,
+    // clear of Te1/1/1-5 (reserved for the 5 downstream Edge uplinks below)
+    // so the two never collide on the same physical port.
     source: { deviceId: 'dev-fusion', port: 'Te1/1/1' },
-    dest: { deviceId: 'dev-border', port: 'Te1/1/1' },
+    dest: { deviceId: 'dev-border', port: 'Te1/1/24' },
     media: 'cat6a',
     speed: '10G',
   }),

@@ -5,7 +5,7 @@ import { mediaColors } from '../../tokens/design-tokens.js'
 const STATUS_ICON = { validated: CheckCircle2, blocked: Ban, warning: AlertTriangle }
 const STATUS_COLOR = { validated: 'text-status-green', blocked: 'text-status-red', warning: 'text-status-amber' }
 
-export function UplinkEdge({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, selected }) {
+export function UplinkEdge({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, selected, style }) {
   const [edgePath, labelX, labelY] = getSmoothStepPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition, borderRadius: 8 })
   const media = mediaColors[data?.media] ?? mediaColors.cat6a
   const StatusIcon = STATUS_ICON[data?.status]
@@ -18,6 +18,11 @@ export function UplinkEdge({ sourceX, sourceY, targetX, targetY, sourcePosition,
           stroke: media.stroke,
           strokeWidth: selected ? 3 : 2,
           strokeDasharray: data?.preview ? '6 4' : media.style === 'dashed' ? '6 4' : undefined,
+          // React Flow passes a custom edge's top-level `style` through as a
+          // prop (unlike nodes, it is not auto-applied) — merged in last so
+          // callers like the LLD Connectivity tab can dim an edge via opacity
+          // without this component knowing anything about why.
+          ...style,
         }}
       />
       <EdgeLabelRenderer>

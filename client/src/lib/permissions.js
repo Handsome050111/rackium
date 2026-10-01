@@ -59,3 +59,9 @@ export function getSiteStructurePermissions(role) {
   const canEdit = canEditSiteStructure(role)
   return { canEdit, readOnly: !canEdit }
 }
+
+// LLD (brief v2.3 §5.4): the Architect assigns ports, Cable IDs and
+// Engineer Selected lengths. Everyone else sees the design read-only.
+export function canEditLld(role) {
+  return role === 'architect'
+}

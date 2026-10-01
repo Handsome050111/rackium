@@ -1,7 +1,7 @@
 import { Routes, Route, Navigate, useParams } from 'react-router-dom'
 import AppShell from './components/AppShell.jsx'
 import BuildingOverview from './pages/BuildingOverview.jsx'
-import LldLanding from './pages/LldLanding.jsx'
+import Lld from './pages/Lld.jsx'
 import RackiumEditor from './pages/RackiumEditor.jsx'
 import SiteStructure from './pages/SiteStructure.jsx'
 import SurveyRackLayout from './pages/SurveyRackLayout.jsx'
@@ -28,7 +28,7 @@ export default function App() {
       <Route path="/" element={<Navigate to="/b/b001" replace />} />
       <Route path="/b/:buildingId" element={<AppShell />}>
         <Route index element={<BuildingOverview />} />
-        <Route path="lld" element={<LldLanding />} />
+        <Route path="lld" element={<Lld />} />
         <Route path="lld/editor" element={<RackiumEditor />} />
         <Route path="survey" element={<SiteStructure mode="building" />} />
         <Route path="survey/campus" element={<SiteStructure mode="campus" />} />
