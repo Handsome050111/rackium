@@ -42,3 +42,11 @@ describe('isCableIdValid', () => {
     expect(isCableIdValid('26184735')).toBe(true)
   })
 })
+
+describe('HLD connections that have no Cable ID yet', () => {
+  it('suggest and uniqueness checks ignore null entries instead of throwing', () => {
+    expect(suggestNextCableId([null, '100', undefined], 100)).toBe('101')
+    expect(isCableIdUnique('100', [null, '100'])).toBe(false)
+    expect(isCableIdUnique('200', [null, '100'])).toBe(true)
+  })
+})

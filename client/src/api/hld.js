@@ -9,9 +9,14 @@ import { getCompatibleSfps } from '../mock/sfpCatalog.js'
 import { updatePhaseStatus } from './buildings.js'
 import { computeFreeRU } from '../lib/rackValidation.js'
 import { getCmoForRoom } from '../mock/cmo.js'
+import { recordHldChange, inHldBatch } from './hldVersion.js'
 
 const HLD_ROLES = new Set(['fusion', 'border', 'distribution', 'edge', 'ap'])
 const ROLE_CODE = { fusion: 'F', border: 'B', distribution: 'D', edge: 'E', ap: 'A' }
+
+function hostnameOf(deviceId) {
+  return findDevice(deviceId)?.hostname ?? deviceId
+}
 
 function resolveAfter(value, ms = 120) {
   return new Promise((resolve) => setTimeout(() => resolve(value), ms))
@@ -198,11 +203,14 @@ export async function createOrUpdateUplink(connectionId, draft) {
     testResult: null,
   }
   upsertConnection(record)
+  recordHldChange(`Uplink ${connectionId ? 'changed' : 'added'}: ${hostnameOf(record.source.deviceId)} → ${hostnameOf(record.dest.deviceId)}`)
   return resolveAfter(record)
 }
 
 export async function deleteUplink(connectionId) {
+  const existing = getConnections().find((c) => c.id === connectionId)
   removeConnection(connectionId)
+  if (existing) recordHldChange(`Uplink removed: ${hostnameOf(existing.source.deviceId)} → ${hostnameOf(existing.dest.deviceId)}`)
   return resolveAfter(true, 0)
 }
 
@@ -228,10 +236,15 @@ export async function addDeviceFromLibrary({ role, roomId, floorToken, model }) 
     status: 'planned',
   }
   addDevice(device)
+  recordHldChange(`Device added: ${device.hostname}`)
   return resolveAfter(device)
 }
 
 export async function generateHld(buildingId) {
+  return inHldBatch(() => generateHldUnbatched(buildingId))
+}
+
+async function generateHldUnbatched(buildingId) {
   const ctx = await getHldContext(buildingId)
   const created = { devices: [], uplinks: [] }
 

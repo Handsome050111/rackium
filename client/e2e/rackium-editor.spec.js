@@ -1,11 +1,12 @@
 import { test, expect } from '@playwright/test'
 
 test.describe('Rackium Editor', () => {
-  test('LLD landing lists racks with an Open in Rackium Editor action', async ({ page }) => {
+  test('LLD Rack Elevations tab lists racks with an Open in Rackium Editor action', async ({ page }) => {
     await page.goto('/b/b001/lld')
     await expect(page.getByRole('heading', { name: 'LLD' })).toBeVisible()
-    const rackButton = page.getByRole('button', { name: /TR-EG-01 · Rack R01/ })
-    await expect(rackButton).toContainText('Open in Rackium Editor')
+    await page.getByRole('button', { name: 'Rack elevations' }).click()
+    await expect(page.getByText('TR-EG-01').first()).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Open in Rackium Editor' }).first()).toBeVisible()
   })
 
   test('opens from LLD, not from the sidebar', async ({ page }) => {

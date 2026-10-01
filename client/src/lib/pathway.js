@@ -13,3 +13,15 @@ export function findSurveyedDistance(fromRoomId, toRoomId, connections) {
   )
   return match ? match.distanceM : null
 }
+
+// The Building Connection between two rooms in either direction, whatever
+// its route status — LLD needs the Estimated ones too, to flag them.
+export function findRoute(fromRoomId, toRoomId, connections) {
+  return (
+    connections.find(
+      (c) =>
+        (c.fromRoomId === fromRoomId && c.toRoomId === toRoomId) ||
+        (c.fromRoomId === toRoomId && c.toRoomId === fromRoomId)
+    ) ?? null
+  )
+}

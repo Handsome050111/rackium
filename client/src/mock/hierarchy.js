@@ -20,6 +20,9 @@ export const buildings = [
     campusId: 'campus-c01',
     code: 'B001',
     name: 'Building B001',
+    // Collapsed-core site (no Distribution tier) — drives the LLD
+    // Connectivity tab's "Distribution layer not required — S site" notice.
+    siteSize: 'S',
     nextMilestone: 'Solution Package submission',
     lastSyncAt: '2026-09-29T09:15:00Z',
     phases: {

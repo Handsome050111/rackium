@@ -16,9 +16,15 @@ export const BUILDING_IDS = ['b001', 'b002', 'b003']
 const store = {
   extraRooms: [],
   extraRacks: [],
-  // Seeded with the one connection the render shows already surveyed.
+  // Seeded with the one connection the render shows already surveyed, plus
+  // two B001-internal backbone pathways (UG1705 to the two Ground Floor
+  // Edge rooms) so the LLD Cable Schedule has a real Surveyed/Estimated
+  // contrast to show, and conn-03 is the concrete, flippable example for
+  // Step 6's "verify this works with a route set to Estimated" check.
   connections: [
     { id: 'conn-01', fromRoomId: 'room-tr-eg-02', toRoomId: 'room-b002-eg-01', routeStatus: 'surveyed', distanceM: 68, evidenceCount: 4 },
+    { id: 'conn-02', fromRoomId: 'room-ug1705', toRoomId: 'room-tr-eg-01', routeStatus: 'surveyed', distanceM: 45, evidenceCount: 2 },
+    { id: 'conn-03', fromRoomId: 'room-ug1705', toRoomId: 'room-tr-eg-02', routeStatus: 'estimated', distanceM: 75, evidenceCount: 0 },
   ],
   roomMetaOverrides: {},
 }
