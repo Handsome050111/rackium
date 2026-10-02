@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isCmdbDevice, acceptanceLabel, computeReconciliation, buildPortTrace } from './cmdbModel.js'
+import { isCmdbDevice, acceptanceLabel, computeReconciliation, buildPortTrace, computeCmdbPhaseStatus } from './cmdbModel.js'
 
 describe('isCmdbDevice — brief: "built from deployment records, not design data"', () => {
   it('excludes a merely planned device', () => {
@@ -12,6 +12,18 @@ describe('isCmdbDevice — brief: "built from deployment records, not design dat
     expect(isCmdbDevice({ role: 'edge', status: 'delivered' })).toBe(true)
     expect(isCmdbDevice({ role: 'edge', status: 'installed' })).toBe(true)
     expect(isCmdbDevice({ role: 'edge', status: 'accepted' })).toBe(true)
+  })
+})
+
+describe('computeCmdbPhaseStatus', () => {
+  it('is not_started with no CIs yet', () => {
+    expect(computeCmdbPhaseStatus([])).toBe('not_started')
+  })
+  it('is in_progress while any CI is still awaiting acceptance', () => {
+    expect(computeCmdbPhaseStatus([{ acceptance: 'Accepted' }, { acceptance: 'Awaiting' }])).toBe('in_progress')
+  })
+  it('is completed once every CI is accepted', () => {
+    expect(computeCmdbPhaseStatus([{ acceptance: 'Accepted' }, { acceptance: 'Accepted' }])).toBe('completed')
   })
 })
 

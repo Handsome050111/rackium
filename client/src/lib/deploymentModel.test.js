@@ -7,6 +7,7 @@ import {
   detectConnectionDeviations,
   detectRuDeviation,
   computeDeploymentKpis,
+  computeDeploymentPhaseStatus,
   checklistProgress,
 } from './deploymentModel.js'
 
@@ -94,6 +95,25 @@ describe('detectRuDeviation', () => {
   })
   it('reports no deviation when RU matches', () => {
     expect(detectRuDeviation({ ru: 40 }, 40)).toBeNull()
+  })
+})
+
+describe('computeDeploymentPhaseStatus', () => {
+  it('is not_started before anything is installed', () => {
+    expect(computeDeploymentPhaseStatus([{ role: 'edge', status: 'planned' }])).toBe('not_started')
+  })
+
+  it('ignores the WAN circuit entirely', () => {
+    expect(computeDeploymentPhaseStatus([{ role: 'wan-circuit', status: 'planned' }])).toBe('not_started')
+  })
+
+  it('is in_progress once some devices have started but not all are accepted', () => {
+    expect(computeDeploymentPhaseStatus([{ role: 'edge', status: 'installed' }, { role: 'ap', status: 'planned' }])).toBe('in_progress')
+  })
+
+  it('is completed only once every real device is accepted or in_service', () => {
+    expect(computeDeploymentPhaseStatus([{ role: 'edge', status: 'accepted' }, { role: 'ap', status: 'in_service' }])).toBe('completed')
+    expect(computeDeploymentPhaseStatus([{ role: 'edge', status: 'accepted' }, { role: 'ap', status: 'tested' }])).toBe('in_progress')
   })
 })
 

@@ -11,6 +11,8 @@ import SolutionPackage from './pages/SolutionPackage.jsx'
 import ClientApproval from './pages/ClientApproval.jsx'
 import Deployment from './pages/Deployment.jsx'
 import Cmdb from './pages/Cmdb.jsx'
+import Cmo from './pages/Cmo.jsx'
+import Handover from './pages/Handover.jsx'
 import { PHASES } from './mock/phases.js'
 
 function PhasePlaceholder() {
@@ -34,6 +36,7 @@ export default function App() {
       <Route path="/approve/:token" element={<ClientApproval />} />
       <Route path="/b/:buildingId" element={<AppShell />}>
         <Route index element={<BuildingOverview />} />
+        <Route path="cmo" element={<Cmo />} />
         <Route path="lld" element={<Lld />} />
         <Route path="lld/editor" element={<RackiumEditor />} />
         <Route path="survey" element={<SiteStructure mode="building" />} />
@@ -44,6 +47,7 @@ export default function App() {
         <Route path="solution-package" element={<SolutionPackage />} />
         <Route path="deployment" element={<Deployment />} />
         <Route path="cmdb" element={<Cmdb />} />
+        <Route path="handover" element={<Handover />} />
         <Route path=":phaseId" element={<PhasePlaceholder />} />
       </Route>
     </Routes>

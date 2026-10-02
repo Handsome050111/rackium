@@ -113,3 +113,23 @@ export function canAcceptDevice(role) {
 export function canEditCmdb(role) {
   return role === 'architect' || role === 'pm'
 }
+
+// CMO import (brief v2.3 §5.1/D39): no RACI row names this explicitly, so
+// it follows the same PM-or-Org-Admin cluster as other project-setup
+// actions ("Create buildings, set phase targets" §4.3). Assignment of an
+// Unassigned device to a building is narrower — D39 names the PM alone.
+export function canImportCmo(role) {
+  return role === 'pm' || role === 'org_admin'
+}
+
+export function canAssignCmoDevice(role) {
+  return role === 'pm'
+}
+
+// Handover (brief v2.3 §4.3/§5.9): the PM drives the whole workflow —
+// compiling, marking reviewed, and generating the client share link ("No |
+// Yes | No | No | No | No" for "Generate client share link (Solution
+// Package, Handover)").
+export function canManageHandover(role) {
+  return role === 'pm'
+}

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { ReactFlowProvider } from '@xyflow/react'
+import { Lock } from 'lucide-react'
 import Breadcrumb from '../components/Breadcrumb.jsx'
 import HldCanvas, { buildHldFlow } from '../components/hld/HldCanvas.jsx'
 import DeploymentKpiBar from '../components/deployment/DeploymentKpiBar.jsx'
@@ -21,6 +22,7 @@ import {
 } from '../api/deploymentDesign.js'
 import { applyDeploymentStyling } from '../lib/deploymentFlow.js'
 import { useMediaQuery } from '../lib/useMediaQuery.js'
+import { isHandoverAccepted } from '../api/designFreeze.js'
 
 export default function Deployment() {
   const { buildingId } = useParams()
@@ -30,12 +32,14 @@ export default function Deployment() {
   const [roomChecklists, setRoomChecklists] = useState(null)
   const [selectedDeviceId, setSelectedDeviceId] = useState(null)
   const [detail, setDetail] = useState(null)
+  const [locked, setLocked] = useState(false)
 
   const reload = useCallback(() => {
     if (!buildingId) return
-    Promise.all([getDeploymentContext(buildingId), getRoomChecklists(buildingId)]).then(([ctx, rooms]) => {
+    Promise.all([getDeploymentContext(buildingId), getRoomChecklists(buildingId), isHandoverAccepted(buildingId)]).then(([ctx, rooms, accepted]) => {
       setContext(ctx)
       setRoomChecklists(rooms)
+      setLocked(accepted)
     })
   }, [buildingId])
 
@@ -96,6 +100,13 @@ export default function Deployment() {
         <p className="text-sm text-text-secondary">Planned infrastructure compared with onsite installation and live connectivity</p>
       </div>
 
+      {locked && (
+        <div className="flex items-center gap-2 rounded-xl border border-status-green/40 bg-status-green/5 px-4 py-2.5 text-xs text-status-green">
+          <Lock size={14} strokeWidth={2} />
+          <strong>Handover accepted</strong> — this building's deployment record is permanently read-only.
+        </div>
+      )}
+
       <DeploymentKpiBar kpis={context.kpis} />
 
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
@@ -109,6 +120,7 @@ export default function Deployment() {
           {detail ? (
             <DeviceDeploymentPanel
               detail={detail}
+              locked={locked}
               onRecordSerialMac={handleRecordSerialMac}
               onConfirmInstallation={handleConfirmInstallation}
               onConfirmUplinking={handleConfirmUplinking}

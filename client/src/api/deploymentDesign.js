@@ -8,7 +8,8 @@ import { getHldContext } from './hld.js'
 import { getBomContext } from './bomDesign.js'
 import { getLldContext } from './lldDesign.js'
 import { getResourceMinutes } from './projectSettings.js'
-import { getCmoForRoom } from '../mock/cmo.js'
+import { getCmoForRoom } from './cmoDesign.js'
+import { updatePhaseStatus } from './buildings.js'
 import { DEVICE_CATALOGUE } from '../mock/deviceCatalogue.js'
 import {
   deploymentLabel,
@@ -18,6 +19,7 @@ import {
   detectConnectionDeviations,
   detectRuDeviation,
   computeDeploymentKpis,
+  computeDeploymentPhaseStatus,
   checklistProgress,
 } from '../lib/deploymentModel.js'
 import { computeDguvStatus } from '../lib/dguv.js'
@@ -64,6 +66,13 @@ export async function getDeploymentContext(buildingId) {
   const devices = hldContext.devices.map((d) => decorateDevice(d, linesByRole))
   const exceptions = exceptionsFor(buildingId)
   const openExceptionCount = exceptions.filter((e) => !e.resolved).length
+
+  // Pushed opportunistically on read (not awaited) — no mutation here
+  // needs to special-case which action just changed enough to flip the
+  // badge; recomputing from current device status on every load keeps the
+  // dashboard/sidebar accurate without threading this through every single
+  // confirmInstallation/confirmUplinking/setDeviceStatus call site.
+  updatePhaseStatus(buildingId, 'deployment', computeDeploymentPhaseStatus(hldContext.devices))
 
   return resolveAfter({
     floors: hldContext.floors,

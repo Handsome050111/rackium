@@ -79,6 +79,21 @@ export function detectRuDeviation(device, confirmedRu) {
 
 // --- KPIs (brief Step 8: "KPIs CALCULATED") --------------------------------
 
+// Dashboard/sidebar phase badge for Deployment — no phase in this app ever
+// pushed one before (every mutation only ever updated per-device status),
+// so the dashboard silently stayed "Not started" forever even once every
+// device was accepted. 'completed' requires every real device (not the WAN
+// circuit, which Deployment never installs) to have reached its terminal
+// state.
+export function computeDeploymentPhaseStatus(devices) {
+  const installable = devices.filter((d) => d.role !== 'wan-circuit')
+  if (installable.length === 0) return 'not_started'
+  const anyStarted = installable.some((d) => d.status !== 'planned')
+  if (!anyStarted) return 'not_started'
+  const allAccepted = installable.every((d) => d.status === 'accepted' || d.status === 'in_service')
+  return allAccepted ? 'completed' : 'in_progress'
+}
+
 export function computeDeploymentKpis({ devices, connections, openExceptionCount }) {
   const installable = devices.filter((d) => d.role !== 'wan-circuit')
   const aps = installable.filter((d) => d.role === 'ap')

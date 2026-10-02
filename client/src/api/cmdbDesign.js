@@ -3,8 +3,9 @@
 // location data (room/rack/RU/floor) instead of re-deriving it.
 import { getLldContext } from './lldDesign.js'
 import { getConnections, findDevice, updateDevice } from './networkStore.js'
+import { updatePhaseStatus } from './buildings.js'
 import { getDevicePortMap } from '../lib/portMap.js'
-import { isCmdbDevice, acceptanceLabel, computeReconciliation, buildCiRows, buildCmdbPortRows, buildPortTrace } from '../lib/cmdbModel.js'
+import { isCmdbDevice, acceptanceLabel, computeReconciliation, buildCiRows, buildCmdbPortRows, buildPortTrace, computeCmdbPhaseStatus } from '../lib/cmdbModel.js'
 import { computeDguvStatus } from '../lib/dguv.js'
 import { DEVICE_CATALOGUE } from '../mock/deviceCatalogue.js'
 
@@ -60,6 +61,10 @@ export async function getCmdbContext(buildingId) {
     awaitingAcceptance: rows.filter((r) => r.acceptance === 'Awaiting').length,
     complianceActions: rows.filter((r) => r.dguv && (r.dguv.status === 'overdue' || r.dguv.status === 'expiring')).length,
   }
+
+  // Opportunistic push on read, same pattern/reasoning as Deployment's
+  // phase-status push in api/deploymentDesign.js.
+  updatePhaseStatus(buildingId, 'cmdb', computeCmdbPhaseStatus(rows))
 
   return resolveAfter({ rows, kpis, reconciliation, changeLog: changeLogFor(buildingId).slice(-10).reverse() })
 }

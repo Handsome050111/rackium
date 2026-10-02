@@ -94,7 +94,11 @@ export const buildings = [
     nextMilestone: 'Physical site survey verification',
     lastSyncAt: '2026-09-28T16:40:00Z',
     phases: {
-      cmo: { status: 'completed' },
+      // Recomputed on load from api/cmoDesign.js (real data: no CMO
+      // devices currently assigned to B002, so not_started). Static
+      // fallback kept accurate so there's no flash of the wrong status
+      // before that recompute runs.
+      cmo: { status: 'not_started' },
       survey: { status: 'in_progress' },
       hld: { status: 'not_started' },
       lld: { status: 'not_started' },
@@ -104,15 +108,10 @@ export const buildings = [
       cmdb: { status: 'not_started' },
       handover: { status: 'not_started' },
     },
-    openItems: [
-      {
-        id: 'b002-blk-1',
-        type: 'blocker',
-        phaseId: 'cmo',
-        title: '3 unassigned devices at SAL ERL',
-        detail: 'Devices with no building must be assigned by the PM before CMO can close out.',
-      },
-    ],
+    // The unassigned-CMO-devices blocker used to be seeded statically here;
+    // it's now calculated for real from api/cmoDesign.js and added to
+    // every building's openBlockers count (see api/buildings.js).
+    openItems: [],
     history: [
       {
         id: 'b002-hist-1',
@@ -136,7 +135,9 @@ export const buildings = [
     nextMilestone: 'CMO inventory validation',
     lastSyncAt: '2026-09-24T13:05:00Z',
     phases: {
-      cmo: { status: 'in_progress' },
+      // Recomputed on load (see api/cmoDesign.js) — no CMO devices
+      // currently assigned to B003.
+      cmo: { status: 'not_started' },
       survey: { status: 'not_started' },
       hld: { status: 'not_started' },
       lld: { status: 'not_started' },
