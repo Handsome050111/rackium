@@ -8,6 +8,7 @@ import { getDevicePortMap } from '../lib/portMap.js'
 import { isCmdbDevice, acceptanceLabel, computeReconciliation, buildCiRows, buildCmdbPortRows, buildPortTrace, computeCmdbPhaseStatus } from '../lib/cmdbModel.js'
 import { computeDguvStatus } from '../lib/dguv.js'
 import { DEVICE_CATALOGUE } from '../mock/deviceCatalogue.js'
+import { registerStore, replaceObjectContents } from '../lib/persistentStore.js'
 
 function resolveAfter(value, ms = 25) {
   return new Promise((resolve) => setTimeout(() => resolve(value), ms))
@@ -15,6 +16,14 @@ function resolveAfter(value, ms = 25) {
 
 const changeLogByBuilding = {} // buildingId -> [{id, ciId, field, oldValue, newValue, changedBy, changeType, at}]
 let changeIdCounter = 1
+
+registerStore('cmdbDesign', {
+  getSnapshot: () => ({ changeLogByBuilding, changeIdCounter }),
+  restoreSnapshot: (data) => {
+    replaceObjectContents(changeLogByBuilding, data?.changeLogByBuilding)
+    if (typeof data?.changeIdCounter === 'number') changeIdCounter = data.changeIdCounter
+  },
+})
 
 function changeLogFor(buildingId) {
   return (changeLogByBuilding[buildingId] ??= [])

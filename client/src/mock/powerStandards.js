@@ -3,6 +3,7 @@
 // (2) the PDU socket the device is plugged into, matched to the device's
 // inlet, (3) a country plug table matched to the device's inlet. Default
 // cord length is an org setting (2m unless changed).
+import { registerStore } from '../lib/persistentStore.js'
 
 // Country plug table (Technonex-supplied in the real product; a short mock
 // table here since B001 is in Germany).
@@ -26,6 +27,13 @@ export const DEFAULT_CORD_LENGTH_M = 2
 // PM-editable project setting (brief §6.7: "customer standard set by the
 // PM for this project overrides everything").
 const state = { customerStandard: null } // e.g. { label: '2m C13/C14, black', connectorPair: 'C13/C14' }
+
+registerStore('powerStandards', {
+  getSnapshot: () => state,
+  restoreSnapshot: (data) => {
+    state.customerStandard = data?.customerStandard ?? null
+  },
+})
 
 export function getCustomerPowerCordStandard() {
   return state.customerStandard

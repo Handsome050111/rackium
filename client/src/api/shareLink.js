@@ -2,8 +2,18 @@
 // link (mock) with password and expiry, default 14 days, 1-30 allowed").
 // Entirely in-memory — no real security, this is a prototype.
 
+import { registerStore, replaceObjectContents } from '../lib/persistentStore.js'
+
 const links = {} // token -> { token, buildingId, password, createdAt, expiresAt, revoked }
 const decisions = {} // token -> { decision, name, role, comments, acceptedAt, hasSignature }
+
+registerStore('shareLink', {
+  getSnapshot: () => ({ links, decisions }),
+  restoreSnapshot: (data) => {
+    replaceObjectContents(links, data?.links)
+    replaceObjectContents(decisions, data?.decisions)
+  },
+})
 
 function resolveAfter(value, ms = 25) {
   return new Promise((resolve) => setTimeout(() => resolve(value), ms))

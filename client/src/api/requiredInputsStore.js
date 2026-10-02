@@ -3,6 +3,7 @@
 // group 1 (Network addressing & segmentation) with rule-based checks...
 // Other groups: simple key/value forms.")
 import { validateAddressingEntries } from '../lib/networkAddressingValidation.js'
+import { registerStore, replaceObjectContents } from '../lib/persistentStore.js'
 
 export const REQUIRED_INPUT_GROUPS = [
   { id: 'addressing', n: 1, name: 'Network addressing and segmentation' },
@@ -41,6 +42,14 @@ let idCounter = 1
 function newId(prefix) {
   return `${prefix}-${Date.now()}-${idCounter++}`
 }
+
+registerStore('requiredInputsStore', {
+  getSnapshot: () => ({ stores, idCounter }),
+  restoreSnapshot: (data) => {
+    replaceObjectContents(stores, data?.stores)
+    if (typeof data?.idCounter === 'number') idCounter = data.idCounter
+  },
+})
 
 function groupStatus(groupId, store) {
   if (groupId === 'addressing') {

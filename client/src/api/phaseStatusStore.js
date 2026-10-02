@@ -4,8 +4,15 @@
 // project continuity stepper, sidebar), per brief v2.3 §7.3: "Cards,
 // timeline and sidebar always show the same status for a phase." Reusable
 // by any phase's workflow, not just HLD.
+import { registerStore, replaceObjectContents } from '../lib/persistentStore.js'
+
 const overrides = {} // buildingId -> { phaseId: { status, subLabel? } }
 const listeners = new Set()
+
+registerStore('phaseStatusStore', {
+  getSnapshot: () => overrides,
+  restoreSnapshot: (data) => replaceObjectContents(overrides, data),
+})
 
 export function getPhaseStatusOverride(buildingId, phaseId) {
   return overrides[buildingId]?.[phaseId] ?? null

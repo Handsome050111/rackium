@@ -10,6 +10,8 @@ import Hld from './pages/Hld.jsx'
 import Bom from './pages/Bom.jsx'
 import SolutionPackage from './pages/SolutionPackage.jsx'
 import ClientApproval from './pages/ClientApproval.jsx'
+import Login from './pages/Login.jsx'
+import DemoGuide from './pages/DemoGuide.jsx'
 import Deployment from './pages/Deployment.jsx'
 import Cmdb from './pages/Cmdb.jsx'
 import Cmo from './pages/Cmo.jsx'
@@ -34,6 +36,8 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<Navigate to="/b/b001" replace />} />
+      <Route path="/login" element={<Login />} />
+      <Route path="/demo-guide" element={<DemoGuide />} />
       <Route path="/approve/:token" element={<ClientApproval />} />
       <Route path="/b/:buildingId" element={<AppShell />}>
         <Route index element={<BuildingOverview />} />

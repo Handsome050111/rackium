@@ -10,6 +10,7 @@ import { updatePhaseStatus } from './buildings.js'
 import { computeFreeRU } from '../lib/rackValidation.js'
 import { getCmoForRoom } from './cmoDesign.js'
 import { recordHldChange, inHldBatch } from './hldVersion.js'
+import { registerStore } from '../lib/persistentStore.js'
 
 const HLD_ROLES = new Set(['fusion', 'border', 'distribution', 'edge', 'ap'])
 const ROLE_CODE = { fusion: 'F', border: 'B', distribution: 'D', edge: 'E', ap: 'A' }
@@ -215,6 +216,12 @@ export async function deleteUplink(connectionId) {
 }
 
 let deviceSeqCounter = {}
+registerStore('hldDeviceSeq', {
+  getSnapshot: () => deviceSeqCounter,
+  restoreSnapshot: (data) => {
+    deviceSeqCounter = data ?? {}
+  },
+})
 function nextSeq(role, floorToken) {
   const key = `${role}-${floorToken}`
   deviceSeqCounter[key] = (deviceSeqCounter[key] ?? 0) + 1

@@ -5,6 +5,7 @@ import * as b003 from '../mock/b003-site.js'
 import { getRoomSurveyMeta, hasRoomSurveyMeta } from '../mock/roomSurveyMeta.js'
 import { validateStructure } from '../lib/siteValidation.js'
 import { resolveAfter } from './site.js'
+import { registerStore } from '../lib/persistentStore.js'
 
 const SITE_BY_BUILDING = { b001, b002, b003 }
 export const BUILDING_IDS = ['b001', 'b002', 'b003']
@@ -33,6 +34,17 @@ let idCounter = 1
 function newId(prefix) {
   return `${prefix}-${Date.now()}-${idCounter++}`
 }
+
+registerStore('siteStructure', {
+  getSnapshot: () => ({ store, idCounter }),
+  restoreSnapshot: (data) => {
+    if (data?.store?.extraRooms) store.extraRooms = data.store.extraRooms
+    if (data?.store?.extraRacks) store.extraRacks = data.store.extraRacks
+    if (data?.store?.connections) store.connections = data.store.connections
+    if (data?.store?.roomMetaOverrides) store.roomMetaOverrides = data.store.roomMetaOverrides
+    if (typeof data?.idCounter === 'number') idCounter = data.idCounter
+  },
+})
 
 function seedFloors(buildingId) {
   return SITE_BY_BUILDING[buildingId].floors

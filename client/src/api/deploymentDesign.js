@@ -24,6 +24,7 @@ import {
 } from '../lib/deploymentModel.js'
 import { computeDguvStatus } from '../lib/dguv.js'
 import { buildResourceEstimate, RESOURCE_TASKS } from '../lib/billOfResources.js'
+import { registerStore, replaceObjectContents } from '../lib/persistentStore.js'
 
 function resolveAfter(value, ms = 25) {
   return new Promise((resolve) => setTimeout(() => resolve(value), ms))
@@ -31,6 +32,14 @@ function resolveAfter(value, ms = 25) {
 
 const exceptionsByBuilding = {} // buildingId -> [{id, deviceId, connectionId, field, label, designedValue, installedValue, reason, hasPhoto, resolved, loggedAt}]
 let exceptionIdCounter = 1
+
+registerStore('deploymentDesign', {
+  getSnapshot: () => ({ exceptionsByBuilding, exceptionIdCounter }),
+  restoreSnapshot: (data) => {
+    replaceObjectContents(exceptionsByBuilding, data?.exceptionsByBuilding)
+    if (typeof data?.exceptionIdCounter === 'number') exceptionIdCounter = data.exceptionIdCounter
+  },
+})
 
 function exceptionsFor(buildingId) {
   return (exceptionsByBuilding[buildingId] ??= [])

@@ -4,6 +4,7 @@ import { projectSerials } from '../mock/cmo.js'
 import { getCmoForRoom } from './cmoDesign.js'
 import { resolveAfter } from './site.js'
 import { getRackLocation } from './siteStructure.js'
+import { registerStore } from '../lib/persistentStore.js'
 
 // Only B001 has a device/patch-panel roster today (brief v2.3 build order:
 // dashboard -> Rackium Editor -> rack elevation, all B001-scoped so far);
@@ -64,6 +65,15 @@ const store = {
   revisionByRack: {}, // rackId -> { revision, lastSavedAt }
   deviceSerials: Object.fromEntries(projectSerials.map((e) => [e.deviceId, e.serial])),
 }
+
+registerStore('rackSurvey', {
+  getSnapshot: () => store,
+  restoreSnapshot: (data) => {
+    if (data?.placementsByRack) store.placementsByRack = data.placementsByRack
+    if (data?.revisionByRack) store.revisionByRack = data.revisionByRack
+    if (data?.deviceSerials) store.deviceSerials = data.deviceSerials
+  },
+})
 
 function seedPlacements(rackId) {
   return [...baseDevicePlacements(rackId), ...basePatchPanelPlacements(rackId), ...(DEMO_EXTRAS[rackId] ?? [])]
