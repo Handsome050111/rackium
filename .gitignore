@@ -1,0 +1,16 @@
+# Large or sensitive document types — never track these anywhere in the
+# repo (reference renders/screenshots stay as tracked .png files; this
+# only blocks PDFs and Excel workbooks like the Siemens survey template).
+*.pdf
+*.xlsx
+*.xls
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
