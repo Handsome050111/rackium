@@ -30,7 +30,7 @@ import { getLogicalTopology } from '../mock/logicalTopology.js'
 import { useDragSensors } from '../lib/useDragSensors.js'
 import { useMediaQuery } from '../lib/useMediaQuery.js'
 import { useRole } from '../lib/RoleContext.jsx'
-import { isSolutionPackageApproved } from '../api/designFreeze.js'
+import { isDesignFrozen } from '../api/designFreeze.js'
 
 const EMPTY_DRAFT = {
   sourceDeviceId: null,
@@ -70,7 +70,7 @@ export default function Hld() {
 
   const reload = useCallback(() => {
     if (!buildingId) return
-    Promise.all([getHldContext(buildingId), getSurveyInputsSummary(buildingId), getPhaseCards(buildingId), isSolutionPackageApproved(buildingId)]).then(
+    Promise.all([getHldContext(buildingId), getSurveyInputsSummary(buildingId), getPhaseCards(buildingId), isDesignFrozen(buildingId)]).then(
       ([ctx, summary, cards, approved]) => {
         setContext(ctx)
         setSurveySummary(summary)

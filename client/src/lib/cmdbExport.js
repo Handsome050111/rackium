@@ -26,6 +26,15 @@ export async function exportCmdbXlsx(rows, fileName) {
   XLSX.writeFile(book, fileName)
 }
 
+// Handover's "CMDB extract" document (v2.2 §3.11) is CSV + PDF — the CSV
+// half is real, the PDF half is a document-engine stub like everything
+// else PDF in this prototype.
+export async function exportCmdbCsv(rows, fileName) {
+  const XLSX = await import('xlsx')
+  const sheet = XLSX.utils.aoa_to_sheet(buildCmdbSheet(rows))
+  XLSX.writeFile({ Sheets: { Sheet1: sheet }, SheetNames: ['Sheet1'] }, fileName)
+}
+
 // Port Connectivity screen's per-port export (brief page 18): one row per
 // access/uplink-module port, not per CI, so it's a separate sheet shape
 // from the inventory export above.

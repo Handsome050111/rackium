@@ -8,7 +8,7 @@ import { findSurveyedDistance } from '../lib/pathway.js'
 import { getCompatibleSfps } from '../mock/sfpCatalog.js'
 import { updatePhaseStatus } from './buildings.js'
 import { computeFreeRU } from '../lib/rackValidation.js'
-import { getCmoForRoom } from '../mock/cmo.js'
+import { getCmoForRoom } from './cmoDesign.js'
 import { recordHldChange, inHldBatch } from './hldVersion.js'
 
 const HLD_ROLES = new Set(['fusion', 'border', 'distribution', 'edge', 'ap'])

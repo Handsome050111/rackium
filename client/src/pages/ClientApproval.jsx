@@ -6,6 +6,7 @@ import SignaturePad from '../components/SignaturePad.jsx'
 import { getBuilding } from '../api/index.js'
 import { getShareLinkInfo, checkSharePassword, getClientDecision } from '../api/shareLink.js'
 import { getSolutionPackageContext, clientApprove, clientRequestChanges, clientReject } from '../api/solutionPackageDesign.js'
+import { getHandoverContext, clientAcceptHandover, clientRequestHandoverChanges, clientRejectHandover } from '../api/handoverDesign.js'
 
 const inputClass = 'h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm text-text focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20'
 
@@ -20,9 +21,12 @@ function Shell({ children }) {
   )
 }
 
+const KIND_LABEL = { 'solution-package': 'Solution Package', handover: 'Handover' }
+
 export default function ClientApproval() {
   const { token } = useParams()
   const [linkStatus, setLinkStatus] = useState(null)
+  const [kind, setKind] = useState('solution-package')
   const [unlocked, setUnlocked] = useState(false)
   const [passwordInput, setPasswordInput] = useState('')
   const [passwordError, setPasswordError] = useState(null)
@@ -31,7 +35,10 @@ export default function ClientApproval() {
   const [decision, setDecision] = useState(null)
 
   useEffect(() => {
-    getShareLinkInfo(token).then((info) => setLinkStatus(info.status))
+    getShareLinkInfo(token).then((info) => {
+      setLinkStatus(info.status)
+      if (info.kind) setKind(info.kind)
+    })
   }, [token])
 
   async function handlePasswordSubmit(e) {
@@ -42,7 +49,9 @@ export default function ClientApproval() {
       return
     }
     const info = await getShareLinkInfo(token)
-    const [b, ctx, existingDecision] = await Promise.all([getBuilding(info.buildingId), getSolutionPackageContext(info.buildingId), getClientDecision(token)])
+    const getContext = info.kind === 'handover' ? getHandoverContext : getSolutionPackageContext
+    const [b, ctx, existingDecision] = await Promise.all([getBuilding(info.buildingId), getContext(info.buildingId), getClientDecision(token)])
+    setKind(info.kind)
     setBuilding(b)
     setContext(ctx)
     setDecision(existingDecision)
@@ -73,7 +82,7 @@ export default function ClientApproval() {
         <form onSubmit={handlePasswordSubmit} className="space-y-4 rounded-xl border border-border bg-surface p-6">
           <div className="flex items-center gap-2 text-lg font-semibold text-text">
             <Lock size={20} strokeWidth={2} className="text-brand" />
-            Solution Package — password required
+            {KIND_LABEL[kind]} — password required
           </div>
           <p className="text-sm text-text-secondary">Enter the password provided by your Technonex project contact to view this package.</p>
           <input
@@ -102,19 +111,25 @@ export default function ClientApproval() {
             <span className="font-semibold">Thank you — your decision has been recorded.</span>
           </div>
           <p className="text-sm text-text-secondary">
-            {decision.decision === 'approved' && 'You approved this Solution Package.'}
-            {decision.decision === 'changes_requested' && 'You requested changes to this Solution Package.'}
-            {decision.decision === 'rejected' && 'You rejected this Solution Package.'}
+            {decision.decision === 'approved' && kind === 'handover' && 'You accepted this Handover package. The project baseline is now frozen.'}
+            {decision.decision === 'approved' && kind !== 'handover' && 'You approved this Solution Package.'}
+            {decision.decision === 'changes_requested' && `You requested changes to this ${KIND_LABEL[kind]}.`}
+            {decision.decision === 'rejected' && `You rejected this ${KIND_LABEL[kind]}.`}
           </p>
         </div>
       </Shell>
     )
   }
 
+  const decisionFns =
+    kind === 'handover'
+      ? { approve: clientAcceptHandover, requestChanges: clientRequestHandoverChanges, reject: clientRejectHandover }
+      : { approve: clientApprove, requestChanges: clientRequestChanges, reject: clientReject }
+
   return (
     <Shell>
-      <PackageSummary building={building} context={context} />
-      <DecisionForm token={token} onSubmitted={handleDecisionSubmitted} />
+      {kind === 'handover' ? <HandoverSummary building={building} context={context} /> : <PackageSummary building={building} context={context} />}
+      <DecisionForm token={token} kind={kind} decisionFns={decisionFns} onSubmitted={handleDecisionSubmitted} />
     </Shell>
   )
 }
@@ -162,6 +177,49 @@ function PackageSummary({ building, context }) {
   )
 }
 
+function HandoverSummary({ building, context }) {
+  const openItems = context.checklist.filter((c) => !c.ok)
+  return (
+    <div className="space-y-4 rounded-xl border border-border bg-surface p-6">
+      <div className="flex items-center gap-2 text-lg font-semibold text-text">
+        <FileCheck2 size={20} strokeWidth={2} className="text-brand" />
+        Handover package — {building.name}
+      </div>
+      <p className="text-sm text-text-secondary">{building.project.code} · {building.project.country} · {building.project.sal} · {building.project.campus}</p>
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <Stat value={context.documents.length} label="Documents" />
+        <Stat value={context.documents.filter((d) => d.ok).length} label="Compiled clean" tone="text-status-green" />
+        <Stat value={openItems.length} label="Open items" tone={openItems.length > 0 ? 'text-status-amber' : 'text-status-green'} />
+      </div>
+
+      <div className="space-y-1.5">
+        <div className="text-sm font-semibold text-text">Documents</div>
+        <div className="max-h-64 overflow-y-auto rounded-lg border border-border">
+          <table className="w-full text-left text-xs">
+            <tbody>
+              {context.documents.map((d) => (
+                <tr key={d.id} className="border-b border-border/60 last:border-0">
+                  <td className="px-3 py-1.5 text-text">{d.name}</td>
+                  <td className="whitespace-nowrap px-3 py-1.5 text-text-secondary">{d.format}</td>
+                  <td className={`whitespace-nowrap px-3 py-1.5 text-right ${d.ok ? 'text-status-green' : 'text-status-amber'}`}>{d.detail}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {openItems.length > 0 && (
+        <p className="flex items-center gap-1.5 text-xs text-status-amber">
+          <AlertTriangle size={13} strokeWidth={2} />
+          {openItems.length} item(s) are still open and will be documented rather than blocking handover.
+        </p>
+      )}
+    </div>
+  )
+}
+
 function Stat({ value, label, tone = 'text-text' }) {
   return (
     <div className="rounded-lg border border-border px-3 py-2">
@@ -171,7 +229,7 @@ function Stat({ value, label, tone = 'text-text' }) {
   )
 }
 
-function DecisionForm({ token, onSubmitted }) {
+function DecisionForm({ token, kind, decisionFns, onSubmitted }) {
   const [name, setName] = useState('')
   const [role, setRole] = useState('')
   const [comments, setComments] = useState('')
@@ -185,12 +243,15 @@ function DecisionForm({ token, onSubmitted }) {
     if (!accepted) return setError('Please confirm you have reviewed the package.')
     setError(null)
     setSubmitting(action)
-    const fn = action === 'approved' ? clientApprove : action === 'rejected' ? clientReject : clientRequestChanges
+    const fn = action === 'approved' ? decisionFns.approve : action === 'rejected' ? decisionFns.reject : decisionFns.requestChanges
     const result = await fn(token, { name, role, comments, acceptedTerms: accepted, hasSignature })
     setSubmitting(null)
     if (!result.ok) return setError(result.error)
     onSubmitted(result)
   }
+
+  const approveLabel = kind === 'handover' ? 'Accept' : 'Approve'
+  const packageLabel = KIND_LABEL[kind] ?? 'package'
 
   return (
     <div className="space-y-4 rounded-xl border border-border bg-surface p-6">
@@ -216,7 +277,7 @@ function DecisionForm({ token, onSubmitted }) {
 
       <label className="flex items-center gap-2 text-xs text-text">
         <input type="checkbox" checked={accepted} onChange={(e) => setAccepted(e.target.checked)} />
-        I confirm I have reviewed this Solution Package and am authorised to provide this decision.
+        I confirm I have reviewed this {packageLabel} and am authorised to provide this decision.
       </label>
 
       {error && <p className="text-xs text-status-red">{error}</p>}
@@ -228,7 +289,7 @@ function DecisionForm({ token, onSubmitted }) {
           disabled={Boolean(submitting)}
           className="h-10 flex-1 rounded-lg bg-status-green text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Approve
+          {approveLabel}
         </button>
         <button
           type="button"

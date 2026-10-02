@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link2, Copy, Check, Send } from 'lucide-react'
 import { MIN_EXPIRY_DAYS, MAX_EXPIRY_DAYS, DEFAULT_EXPIRY_DAYS } from '../../api/shareLink.js'
 
-export default function ShareLinkPanel({ activeLink, readyForSubmission, canSubmit, onSubmit }) {
+export default function ShareLinkPanel({ activeLink, readyForSubmission, canSubmit, onSubmit, title = 'Client approval link', actionLabel = 'Submit for Client Approval', notReadyHint = 'Resolve all required inputs and critical conflicts before submitting for client approval.' }) {
   const [password, setPassword] = useState('')
   const [expiryDays, setExpiryDays] = useState(DEFAULT_EXPIRY_DAYS)
   const [copied, setCopied] = useState(null)
@@ -19,7 +19,7 @@ export default function ShareLinkPanel({ activeLink, readyForSubmission, canSubm
     <div className="space-y-3 rounded-xl border border-border bg-surface p-4">
       <div className="flex items-center gap-2 text-sm font-semibold text-text">
         <Link2 size={16} strokeWidth={2} className="text-brand" />
-        Client approval link
+        {title}
       </div>
 
       {activeLink ? (
@@ -37,9 +37,7 @@ export default function ShareLinkPanel({ activeLink, readyForSubmission, canSubm
         </div>
       ) : (
         <>
-          {!readyForSubmission && (
-            <p className="text-xs text-status-amber">Resolve all required inputs and critical conflicts before submitting for client approval.</p>
-          )}
+          {!readyForSubmission && <p className="text-xs text-status-amber">{notReadyHint}</p>}
           {canSubmit && (
             <div className="space-y-2">
               <Field label="Password (optional — a random one is generated if left blank)">
@@ -67,7 +65,7 @@ export default function ShareLinkPanel({ activeLink, readyForSubmission, canSubm
                 className="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-brand text-xs font-medium text-white hover:bg-brand/90 disabled:cursor-not-allowed disabled:bg-status-grey"
               >
                 <Send size={14} strokeWidth={2} />
-                Submit for Client Approval
+                {actionLabel}
               </button>
             </div>
           )}

@@ -9,7 +9,7 @@ import CableScheduleTab from '../components/lld/CableScheduleTab.jsx'
 import HldBaselineBanner from '../components/lld/HldBaselineBanner.jsx'
 import { getBuilding } from '../api/index.js'
 import { getLldContext, rebaseLldToCurrentHld, assignCableId, assignMissingCableIds, setEngineerSelectedLength } from '../api/lldDesign.js'
-import { isSolutionPackageApproved } from '../api/designFreeze.js'
+import { isDesignFrozen, isHandoverAccepted } from '../api/designFreeze.js'
 import { useRole } from '../lib/RoleContext.jsx'
 import { canEditLld } from '../lib/permissions.js'
 import { Lock } from 'lucide-react'
@@ -29,12 +29,14 @@ export default function Lld() {
   const [tab, setTab] = useState('connectivity')
   const [showValidation, setShowValidation] = useState(false)
   const [frozen, setFrozen] = useState(false)
+  const [handoverAccepted, setHandoverAccepted] = useState(false)
 
   const reload = useCallback(() => {
     if (!buildingId) return
-    Promise.all([getLldContext(buildingId), isSolutionPackageApproved(buildingId)]).then(([ctx, approved]) => {
+    Promise.all([getLldContext(buildingId), isDesignFrozen(buildingId), isHandoverAccepted(buildingId)]).then(([ctx, approved, accepted]) => {
       setContext(ctx)
       setFrozen(approved)
+      setHandoverAccepted(accepted)
     })
   }, [buildingId])
 
@@ -97,7 +99,15 @@ export default function Lld() {
       {frozen && (
         <div className="flex items-center gap-2 rounded-xl border border-status-green/40 bg-status-green/5 px-4 py-2.5 text-xs text-status-green">
           <Lock size={14} strokeWidth={2} />
-          <strong>Design frozen</strong> — the Solution Package is approved. LLD is read-only until a change request reopens it.
+          {handoverAccepted ? (
+            <>
+              <strong>Handover accepted</strong> — this building's design record is permanently read-only.
+            </>
+          ) : (
+            <>
+              <strong>Design frozen</strong> — the Solution Package is approved. LLD is read-only until a change request reopens it.
+            </>
+          )}
         </div>
       )}
 

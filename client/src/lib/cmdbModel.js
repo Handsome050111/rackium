@@ -12,6 +12,16 @@ export function isCmdbDevice(device) {
   return device.role !== 'wan-circuit' && PAST_PLANNED.has(device.status)
 }
 
+// Dashboard/sidebar phase badge for CMDB — brief: "Completed | Phase with
+// no approval step is finished (CMO validation, CMDB)". No phase ever
+// pushed this before (see deploymentModel.js's computeDeploymentPhaseStatus
+// for the same pre-existing gap in Deployment).
+export function computeCmdbPhaseStatus(rows) {
+  if (rows.length === 0) return 'not_started'
+  const allAccepted = rows.every((r) => r.acceptance === 'Accepted')
+  return allAccepted ? 'completed' : 'in_progress'
+}
+
 export function acceptanceLabel(deviceStatus) {
   return deviceStatus === 'accepted' || deviceStatus === 'in_service' ? 'Accepted' : 'Awaiting'
 }

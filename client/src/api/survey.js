@@ -1,6 +1,7 @@
 import { devices as b001Devices, patchPanels as b001PatchPanels } from '../mock/b001-site.js'
 import { getRackSurveyMeta } from '../mock/rackSurveyMeta.js'
-import { getCmoForRoom, projectSerials } from '../mock/cmo.js'
+import { projectSerials } from '../mock/cmo.js'
+import { getCmoForRoom } from './cmoDesign.js'
 import { resolveAfter } from './site.js'
 import { getRackLocation } from './siteStructure.js'
 

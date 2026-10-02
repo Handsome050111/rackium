@@ -6,7 +6,7 @@
 import { getLldContext } from './lldDesign.js'
 import { getPhaseCards, updatePhaseStatus } from './buildings.js'
 import { getMarginPercent } from './projectSettings.js'
-import { isSolutionPackageApproved } from './designFreeze.js'
+import { isSolutionPackageApproved, isHandoverAccepted } from './designFreeze.js'
 import { buildBom, reconcileDeviceCounts } from '../lib/bomModel.js'
 
 function resolveAfter(value, ms = 25) {
@@ -26,11 +26,12 @@ function overridesFor(buildingId) {
 // getSolutionPackageContext, which needs its own anyway) hand it in
 // instead of this re-fetching the whole HLD/LLD chain a second time.
 export async function getBomContext(buildingId, preloaded = {}) {
-  const [lldContext, phaseCards, marginPercent, solutionPackageApproved] = await Promise.all([
+  const [lldContext, phaseCards, marginPercent, solutionPackageApproved, handoverAccepted] = await Promise.all([
     preloaded.lldContext ?? getLldContext(buildingId),
     getPhaseCards(buildingId),
     getMarginPercent(),
     isSolutionPackageApproved(buildingId),
+    isHandoverAccepted(buildingId),
   ])
 
   const devices = lldContext.entities.filter((e) => e.type === 'device')
@@ -73,8 +74,9 @@ export async function getBomContext(buildingId, preloaded = {}) {
     reconciliation,
     status,
     subLabel,
-    procurementLocked: !solutionPackageApproved,
+    procurementLocked: !solutionPackageApproved || handoverAccepted,
     solutionPackageApproved,
+    handoverAccepted,
     conflicts: lldContext.checks.portConflicts + lldContext.checks.duplicateCableIds,
   })
 }
@@ -88,8 +90,9 @@ export async function setLineVendor(buildingId, lineKey, vendor) {
 }
 
 export async function setLineProcurement(buildingId, lineKey, patch) {
-  const approved = await isSolutionPackageApproved(buildingId)
+  const [approved, handoverAccepted] = await Promise.all([isSolutionPackageApproved(buildingId), isHandoverAccepted(buildingId)])
   if (!approved) return resolveAfter({ ok: false, error: 'Procurement fields unlock after the Solution Package is approved.' })
+  if (handoverAccepted) return resolveAfter({ ok: false, error: 'This building has been handed over — the BOM is read-only.' })
   const overrides = overridesFor(buildingId)
   overrides[lineKey] = { ...overrides[lineKey], ...patch }
   return resolveAfter({ ok: true })
@@ -99,8 +102,9 @@ export async function setLineProcurement(buildingId, lineKey, patch) {
 // reviewer step (unlike HLD/Solution Package's architect-submits /
 // pm-or-reviewer-approves split).
 export async function approveProcurementBom(buildingId) {
-  const approved = await isSolutionPackageApproved(buildingId)
+  const [approved, handoverAccepted] = await Promise.all([isSolutionPackageApproved(buildingId), isHandoverAccepted(buildingId)])
   if (!approved) return resolveAfter({ ok: false, error: 'The Solution Package must be approved before the procurement BOM can be approved.' })
+  if (handoverAccepted) return resolveAfter({ ok: false, error: 'This building has been handed over — the BOM is read-only.' })
   await updatePhaseStatus(buildingId, 'bom', 'approved')
   return resolveAfter({ ok: true })
 }

@@ -21,10 +21,10 @@ function Field({ label, children }) {
 // Phone-first by construction: one column, no responsive grid that would
 // need a breakpoint override to collapse (brief Step 8: "fully usable at
 // 390px").
-export default function DeviceDeploymentPanel({ detail, onRecordSerialMac, onConfirmInstallation, onConfirmUplinking, onRecordLinkTest, onRecordDguv, onAddEvidence, onAccept }) {
+export default function DeviceDeploymentPanel({ detail, locked, onRecordSerialMac, onConfirmInstallation, onConfirmUplinking, onRecordLinkTest, onRecordDguv, onAddEvidence, onAccept }) {
   const { role } = useRole()
-  const editable = canRecordDeployment(role)
-  const canAccept = canAcceptDevice(role)
+  const editable = canRecordDeployment(role) && !locked
+  const canAccept = canAcceptDevice(role) && !locked
   const { device, connections, exceptions } = detail
 
   const [serial, setSerial] = useState(device.installation?.serial ?? '')

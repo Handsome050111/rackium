@@ -13,6 +13,7 @@ import ShareLinkPanel from '../components/solutionPackage/ShareLinkPanel.jsx'
 import ResourceEstimatePanel from '../components/solutionPackage/ResourceEstimatePanel.jsx'
 import { getBuilding } from '../api/index.js'
 import { getSolutionPackageContext, submitForClientApproval, acceptWarning, getAcceptedWarnings } from '../api/solutionPackageDesign.js'
+import { isHandoverAccepted } from '../api/designFreeze.js'
 import {
   addAddressingEntry,
   updateAddressingEntry,
@@ -53,12 +54,14 @@ export default function SolutionPackage() {
   const [warnings, setWarnings] = useState([])
   const [page, setPage] = useState(1)
   const [selectedGroupId, setSelectedGroupId] = useState('addressing')
+  const [handoverAccepted, setHandoverAccepted] = useState(false)
 
   const reload = useCallback(() => {
     if (!buildingId) return
-    Promise.all([getSolutionPackageContext(buildingId), getAcceptedWarnings(buildingId)]).then(([ctx, w]) => {
+    Promise.all([getSolutionPackageContext(buildingId), getAcceptedWarnings(buildingId), isHandoverAccepted(buildingId)]).then(([ctx, w, accepted]) => {
       setContext(ctx)
       setWarnings(w)
+      setHandoverAccepted(accepted)
     })
   }, [buildingId])
 
@@ -75,8 +78,8 @@ export default function SolutionPackage() {
     setPage(2)
   }
 
-  const editable = canEditSolutionPackage(role)
-  const canSubmit = canSubmitSolutionPackageForApproval(role)
+  const editable = canEditSolutionPackage(role) && !handoverAccepted
+  const canSubmit = canSubmitSolutionPackageForApproval(role) && !handoverAccepted
 
   async function handleAddEntry() {
     await addAddressingEntry(buildingId, {})
