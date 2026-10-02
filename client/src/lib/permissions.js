@@ -133,3 +133,26 @@ export function canAssignCmoDevice(role) {
 export function canManageHandover(role) {
   return role === 'pm'
 }
+
+// Survey form tabs (brief v2.3 §5.2/§4.3): "Fill survey, upload photos" is
+// Field Engineer only; "Verify or reject survey" is Architect only. Prefill
+// (Location Details' prefilled/prefilled_validated fields) is set up ahead
+// of the survey by whoever creates the project record — Architect or PM,
+// same cluster as "PM or Architect may pre-create" floors/rooms/racks
+// (§4.1).
+export function canFillSurveyForm(role) {
+  return role === 'field_engineer'
+}
+
+export function canVerifySurveyForm(role) {
+  return role === 'architect'
+}
+
+export function canPrefillSurveyForm(role) {
+  return role === 'architect' || role === 'pm'
+}
+
+// Custom fields (brief §5.2): "Org Admin can add extra fields to a tab."
+export function canAddCustomSurveyField(role) {
+  return role === 'org_admin'
+}

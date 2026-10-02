@@ -5,6 +5,7 @@ import Lld from './pages/Lld.jsx'
 import RackiumEditor from './pages/RackiumEditor.jsx'
 import SiteStructure from './pages/SiteStructure.jsx'
 import SurveyRackLayout from './pages/SurveyRackLayout.jsx'
+import RoomDetails from './pages/RoomDetails.jsx'
 import Hld from './pages/Hld.jsx'
 import Bom from './pages/Bom.jsx'
 import SolutionPackage from './pages/SolutionPackage.jsx'
@@ -42,6 +43,7 @@ export default function App() {
         <Route path="survey" element={<SiteStructure mode="building" />} />
         <Route path="survey/campus" element={<SiteStructure mode="campus" />} />
         <Route path="survey/rack" element={<SurveyRackLayout />} />
+        <Route path="survey/room" element={<RoomDetails />} />
         <Route path="hld" element={<Hld />} />
         <Route path="bom" element={<Bom />} />
         <Route path="solution-package" element={<SolutionPackage />} />

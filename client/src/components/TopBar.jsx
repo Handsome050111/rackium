@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import { Search, Bell, Settings, ChevronDown, Menu, FlaskConical, Check } from 'lucide-react'
+import { Search, Bell, Settings, ChevronDown, Menu, FlaskConical, Check, WifiOff, Wifi } from 'lucide-react'
 import Logo from './Logo.jsx'
 import { useRole } from '../lib/RoleContext.jsx'
 import { ROLES } from '../lib/permissions.js'
+import { useOffline } from '../lib/OfflineContext.jsx'
 
 function UserMenu() {
   const { role, setRole } = useRole()
+  const { isOffline, setOffline, pendingCount, syncing } = useOffline()
   const [open, setOpen] = useState(false)
   const menuRef = useRef(null)
   const currentRole = ROLES.find((r) => r.id === role)
@@ -65,6 +67,25 @@ function UserMenu() {
             ))}
           </div>
           <div className="mt-1 px-2 text-[11px] text-text-secondary">Currently viewing as {currentRole?.label}.</div>
+
+          <div className="mx-2 my-1 border-t border-border" />
+          <div className="flex items-center gap-1.5 px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-status-amber">
+            <FlaskConical size={12} strokeWidth={2} />
+            Simulate offline (survey, §5.2)
+          </div>
+          <button
+            type="button"
+            aria-label="Toggle offline simulation"
+            onClick={() => setOffline(!isOffline)}
+            className="flex h-touch w-full items-center justify-between rounded-lg px-2 text-sm text-text hover:bg-surface-muted sm:h-8"
+          >
+            <span className="flex items-center gap-2">
+              {isOffline ? <WifiOff size={14} strokeWidth={2} className="text-status-red" /> : <Wifi size={14} strokeWidth={2} className="text-status-green" />}
+              {isOffline ? 'Offline' : 'Online'}
+            </span>
+            {isOffline && pendingCount > 0 && <span className="rounded-full bg-status-amber/10 px-1.5 text-[11px] font-medium text-status-amber">{pendingCount} pending</span>}
+            {!isOffline && syncing && <span className="text-[11px] text-text-secondary">Syncing…</span>}
+          </button>
         </div>
       )}
     </div>

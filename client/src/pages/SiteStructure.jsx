@@ -181,6 +181,7 @@ export default function SiteStructure({ mode }) {
 
   const stepperLinks = {
     'site-structure': mode === 'campus' ? `/b/${buildingId}/survey` : undefined,
+    'room-details': `/b/${buildingId}/survey/room`,
     'rack-survey': buildingGroups[0]?.floors.flatMap((f) => f.rooms).flatMap((r) => r.racks)[0]
       ? `/b/${buildingId}/survey/rack?rack=${buildingGroups[0].floors.flatMap((f) => f.rooms).flatMap((r) => r.racks)[0].id}`
       : undefined,
