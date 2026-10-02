@@ -12,6 +12,7 @@ import { getCmoForRoom } from './cmoDesign.js'
 import { getDevices } from './networkStore.js'
 import { updatePhaseStatus } from './buildings.js'
 import { SURVEY_TABS, getTabDefinition, computeTabCompleteness, isFieldFilled, matchSerial } from '../lib/surveyFormModel.js'
+import { registerStore, replaceObjectContents } from '../lib/persistentStore.js'
 
 function resolveAfter(value, ms = 25) {
   return new Promise((resolve) => setTimeout(() => resolve(value), ms))
@@ -30,6 +31,16 @@ const statusByKey = {}
 // shown but never used in calculations" — so they never appear in any
 // completeness/required count, only in the rendered form).
 const customFieldsByTab = {}
+
+registerStore('surveyFormsDesign', {
+  getSnapshot: () => ({ recordsByKey, statusByKey, customFieldsByTab, idCounter }),
+  restoreSnapshot: (data) => {
+    replaceObjectContents(recordsByKey, data?.recordsByKey)
+    replaceObjectContents(statusByKey, data?.statusByKey)
+    replaceObjectContents(customFieldsByTab, data?.customFieldsByTab)
+    if (typeof data?.idCounter === 'number') idCounter = data.idCounter
+  },
+})
 
 function effectiveTabDef(tabName) {
   const base = getTabDefinition(tabName)

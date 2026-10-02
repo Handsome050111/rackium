@@ -5,10 +5,16 @@ import { suggestNextCableId, isCableIdUnique } from '../lib/cableId.js'
 import { resolveAfter, findRack } from './site.js'
 import { getRackLocation } from './siteStructure.js'
 import { getDevices, getPatchPanels, getConnections, findDevice, findPatchPanel, upsertConnection } from './networkStore.js'
+import { registerStore, replaceObjectContents } from '../lib/persistentStore.js'
 
 // Per-rack revision bookkeeping lives here (Rackium-Editor-specific, not
 // part of the shared network store).
 const revisionByRack = {}
+
+registerStore('lldRevisions', {
+  getSnapshot: () => revisionByRack,
+  restoreSnapshot: (data) => replaceObjectContents(revisionByRack, data),
+})
 
 function revisionFor(rackId) {
   if (!revisionByRack[rackId]) {

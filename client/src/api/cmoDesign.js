@@ -8,6 +8,7 @@ import { getCampusSiteStructure } from './siteStructure.js'
 import { getDevices } from './networkStore.js'
 import { updatePhaseStatus } from './buildings.js'
 import { applyColumnMapping, validateCmoRows, computeCmoKpis, computeBuildingCmoStatus, CMO_FIELDS } from '../lib/cmoModel.js'
+import { registerStore, replaceArrayContents } from '../lib/persistentStore.js'
 
 function resolveAfter(value, ms = 25) {
   return new Promise((resolve) => setTimeout(() => resolve(value), ms))
@@ -41,6 +42,19 @@ const cmoDevices = [
 ]
 
 let lastImportAt = '2026-09-26T11:45:00Z'
+
+// registered here, but hydrateAll() (main.jsx, before first render) runs
+// after this whole module finishes loading — so the pushPhaseStatus() call
+// below still fires once against seed data, then gets superseded once
+// phaseStatusStore itself restores its own last-saved snapshot.
+registerStore('cmoDesign', {
+  getSnapshot: () => ({ cmoDevices, lastImportAt, idCounter }),
+  restoreSnapshot: (data) => {
+    replaceArrayContents(cmoDevices, data?.cmoDevices)
+    if (data?.lastImportAt) lastImportAt = data.lastImportAt
+    if (typeof data?.idCounter === 'number') idCounter = data.idCounter
+  },
+})
 
 async function pushPhaseStatus() {
   await Promise.all(

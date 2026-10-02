@@ -5,12 +5,22 @@
 // "one shared data model" principle (every drawn object is a data record,
 // nothing re-typed between phases).
 import { devices as seedDevices, patchPanels as seedPatchPanels, connections as seedConnections } from '../mock/b001-site.js'
+import { registerStore } from '../lib/persistentStore.js'
 
 const store = {
   devices: [...seedDevices],
   patchPanels: [...seedPatchPanels],
   connections: [...seedConnections],
 }
+
+registerStore('networkStore', {
+  getSnapshot: () => store,
+  restoreSnapshot: (data) => {
+    if (data?.devices) store.devices = data.devices
+    if (data?.patchPanels) store.patchPanels = data.patchPanels
+    if (data?.connections) store.connections = data.connections
+  },
+})
 
 export function getDevices() {
   return store.devices

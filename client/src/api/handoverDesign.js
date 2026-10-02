@@ -8,6 +8,7 @@ import { getCmdbContext } from './cmdbDesign.js'
 import { generateShareLink, getActiveShareLink, recordClientDecision, getClientDecision } from './shareLink.js'
 import { markHandoverAccepted } from './designFreeze.js'
 import { computeChecklist, isReadyToCompile, computeDocumentStatus, handoverPhaseStatus, HANDOVER_DOCUMENTS } from '../lib/handoverModel.js'
+import { registerStore, replaceObjectContents } from '../lib/persistentStore.js'
 
 function resolveAfter(value, ms = 25) {
   return new Promise((resolve) => setTimeout(() => resolve(value), ms))
@@ -18,6 +19,14 @@ const HANDOVER_PHASE_ID = 'handover'
 // buildingId -> { state, compiledAt, reviewedAt, deliveredAt, baseline }
 const workflowByBuilding = {}
 let baselineCounter = 0
+
+registerStore('handoverDesign', {
+  getSnapshot: () => ({ workflowByBuilding, baselineCounter }),
+  restoreSnapshot: (data) => {
+    replaceObjectContents(workflowByBuilding, data?.workflowByBuilding)
+    if (typeof data?.baselineCounter === 'number') baselineCounter = data.baselineCounter
+  },
+})
 
 function workflowFor(buildingId) {
   return (workflowByBuilding[buildingId] ??= { state: 'pending', compiledAt: null, reviewedAt: null, deliveredAt: null, baseline: null })

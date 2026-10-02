@@ -8,6 +8,7 @@ import { getPhaseCards, updatePhaseStatus } from './buildings.js'
 import { getMarginPercent } from './projectSettings.js'
 import { isSolutionPackageApproved, isHandoverAccepted } from './designFreeze.js'
 import { buildBom, reconcileDeviceCounts } from '../lib/bomModel.js'
+import { registerStore, replaceObjectContents } from '../lib/persistentStore.js'
 
 function resolveAfter(value, ms = 25) {
   return new Promise((resolve) => setTimeout(() => resolve(value), ms))
@@ -17,6 +18,11 @@ const PROCUREMENT_STATUSES = ['Not ordered', 'Ordered', 'Shipped', 'Delivered']
 
 // buildingId -> lineKey -> { vendor, procurementStatus, poNumber, expectedDelivery, actualDelivery, notes }
 const procurementOverrides = {}
+
+registerStore('bomDesign', {
+  getSnapshot: () => procurementOverrides,
+  restoreSnapshot: (data) => replaceObjectContents(procurementOverrides, data),
+})
 
 function overridesFor(buildingId) {
   return (procurementOverrides[buildingId] ??= {})

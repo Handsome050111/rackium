@@ -7,6 +7,7 @@ import { getProjectTree, getPhaseCards } from '../api/index.js'
 import { subscribePhaseStatusChanges } from '../api/phaseStatusStore.js'
 import ProjectTree from './ProjectTree.jsx'
 import StatusDot from './StatusDot.jsx'
+import Mark from './Mark.jsx'
 
 function PhaseNavList({ buildingId, showLabels, onNavigate, phaseStatuses }) {
   return (
@@ -118,8 +119,13 @@ export default function Sidebar({ mobileOpen, onOpenMobile, onCloseMobile }) {
       </aside>
 
       {/* Tablet portrait: icon-only rail, with a trigger to open the tree as an overlay */}
-      <aside className="hidden w-16 shrink-0 border-r border-border bg-surface sm:block md:hidden">
-        <SidebarContent buildingId={buildingId} showLabels={false} tree={tree} onOpenTree={onOpenMobile} phaseStatuses={phaseStatuses} />
+      <aside className="hidden w-16 shrink-0 border-r border-border bg-surface sm:flex sm:flex-col md:hidden">
+        <div className="flex h-16 shrink-0 items-center justify-center border-b border-border">
+          <Mark />
+        </div>
+        <div className="min-h-0 flex-1">
+          <SidebarContent buildingId={buildingId} showLabels={false} tree={tree} onOpenTree={onOpenMobile} phaseStatuses={phaseStatuses} />
+        </div>
       </aside>
 
       {/* Phone drawer / tablet tree overlay (same panel, different trigger) */}
@@ -133,7 +139,7 @@ export default function Sidebar({ mobileOpen, onOpenMobile, onCloseMobile }) {
           />
           <aside className="absolute inset-y-0 left-0 flex w-72 max-w-[85%] flex-col bg-surface shadow-xl">
             <div className="flex h-16 shrink-0 items-center justify-between border-b border-border px-4">
-              <span className="text-sm font-semibold text-text">Menu</span>
+              <Mark />
               <button
                 type="button"
                 onClick={onCloseMobile}

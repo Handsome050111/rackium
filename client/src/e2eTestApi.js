@@ -16,5 +16,6 @@ import * as shareLink from './api/shareLink.js'
 import * as deploymentDesign from './api/deploymentDesign.js'
 import * as networkStore from './api/networkStore.js'
 import * as buildings from './api/buildings.js'
+import { resetDemoData } from './lib/persistentStore.js'
 
-window.__rackiumTestApi = { shareLink, deploymentDesign, networkStore, buildings }
+window.__rackiumTestApi = { shareLink, deploymentDesign, networkStore, buildings, resetDemoData }

@@ -20,10 +20,16 @@ import {
   findDuplicateCableIds,
   findPortConflicts,
 } from '../lib/lldModel.js'
+import { registerStore, replaceObjectContents } from '../lib/persistentStore.js'
 
 // "LLD starts" the first time it is opened for a building; from then on it
 // remembers the HLD version it was designed against (§5.4).
 const baselines = {} // buildingId -> { hldVersion, startedAt }
+
+registerStore('lldDesign', {
+  getSnapshot: () => baselines,
+  restoreSnapshot: (data) => replaceObjectContents(baselines, data),
+})
 
 function baselineFor(buildingId) {
   baselines[buildingId] ??= { hldVersion: getHldVersion(), startedAt: new Date().toISOString() }

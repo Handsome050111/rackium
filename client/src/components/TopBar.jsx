@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { Search, Bell, Settings, ChevronDown, Menu, FlaskConical, Check, WifiOff, Wifi } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { Search, Bell, Settings, ChevronDown, Menu, FlaskConical, Check, WifiOff, Wifi, RotateCcw, Map } from 'lucide-react'
 import Logo from './Logo.jsx'
 import { useRole } from '../lib/RoleContext.jsx'
 import { ROLES } from '../lib/permissions.js'
 import { useOffline } from '../lib/OfflineContext.jsx'
+import { resetDemoData } from '../lib/persistentStore.js'
 
 function UserMenu() {
   const { role, setRole } = useRole()
@@ -43,10 +45,10 @@ function UserMenu() {
 
           <div className="flex items-center gap-1.5 px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-status-amber">
             <FlaskConical size={12} strokeWidth={2} />
-            Prototype control — not part of the real product
+            Demo controls — not part of the real product
           </div>
           <div className="px-2 pb-1.5 text-xs text-text-secondary">
-            View as role (gates rack survey actions per v2.3 §4.3):
+            View as role (gates actions per v2.3 §4.3):
           </div>
           <div className="space-y-0.5">
             {ROLES.map((r) => (
@@ -85,6 +87,28 @@ function UserMenu() {
             </span>
             {isOffline && pendingCount > 0 && <span className="rounded-full bg-status-amber/10 px-1.5 text-[11px] font-medium text-status-amber">{pendingCount} pending</span>}
             {!isOffline && syncing && <span className="text-[11px] text-text-secondary">Syncing…</span>}
+          </button>
+
+          <div className="mx-2 my-1 border-t border-border" />
+          <Link
+            to="/demo-guide"
+            onClick={() => setOpen(false)}
+            className="flex h-touch w-full items-center gap-2 rounded-lg px-2 text-sm text-text hover:bg-surface-muted sm:h-8"
+          >
+            <Map size={14} strokeWidth={2} />
+            Demo guide
+          </Link>
+          <button
+            type="button"
+            onClick={() => {
+              if (window.confirm('Reset all demo data back to the original seed? This discards every change made in this browser.')) {
+                resetDemoData()
+              }
+            }}
+            className="flex h-touch w-full items-center gap-2 rounded-lg px-2 text-sm text-status-red hover:bg-status-red/5 sm:h-8"
+          >
+            <RotateCcw size={14} strokeWidth={2} />
+            Reset demo data
           </button>
         </div>
       )}

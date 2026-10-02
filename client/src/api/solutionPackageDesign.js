@@ -11,6 +11,7 @@ import { getPhaseCards, updatePhaseStatus } from './buildings.js'
 import { generateShareLink, getActiveShareLink, recordClientDecision, getClientDecision } from './shareLink.js'
 import { buildResourceEstimate } from '../lib/billOfResources.js'
 import { getResourceMinutes } from './projectSettings.js'
+import { registerStore, replaceObjectContents } from '../lib/persistentStore.js'
 
 function resolveAfter(value, ms = 25) {
   return new Promise((resolve) => setTimeout(() => resolve(value), ms))
@@ -186,6 +187,14 @@ export async function getSolutionPackageContext(buildingId) {
 
 const warningsByBuilding = {} // buildingId -> [{id, areaId, text, acceptedBy, acceptedAt}]
 let warningIdCounter = 1
+
+registerStore('solutionPackageDesign', {
+  getSnapshot: () => ({ warningsByBuilding, warningIdCounter }),
+  restoreSnapshot: (data) => {
+    replaceObjectContents(warningsByBuilding, data?.warningsByBuilding)
+    if (typeof data?.warningIdCounter === 'number') warningIdCounter = data.warningIdCounter
+  },
+})
 
 export async function getAcceptedWarnings(buildingId) {
   return resolveAfter([...(warningsByBuilding[buildingId] ?? [])])

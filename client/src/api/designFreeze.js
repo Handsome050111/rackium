@@ -15,8 +15,17 @@
 // other. One-directional dependency (handoverDesign -> designFreeze, never
 // back) avoids the whole class of bug.
 import { getPhaseCards } from './buildings.js'
+import { registerStore } from '../lib/persistentStore.js'
 
 const acceptedBuildings = new Set()
+
+registerStore('designFreeze', {
+  getSnapshot: () => Array.from(acceptedBuildings),
+  restoreSnapshot: (data) => {
+    acceptedBuildings.clear()
+    ;(data ?? []).forEach((id) => acceptedBuildings.add(id))
+  },
+})
 
 export function markHandoverAccepted(buildingId) {
   acceptedBuildings.add(buildingId)
