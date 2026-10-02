@@ -381,6 +381,7 @@ export default function SurveyRackLayout() {
           active="rack-survey"
           links={{
             'site-structure': `/b/${buildingId}/survey`,
+            'room-details': `/b/${buildingId}/survey/room`,
             'building-connections': `/b/${buildingId}/survey?panel=connections`,
             validation: `/b/${buildingId}/survey?panel=validation`,
           }}

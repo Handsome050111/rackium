@@ -1,0 +1,2364 @@
+{
+  "version": "1.0",
+  "source": "Derived from the Siemens SD-LAN Physical Site Survey workbook (field labels and Must/Good-to-have markings only; no client data).",
+  "field_types": {
+    "text": "free text",
+    "number": "number",
+    "number_m": "number in metres",
+    "yes_no": "Yes / No",
+    "serial": "serial number; validate against CMO + project duplicates",
+    "mac": "MAC address, format-validated",
+    "ip": "IPv4 address, format-validated",
+    "email": "email",
+    "phone": "phone number",
+    "gps": "latitude/longitude",
+    "photo": "photo evidence",
+    "photo_multi": "multiple photos",
+    "file": "file upload (e.g. PDF floor layout)",
+    "rack_elevation": "captured with the Rack Survey screen (RackElevation)"
+  },
+  "requirement_values": {
+    "must": "red badge, required to submit",
+    "must_if_allowed": "required unless site rules forbid (e.g. photos)",
+    "good_to_have": "yellow badge, optional",
+    "unspecified": "optional; not marked in source workbook"
+  },
+  "scope_values": {
+    "building": "submitted and verified once per building",
+    "room": "submitted and verified per room"
+  },
+  "tabs": [
+    {
+      "tab": "Location Details",
+      "scope": "building",
+      "sections": [
+        {
+          "section": "Location information",
+          "layout": "key_value",
+          "fields": [
+            {
+              "key": "location_id",
+              "label": "Location ID",
+              "type": "text",
+              "prefill": "prefilled",
+              "requirement": "must"
+            },
+            {
+              "key": "location_name",
+              "label": "Location Name",
+              "type": "text",
+              "prefill": "prefilled",
+              "requirement": "must"
+            },
+            {
+              "key": "location_address",
+              "label": "Location Address",
+              "type": "text",
+              "prefill": "prefilled",
+              "requirement": "must"
+            },
+            {
+              "key": "city",
+              "label": "City",
+              "type": "text",
+              "prefill": "prefilled",
+              "requirement": "must"
+            },
+            {
+              "key": "region",
+              "label": "Region",
+              "type": "text",
+              "prefill": "prefilled",
+              "requirement": "must"
+            },
+            {
+              "key": "country",
+              "label": "Country",
+              "type": "text",
+              "prefill": "prefilled",
+              "requirement": "must"
+            },
+            {
+              "key": "sal_of_site",
+              "label": "SAL (SAL short name) of site",
+              "type": "text",
+              "prefill": "prefilled",
+              "requirement": "must"
+            },
+            {
+              "key": "campus_id",
+              "label": "Campus ID",
+              "type": "text",
+              "prefill": "prefilled",
+              "requirement": "must"
+            },
+            {
+              "key": "location_coordinates",
+              "label": "Location coordinates",
+              "type": "gps",
+              "prefill": "prefilled",
+              "requirement": "must"
+            },
+            {
+              "key": "location_function",
+              "label": "Location Function(s) (Office/WH/Factory,etc)",
+              "type": "text",
+              "prefill": "prefilled_validated",
+              "requirement": "must"
+            },
+            {
+              "key": "location_criticallity",
+              "label": "Location criticallity",
+              "type": "text",
+              "prefill": "prefilled",
+              "requirement": "must"
+            },
+            {
+              "key": "reason_for_criticality",
+              "label": "Reason for criticality",
+              "type": "text",
+              "prefill": "prefilled",
+              "requirement": "must"
+            },
+            {
+              "key": "sre_code",
+              "label": "SRE Code",
+              "type": "text",
+              "prefill": "prefilled_validated",
+              "requirement": "must"
+            },
+            {
+              "key": "total_number_of_buildings_in_the_site",
+              "label": "Total number of Buildings in the site",
+              "type": "number",
+              "prefill": "prefilled_validated",
+              "requirement": "must"
+            },
+            {
+              "key": "total_number_of_buildings_in_scope",
+              "label": "Total number of buildings in scope",
+              "type": "number",
+              "prefill": "prefilled_validated",
+              "requirement": "must"
+            },
+            {
+              "key": "total_number_of_buildings_to_be_visited_for_comm_rooms",
+              "label": "Total number of buildings to be visited for Comm Rooms",
+              "type": "number",
+              "prefill": "prefilled_validated",
+              "requirement": "must"
+            },
+            {
+              "key": "comm_room_access",
+              "label": "Comm room access (key, card, ...)",
+              "type": "text",
+              "prefill": "prefilled_validated",
+              "requirement": "must"
+            },
+            {
+              "key": "comm_room_access_contact_name",
+              "label": "Comm room access contact name",
+              "type": "text",
+              "prefill": "prefilled_validated",
+              "requirement": "must"
+            },
+            {
+              "key": "comm_room_access_contact_email",
+              "label": "Comm room access contact email",
+              "type": "email",
+              "prefill": "prefilled_validated",
+              "requirement": "must"
+            },
+            {
+              "key": "comm_room_access_contact_number",
+              "label": "Comm room access contact number",
+              "type": "phone",
+              "prefill": "prefilled_validated",
+              "requirement": "must"
+            },
+            {
+              "key": "success_manager_contact_name",
+              "label": "Success Manager Contact Name",
+              "type": "text",
+              "prefill": "prefilled",
+              "requirement": "must"
+            },
+            {
+              "key": "success_manager_contact_email",
+              "label": "Success Manager Contact Email",
+              "type": "email",
+              "prefill": "prefilled",
+              "requirement": "must"
+            },
+            {
+              "key": "success_manager_contact_number",
+              "label": "Success Manager Contact Number",
+              "type": "phone",
+              "prefill": "prefilled",
+              "requirement": "must"
+            },
+            {
+              "key": "sre_contact_name",
+              "label": "SRE Contact Name",
+              "type": "text",
+              "prefill": "prefilled",
+              "requirement": "must"
+            },
+            {
+              "key": "sre_contact_email",
+              "label": "SRE Contact Email",
+              "type": "email",
+              "prefill": "prefilled",
+              "requirement": "must"
+            },
+            {
+              "key": "sre_contact_number",
+              "label": "SRE Contact Number",
+              "type": "phone",
+              "prefill": "prefilled",
+              "requirement": "must"
+            },
+            {
+              "key": "location_access_requirements",
+              "label": "Location Access Requirements",
+              "type": "text",
+              "prefill": "prefilled_validated",
+              "requirement": "must"
+            },
+            {
+              "key": "location_health_and_safety_requirements",
+              "label": "Location Health and Safety requirements",
+              "type": "text",
+              "prefill": "prefilled_validated",
+              "requirement": "must"
+            },
+            {
+              "key": "mono_site_zebra_site",
+              "label": "Mono site/Zebra Site?",
+              "type": "text",
+              "prefill": "prefilled",
+              "requirement": "must"
+            },
+            {
+              "key": "name_all_the_bu_s_at_the_location",
+              "label": "Name all the BU's at the location",
+              "type": "text",
+              "prefill": "prefilled",
+              "requirement": "must"
+            },
+            {
+              "key": "site_operational_hours",
+              "label": "Site Operational hours",
+              "type": "text",
+              "prefill": "prefilled",
+              "requirement": "must"
+            }
+          ]
+        },
+        {
+          "section": "Building details (in scope)",
+          "layout": "table",
+          "repeatable_rows": true,
+          "fields": [
+            {
+              "key": "building_sal_code_name",
+              "label": "Building SAL code/Name (if applicable)",
+              "requirement": "must",
+              "type": "text",
+              "hint": "if applicable"
+            },
+            {
+              "key": "building_coordinates",
+              "label": "Building coordinates (Latitude/longitude of the buildings to build the Site hierarchy in DNAC for FMO)",
+              "requirement": "must",
+              "type": "gps",
+              "hint": "Latitude/longitude of the buildings to build the Site hierarchy in DNAC for FMO"
+            },
+            {
+              "key": "total_number_of_floor_in_building_in_scope",
+              "label": "Total number of floor in Building in scope",
+              "requirement": "must",
+              "type": "number"
+            },
+            {
+              "key": "floor_number_name_in_scope",
+              "label": "Floor number/name in scope",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "building_criticality",
+              "label": "Building Criticality",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "reason_for_criticality",
+              "label": "Reason for Criticality",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "building_sre_code",
+              "label": "Building SRE Code",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "floor_criticality",
+              "label": "Floor Criticality (Defines how much degradation of service a location can tolerate. It is connected to the Incident Priority. List of values: 1. Low 2. Standard 3. Critical 4. Mission Critical)",
+              "requirement": "must",
+              "type": "text",
+              "hint": "Defines how much degradation of service a location can tolerate. It is connected to the Incident Priority. List of values: 1. Low 2. Standard 3. Critical 4. Mission Critical"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tab": "Floor-wise Device Details",
+      "scope": "room",
+      "sections": [
+        {
+          "section": "Devices",
+          "layout": "table",
+          "repeatable_rows": true,
+          "fields": [
+            {
+              "key": "building_name",
+              "label": "Building name",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "building_number",
+              "label": "Building number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "building_wing",
+              "label": "Building Wing",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "floor_number",
+              "label": "Floor Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "floor_area_in_sq_meters",
+              "label": "Floor Area in Sq. Meters",
+              "requirement": "must",
+              "type": "number"
+            },
+            {
+              "key": "device_model",
+              "label": "Device model",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "device_make",
+              "label": "Device Make",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "device_serial_no",
+              "label": "Device Serial No.",
+              "requirement": "must",
+              "type": "serial"
+            },
+            {
+              "key": "device_management_ip",
+              "label": "Device Management IP",
+              "requirement": "must",
+              "type": "ip"
+            },
+            {
+              "key": "device_role",
+              "label": "Device Role (Access switch/Core switch)",
+              "requirement": "must",
+              "type": "text",
+              "hint": "Access switch/Core switch"
+            },
+            {
+              "key": "room_name_number",
+              "label": "Room Name/Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "rack_row_number",
+              "label": "Rack Row number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "rack_name_number",
+              "label": "Rack Name/Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "ru_details",
+              "label": "RU details",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "free_power_sockets_in_the_rack",
+              "label": "Free power Sockets in the rack",
+              "requirement": "must",
+              "type": "number"
+            },
+            {
+              "key": "free_ru_available",
+              "label": "Free RU available",
+              "requirement": "must",
+              "type": "number"
+            },
+            {
+              "key": "no_of_free_fiber_ports_available_in_the_patch_panel",
+              "label": "No. of free fiber ports available in the patch panel",
+              "requirement": "must",
+              "type": "number"
+            },
+            {
+              "key": "no_of_free_copper_ports_available_in_the_patch_panel",
+              "label": "No. of free copper ports available in the patch panel",
+              "requirement": "must",
+              "type": "number"
+            },
+            {
+              "key": "upstream_device_name",
+              "label": "Upstream Device Name",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "upstream_device_ports",
+              "label": "Upstream Device Ports",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "device_hostname",
+              "label": "Device Hostname (or label on device)",
+              "requirement": "must",
+              "type": "text",
+              "hint": "or label on device"
+            },
+            {
+              "key": "approx_distance_with_upstream_device",
+              "label": "Approx. distance with Upstream device (In Comms Room)",
+              "requirement": "must",
+              "type": "number_m",
+              "hint": "In Comms Room"
+            },
+            {
+              "key": "is_ups_installed_in_the_rack",
+              "label": "Is UPS installed in the rack ?",
+              "requirement": "good_to_have",
+              "type": "yes_no"
+            },
+            {
+              "key": "are_devices_directly_connected_to_ups",
+              "label": "Are Devices directly connected to UPS ?",
+              "requirement": "good_to_have",
+              "type": "yes_no"
+            },
+            {
+              "key": "are_dual_pdus_installed_in_rack",
+              "label": "Are dual PDUs installed in rack ?",
+              "requirement": "must",
+              "type": "yes_no"
+            },
+            {
+              "key": "is_power_sourced_from_ups",
+              "label": "Is power sourced from UPS ?",
+              "requirement": "good_to_have",
+              "type": "yes_no"
+            },
+            {
+              "key": "power_socket_type",
+              "label": "Power Socket Type",
+              "requirement": "must",
+              "type": "text"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tab": "Rack Layout",
+      "scope": "room",
+      "note": "Captured by the Rack Survey screen (RackElevation). One block per rack.",
+      "sections": [
+        {
+          "section": "Per rack",
+          "layout": "key_value",
+          "repeatable_per": "rack",
+          "fields": [
+            {
+              "key": "site_name_code",
+              "label": "Site Name/Code",
+              "type": "text",
+              "requirement": "must"
+            },
+            {
+              "key": "building_floor_wing",
+              "label": "Building /Floor/Wing",
+              "type": "text",
+              "requirement": "must"
+            },
+            {
+              "key": "server_comm_room",
+              "label": "Server /Comm Room",
+              "type": "text",
+              "requirement": "must"
+            },
+            {
+              "key": "rack_name",
+              "label": "Rack Name",
+              "type": "text",
+              "requirement": "must"
+            },
+            {
+              "key": "sequence_no",
+              "label": "Sequence No.",
+              "type": "text",
+              "requirement": "must"
+            },
+            {
+              "key": "rack_purpose",
+              "label": "Rack Purpose (Owned By)",
+              "type": "text",
+              "requirement": "must"
+            },
+            {
+              "key": "power_socket_c137c14_iec_60320_c13_c14",
+              "label": "Power Socket (C137C14/ IEC 60320-C13/C14",
+              "type": "text",
+              "requirement": "must"
+            },
+            {
+              "key": "rack_type_free_standing_floor_cabinets_wall_mount_enclosed_w",
+              "label": "Rack Type(free- standing, floor cabinets wall-mount enclosed, wall-mount open",
+              "type": "text",
+              "requirement": "must"
+            },
+            {
+              "key": "rack_elevation",
+              "label": "Rack Elevation",
+              "type": "text",
+              "requirement": "must"
+            },
+            {
+              "key": "rack_size",
+              "label": "Rack size (W*D*H)",
+              "type": "text",
+              "requirement": "must"
+            },
+            {
+              "key": "rack_back_accessible",
+              "label": "Rack back accessible?",
+              "type": "yes_no",
+              "requirement": "must"
+            },
+            {
+              "key": "rack_sides_accessible",
+              "label": "Rack sides accessible?",
+              "type": "yes_no",
+              "requirement": "must"
+            },
+            {
+              "key": "mounting_rail_type_standard_non_standard",
+              "label": "Mounting Rail type (Standard/ non standard",
+              "type": "text",
+              "requirement": "must"
+            },
+            {
+              "key": "hindrance_in_ru_s_depth",
+              "label": "Hindrance in RU's depth (cabling etc)?",
+              "type": "yes_no",
+              "requirement": "must"
+            },
+            {
+              "key": "types_size_of_screws_cage_nuts_being_used",
+              "label": "Types, size of Screws & cage nuts being used",
+              "type": "text",
+              "requirement": "must"
+            },
+            {
+              "key": "cables_in_the_room",
+              "label": "Cables in the room (Under the floor or over the rack)",
+              "type": "text",
+              "requirement": "must"
+            },
+            {
+              "key": "type_of_patch_cables",
+              "label": "Type of Patch Cables (CAT 5/6/7)",
+              "type": "text",
+              "requirement": "must"
+            },
+            {
+              "key": "any_specific_make_of_patch_cat_cables_required_at_the_locati",
+              "label": "Any specific make of Patch CAT cables required at the location?",
+              "type": "yes_no",
+              "requirement": "must"
+            },
+            {
+              "key": "pdu_ups_power_socket_photo",
+              "label": "PDU/UPS Power socket Photo (MUST)",
+              "type": "photo",
+              "requirement": "must"
+            },
+            {
+              "key": "front_photo",
+              "label": "Front Photo of the Rack",
+              "type": "photo",
+              "requirement": "must"
+            },
+            {
+              "key": "rack_layout",
+              "label": "Rack Layout (U-by-U)",
+              "type": "rack_elevation",
+              "requirement": "must"
+            },
+            {
+              "key": "rear_photo",
+              "label": "Rear Photo of the Rack",
+              "type": "photo",
+              "requirement": "must"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tab": "Comms Rooms Summary",
+      "scope": "room",
+      "note": "Mostly calculated from Rack Layout data; validate on site.",
+      "sections": [
+        {
+          "section": "Comms rooms",
+          "layout": "table",
+          "repeatable_rows": true,
+          "fields": [
+            {
+              "key": "building_number",
+              "label": "Building Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "floor_number",
+              "label": "Floor Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "comms_room_number",
+              "label": "Comms Room Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "rack_number",
+              "label": "Rack Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "total_number_rack_units",
+              "label": "Total Number Rack Units",
+              "requirement": "must",
+              "type": "number"
+            },
+            {
+              "key": "used_rus_in_existing_racks",
+              "label": "Used RUs in Existing Racks",
+              "requirement": "must",
+              "type": "number"
+            },
+            {
+              "key": "unused_rus_in_existing_racks",
+              "label": "Unused RUs in Existing Racks",
+              "requirement": "must",
+              "type": "number"
+            },
+            {
+              "key": "free_power_sockets_in_existing_rack_pdu_1",
+              "label": "Free Power Sockets in Existing Rack- PDU 1",
+              "requirement": "must",
+              "type": "number"
+            },
+            {
+              "key": "free_power_sockets_in_existing_rack_pdu_2",
+              "label": "Free Power Sockets in Existing Rack- PDU 2",
+              "requirement": "must",
+              "type": "number"
+            },
+            {
+              "key": "free_power_sockets_in_existing_rack_pdu_3",
+              "label": "Free Power Sockets in Existing Rack- PDU 3",
+              "requirement": "unspecified",
+              "type": "number"
+            },
+            {
+              "key": "free_power_sockets_in_existing_rack_pdu_4",
+              "label": "Free Power Sockets in Existing Rack- PDU 4",
+              "requirement": "unspecified",
+              "type": "number"
+            },
+            {
+              "key": "power_source_for_pdu_1_pdu_2",
+              "label": "Power Source for PDU 1/PDU 2",
+              "requirement": "unspecified",
+              "type": "text"
+            },
+            {
+              "key": "power_redundancy_source",
+              "label": "Power Redundancy Source",
+              "requirement": "unspecified",
+              "type": "text"
+            },
+            {
+              "key": "take_photographs",
+              "label": "Take Photographs (Yes/No)",
+              "requirement": "must_if_allowed",
+              "type": "photo",
+              "hint": "Yes/No"
+            },
+            {
+              "key": "comments",
+              "label": "Comments",
+              "requirement": "unspecified",
+              "type": "text"
+            }
+          ]
+        },
+        {
+          "section": "Additional comms room details",
+          "layout": "table",
+          "repeatable_rows": true,
+          "fields": [
+            {
+              "key": "building_number",
+              "label": "Building Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "floor_number",
+              "label": "Floor Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "comms_room_number",
+              "label": "Comms Room Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "free_space_for_new_rack_installation",
+              "label": "Free Space for New Rack Installation (Y/N)",
+              "requirement": "must",
+              "type": "yes_no",
+              "hint": "Y/N"
+            },
+            {
+              "key": "power_availability_for_new_rack",
+              "label": "Power Availability for New Rack",
+              "requirement": "must",
+              "type": "text"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tab": "Fibre Cabling",
+      "scope": "room",
+      "sections": [
+        {
+          "section": "Fibre connections",
+          "layout": "table",
+          "repeatable_rows": true,
+          "fields": [
+            {
+              "key": "building_number",
+              "label": "Building Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "floor_number",
+              "label": "Floor Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "comms_room_number",
+              "label": "Comms Room Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "switch_rack_number",
+              "label": "Switch Rack Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "nw_device_hostname",
+              "label": "NW device Hostname",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "nw_device_port_number",
+              "label": "NW device Port Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "fiber",
+              "label": "Fiber (SC/LC)",
+              "requirement": "must",
+              "type": "text",
+              "hint": "SC/LC"
+            },
+            {
+              "key": "is_the_network_device_port_up",
+              "label": "Is the network Device Port up? (LED Green)",
+              "requirement": "must",
+              "type": "yes_no",
+              "hint": "LED Green"
+            },
+            {
+              "key": "patch_panel_rack",
+              "label": "Patch Panel Rack",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "lc_sc_source_jack_patch_panel_number",
+              "label": "LC/SC Source Jack Patch Panel number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "jack_port_number",
+              "label": "Jack Port Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "lc_sc_destination_jack_patch_panel_number",
+              "label": "LC/SC destination Jack Patch Panel number",
+              "requirement": "must",
+              "type": "text"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tab": "Passive Copper Cabling",
+      "scope": "room",
+      "sections": [
+        {
+          "section": "Copper connections",
+          "layout": "table",
+          "repeatable_rows": true,
+          "fields": [
+            {
+              "key": "building_number",
+              "label": "Building Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "floor_number",
+              "label": "Floor Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "comms_room_number",
+              "label": "Comms Room Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "rack_number",
+              "label": "Rack Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "nw_device_hostname",
+              "label": "NW Device Hostname",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "nw_device_port_number",
+              "label": "NW device Port Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "nw_device_type",
+              "label": "NW Device type",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "jack_patch_panel_number",
+              "label": "Jack Patch Panel number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "jack_port_number",
+              "label": "Jack Port Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "is_the_switch_port_up",
+              "label": "Is the Switch Port up? (LED Green)",
+              "requirement": "must",
+              "type": "yes_no",
+              "hint": "LED Green"
+            },
+            {
+              "key": "patch_panel_rack",
+              "label": "Patch Panel Rack",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "purpose_of_the_connectiivity",
+              "label": "Purpose of the connectiivity",
+              "requirement": "must",
+              "type": "text"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tab": "WAN",
+      "scope": "building",
+      "sections": [
+        {
+          "section": "WAN CPE and links",
+          "layout": "table",
+          "repeatable_rows": true,
+          "fields": [
+            {
+              "key": "wan_cpe_buillding_name",
+              "label": "WAN CPE Buillding Name",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "wan_cpe_buillding_number",
+              "label": "WAN CPE Buillding Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "wan_cpe_building_wing",
+              "label": "WAN CPE Building Wing",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "wan_cpe_floor_number",
+              "label": "WAN CPE Floor Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "wan_cpe_room_name_number",
+              "label": "WAN CPE Room Name/Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "wan_cpe_rack_row_number",
+              "label": "WAN CPE Rack Row number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "wan_cpe_rack_name",
+              "label": "WAN CPE Rack Name",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "wan_cpe_rack_ru_details",
+              "label": "WAN CPE Rack RU Details",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "number_of_lan_ports_connected_on_cpe",
+              "label": "Number of LAN ports connected on CPE",
+              "requirement": "must",
+              "type": "number"
+            },
+            {
+              "key": "hostname_port_no_of_lan_device",
+              "label": "Hostname/Port No of LAN Device",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "floors_comms_room_no_of_lan_device",
+              "label": "Floors/Comms Room No of LAN Device",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "cpe_lan_port_type",
+              "label": "CPE LAN Port Type (Fiber -SMF/ Fiber-MMF/Copper)",
+              "requirement": "must",
+              "type": "text",
+              "hint": "Fiber -SMF/ Fiber-MMF/Copper"
+            },
+            {
+              "key": "cpe_lan_port_speed",
+              "label": "CPE LAN Port Speed (1G/10G/25G etc.)",
+              "requirement": "must",
+              "type": "text",
+              "hint": "1G/10G/25G etc."
+            },
+            {
+              "key": "number_of_free_ports_on_cpe",
+              "label": "Number of Free ports on CPE",
+              "requirement": "must",
+              "type": "number"
+            },
+            {
+              "key": "free_ports_type",
+              "label": "Free Ports Type (LC/SC/Copper)",
+              "requirement": "must",
+              "type": "text",
+              "hint": "LC/SC/Copper"
+            },
+            {
+              "key": "free_ports_type_sfp",
+              "label": "Free Ports Type SFP",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "free_port_ids",
+              "label": "Free Port IDs",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "wan_cpe_hostname",
+              "label": "WAN CPE Hostname (or label on device)",
+              "requirement": "good_to_have",
+              "type": "text",
+              "hint": "or label on device"
+            },
+            {
+              "key": "wan_cpe_make",
+              "label": "WAN CPE Make",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "wan_cpe_model",
+              "label": "WAN CPE Model",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "wan_cpe_serial_number",
+              "label": "WAN CPE Serial Number",
+              "requirement": "good_to_have",
+              "type": "serial"
+            },
+            {
+              "key": "wan_service_provider",
+              "label": "WAN Service Provider",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "number_of_wan_circuits_on_cpe",
+              "label": "Number of WAN Circuits on CPE",
+              "requirement": "must",
+              "type": "number"
+            },
+            {
+              "key": "wan_circuit_mpls_yes_no",
+              "label": "WAN Circuit MPLS Yes/No",
+              "requirement": "must",
+              "type": "yes_no"
+            },
+            {
+              "key": "mpls_bandwidth",
+              "label": "MPLS Bandwidth",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "wan_circuit_internet_yes_no",
+              "label": "WAN Circuit Internet Yes/No",
+              "requirement": "must",
+              "type": "yes_no"
+            },
+            {
+              "key": "internet_bandwidth",
+              "label": "Internet Bandwidth",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "is_ups_installed_in_the_rack",
+              "label": "Is UPS installed in the rack ?",
+              "requirement": "good_to_have",
+              "type": "yes_no"
+            },
+            {
+              "key": "power_socket_type",
+              "label": "Power Socket Type",
+              "requirement": "good_to_have",
+              "type": "text"
+            },
+            {
+              "key": "are_devices_directly_connected_to_ups",
+              "label": "Are Devices directly connected to UPS ?",
+              "requirement": "good_to_have",
+              "type": "yes_no"
+            },
+            {
+              "key": "are_dual_pdus_installed_in_rack",
+              "label": "Are dual PDUs installed in rack ?",
+              "requirement": "good_to_have",
+              "type": "yes_no"
+            },
+            {
+              "key": "is_power_sourced_from_ups",
+              "label": "Is power sourced from UPS ?",
+              "requirement": "good_to_have",
+              "type": "yes_no"
+            },
+            {
+              "key": "approx_distance_between_cpe_and_existing_lan_device",
+              "label": "Approx. distance between CPE and Existing LAN device (Core Switch)",
+              "requirement": "must",
+              "type": "number_m",
+              "hint": "Core Switch"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tab": "WLAN",
+      "scope": "room",
+      "sections": [
+        {
+          "section": "Floor layouts",
+          "layout": "table",
+          "repeatable_rows": true,
+          "fields": [
+            {
+              "key": "scale_bar_included_in_floor_layout",
+              "label": "Scale Bar included in Floor Layout",
+              "requirement": "good_to_have",
+              "type": "text"
+            },
+            {
+              "key": "have_office_like_spaces_been_considered",
+              "label": "Have office-like spaces been considered?",
+              "requirement": "must",
+              "type": "yes_no"
+            },
+            {
+              "key": "have_non_office_areas_been_excluded_from_wifi_first",
+              "label": "Have non-office areas been excluded from WiFi First (s.a. technical rooms, archives, balcony, canteen)?",
+              "requirement": "must",
+              "type": "yes_no",
+              "hint": "s.a. technical rooms, archives, balcony, canteen"
+            },
+            {
+              "key": "have_mandatory_exclusion_areas_been_excluded_from_wifi_cover",
+              "label": "Have mandatory exclusion areas been excluded from Wifi coverage (toilettes, stairwells and lifts)?",
+              "requirement": "must",
+              "type": "yes_no",
+              "hint": "toilettes, stairwells and lifts"
+            },
+            {
+              "key": "are_possible_neighbouring_buildings_and_bridges_to_other_bui",
+              "label": "Are possible neighbouring buildings and bridges to other buildings considered in planning?",
+              "requirement": "must",
+              "type": "yes_no"
+            },
+            {
+              "key": "floor_number",
+              "label": "Floor Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "floor_layout_format",
+              "label": "Floor Layout Format (PDF)",
+              "requirement": "good_to_have",
+              "type": "file",
+              "hint": "PDF"
+            }
+          ]
+        },
+        {
+          "section": "Access points",
+          "layout": "table",
+          "repeatable_rows": true,
+          "fields": [
+            {
+              "key": "wall_mount_roof_mount",
+              "label": "Wall Mount/ Roof Mount",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "wall_type_or_roof_type",
+              "label": "Wall Type or Roof Type",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "building_name",
+              "label": "Building Name",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "building_number",
+              "label": "Building Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "building_wing",
+              "label": "Building Wing",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "floor_number",
+              "label": "Floor Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "height_of_the_ceiling",
+              "label": "Height of the Ceiling",
+              "requirement": "must",
+              "type": "number_m"
+            },
+            {
+              "key": "cable_type",
+              "label": "Cable Type (CAT5e/CAT6/CAT6a/CAT7/CAT7a)",
+              "requirement": "must",
+              "type": "text",
+              "hint": "CAT5e/CAT6/CAT6a/CAT7/CAT7a"
+            },
+            {
+              "key": "ap_name",
+              "label": "AP Name",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "ap_make",
+              "label": "AP Make",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "ap_model",
+              "label": "AP Model",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "ap_serial_no",
+              "label": "AP Serial No.",
+              "requirement": "good_to_have",
+              "type": "serial"
+            },
+            {
+              "key": "ap_mac_address",
+              "label": "AP MAC address",
+              "requirement": "good_to_have",
+              "type": "mac"
+            },
+            {
+              "key": "connected_switch_name",
+              "label": "Connected Switch Name",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "comm_room_of_the_connected_switch",
+              "label": "Comm Room of the connected switch",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "switch_port",
+              "label": "Switch Port",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "ap_photos_yes_no",
+              "label": "AP Photos Yes/No ( Upload to share point repository)",
+              "requirement": "must",
+              "type": "photo",
+              "hint": " Upload to share point repository"
+            }
+          ]
+        },
+        {
+          "section": "Wireless LAN controllers",
+          "layout": "table",
+          "repeatable_rows": true,
+          "fields": [
+            {
+              "key": "number_of_used_ports",
+              "label": "Number Of Used Ports",
+              "requirement": "must",
+              "type": "number"
+            },
+            {
+              "key": "number_of_free_ports",
+              "label": "Number Of Free Ports",
+              "requirement": "must",
+              "type": "number"
+            },
+            {
+              "key": "building_name",
+              "label": "Building name",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "building_number",
+              "label": "Building number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "building_wing",
+              "label": "Building Wing",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "floor_number",
+              "label": "Floor Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "room_name_number",
+              "label": "Room Name/Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "rack_row_number",
+              "label": "Rack Row number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "rack_name_number",
+              "label": "Rack Name/Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "ru_details",
+              "label": "RU details",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "uplink_cable_type",
+              "label": "Uplink cable type (Fiber -SMF/ Fiber-MMF/Copper)",
+              "requirement": "must",
+              "type": "text",
+              "hint": "Fiber -SMF/ Fiber-MMF/Copper"
+            },
+            {
+              "key": "wlc_hostname",
+              "label": "WLC Hostname",
+              "requirement": "good_to_have",
+              "type": "text"
+            },
+            {
+              "key": "make",
+              "label": "Make",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "model",
+              "label": "Model",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "ap_support",
+              "label": "AP Support",
+              "requirement": "good_to_have",
+              "type": "text"
+            },
+            {
+              "key": "mac_address",
+              "label": "MAC Address",
+              "requirement": "good_to_have",
+              "type": "mac"
+            },
+            {
+              "key": "serial_number",
+              "label": "Serial Number",
+              "requirement": "good_to_have",
+              "type": "serial"
+            },
+            {
+              "key": "uplink_switch_hostname",
+              "label": "Uplink Switch Hostname",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "uplink_switch_port_id",
+              "label": "Uplink Switch Port ID",
+              "requirement": "must",
+              "type": "text"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tab": "SSID",
+      "scope": "building",
+      "sections": [
+        {
+          "section": "SSIDs",
+          "layout": "table",
+          "repeatable_rows": true,
+          "fields": [
+            {
+              "key": "ssid_name",
+              "label": "SSID Name",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "purpose",
+              "label": "Purpose",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "authencation_method",
+              "label": "Authencation Method",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "ip_assignment",
+              "label": "IP Assignment (Static/DHCP)",
+              "requirement": "must",
+              "type": "text",
+              "hint": "Static/DHCP"
+            },
+            {
+              "key": "where_is_it_used",
+              "label": "Where is it used? (List of APs)",
+              "requirement": "must",
+              "type": "text",
+              "hint": "List of APs"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tab": "Firewall",
+      "scope": "room",
+      "sections": [
+        {
+          "section": "Firewalls",
+          "layout": "table",
+          "repeatable_rows": true,
+          "fields": [
+            {
+              "key": "building_name",
+              "label": "Building name",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "building_number",
+              "label": "Building number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "building_wing",
+              "label": "Building Wing",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "floor_number",
+              "label": "Floor Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "room_name_number",
+              "label": "Room Name/Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "rack_row_number",
+              "label": "Rack Row number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "rack_name_number",
+              "label": "Rack Name/ Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "ru_details",
+              "label": "RU details",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "no_of_free_fiber_ports_available_in_the_patch_panel",
+              "label": "No. of free fiber ports available in the patch panel",
+              "requirement": "must",
+              "type": "number"
+            },
+            {
+              "key": "no_of_free_copper_ports_available_in_the_patch_panel",
+              "label": "No. of free copper ports available in the patch panel",
+              "requirement": "must",
+              "type": "number"
+            },
+            {
+              "key": "uplink_port_ids",
+              "label": "Uplink Port IDs",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "uplink_cable_type",
+              "label": "Uplink cable type (Fiber -SMF/ Fiber-MMF/Copper)",
+              "requirement": "must",
+              "type": "text",
+              "hint": "Fiber -SMF/ Fiber-MMF/Copper"
+            },
+            {
+              "key": "upstream_device_name",
+              "label": "Upstream Device Name",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "upstream_device_ports",
+              "label": "Upstream Device Ports",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "firewall_hostname",
+              "label": "Firewall Hostname (or label on device)",
+              "requirement": "must",
+              "type": "text",
+              "hint": "or label on device"
+            },
+            {
+              "key": "firewall_make",
+              "label": "Firewall Make",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "firewall_model",
+              "label": "Firewall model",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "firewall_serial_no",
+              "label": "Firewall Serial No.",
+              "requirement": "must",
+              "type": "serial"
+            },
+            {
+              "key": "firewall_management_ip",
+              "label": "Firewall Management IP",
+              "requirement": "must",
+              "type": "ip"
+            },
+            {
+              "key": "purpose_of_firewall",
+              "label": "Purpose Of Firewall ?",
+              "requirement": "good_to_have",
+              "type": "text"
+            },
+            {
+              "key": "approx_distance_with_upstream_device",
+              "label": "Approx. distance with Upstream device",
+              "requirement": "good_to_have",
+              "type": "number_m"
+            },
+            {
+              "key": "power_socket_type",
+              "label": "Power Socket Type",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "free_power_sockets_in_the_rack",
+              "label": "Free power Sockets in the rack",
+              "requirement": "must",
+              "type": "number"
+            },
+            {
+              "key": "ups_availability",
+              "label": "UPS availability",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "firewall_type",
+              "label": "Firewall Type (Physical/Virtual)",
+              "requirement": "must",
+              "type": "text",
+              "hint": "Physical/Virtual"
+            },
+            {
+              "key": "firewall_eos_eol_details_are_labeled",
+              "label": "Firewall EOS/EOL Details are Labeled",
+              "requirement": "must",
+              "type": "text"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tab": "Lab / Isolated Network",
+      "scope": "room",
+      "sections": [
+        {
+          "section": "Lab / isolated devices",
+          "layout": "table",
+          "repeatable_rows": true,
+          "fields": [
+            {
+              "key": "building_number_name",
+              "label": "Building Number/ Name",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "floor",
+              "label": "Floor",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "room_name_number",
+              "label": "Room Name/Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "device_type",
+              "label": "Device Type(NW Devices/Any special devices)",
+              "requirement": "must",
+              "type": "text",
+              "hint": "NW Devices/Any special devices"
+            },
+            {
+              "key": "device_make",
+              "label": "Device Make",
+              "requirement": "good_to_have",
+              "type": "text"
+            },
+            {
+              "key": "device_model",
+              "label": "Device model",
+              "requirement": "good_to_have",
+              "type": "text"
+            },
+            {
+              "key": "device_serial_no",
+              "label": "Device Serial No.",
+              "requirement": "good_to_have",
+              "type": "serial"
+            },
+            {
+              "key": "device_hostname",
+              "label": "Device Hostname",
+              "requirement": "good_to_have",
+              "type": "text"
+            },
+            {
+              "key": "device_ip",
+              "label": "Device IP",
+              "requirement": "good_to_have",
+              "type": "ip"
+            },
+            {
+              "key": "total_no_of_free_copper_ports",
+              "label": "Total No. of Free Copper Ports",
+              "requirement": "must",
+              "type": "number"
+            },
+            {
+              "key": "connectivity_to_corp_network_details",
+              "label": "Connectivity to Corp Network Details",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "total_no_of_free_fiber_ports_if_any",
+              "label": "Total No. of Free fiber Ports if any",
+              "requirement": "must",
+              "type": "number"
+            },
+            {
+              "key": "power_supply_type",
+              "label": "Power Supply type",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "device_power_redundancy",
+              "label": "Device power redundancy",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "power_supply_sockets_availiability",
+              "label": "Power supply sockets availiability",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "mark_isolated_restricted_area_on_floor_map",
+              "label": "Mark Isolated/Restricted area on Floor Map",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "end_user_cabling",
+              "label": "End user cabling(Cat5/Cat5E/Cat6/Cat6E)",
+              "requirement": "must",
+              "type": "text",
+              "hint": "Cat5/Cat5E/Cat6/Cat6E"
+            },
+            {
+              "key": "fiber_patch_panel_if_any",
+              "label": "Fiber patch panel if any( SC or LC)",
+              "requirement": "must",
+              "type": "text",
+              "hint": " SC or LC"
+            },
+            {
+              "key": "rack_details",
+              "label": "Rack Details (Name, Number)",
+              "requirement": "must",
+              "type": "text",
+              "hint": "Name, Number"
+            },
+            {
+              "key": "ru_details",
+              "label": "RU details",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "free_rack_unit_available",
+              "label": "Free Rack Unit available",
+              "requirement": "must",
+              "type": "number"
+            },
+            {
+              "key": "rack_photos_yes_no",
+              "label": "Rack Photos Yes/No ( Upload to share point repository)",
+              "requirement": "must",
+              "type": "photo",
+              "hint": " Upload to share point repository"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tab": "Local Server",
+      "scope": "room",
+      "sections": [
+        {
+          "section": "Local servers",
+          "layout": "table",
+          "repeatable_rows": true,
+          "fields": [
+            {
+              "key": "building_number_name",
+              "label": "Building Number/ Name",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "building_wing",
+              "label": "Building Wing",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "floor_number",
+              "label": "Floor Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "room_name_number",
+              "label": "Room Name/Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "server_make",
+              "label": "Server Make",
+              "requirement": "good_to_have",
+              "type": "text"
+            },
+            {
+              "key": "server_model",
+              "label": "Server Model",
+              "requirement": "good_to_have",
+              "type": "text"
+            },
+            {
+              "key": "server_serial_no",
+              "label": "Server Serial No.",
+              "requirement": "good_to_have",
+              "type": "serial"
+            },
+            {
+              "key": "function_of_the_server",
+              "label": "Function of the server",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "rack_row_number",
+              "label": "Rack Row number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "rack_name_number",
+              "label": "Rack Name/ Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "ru_details",
+              "label": "RU details",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "uplink_port_ids",
+              "label": "Uplink Port IDs",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "uplink_cable_type",
+              "label": "Uplink cable type (Fiber -SMF/ Fiber-MMF/Copper)",
+              "requirement": "must",
+              "type": "text",
+              "hint": "Fiber -SMF/ Fiber-MMF/Copper"
+            },
+            {
+              "key": "uplink_switch_hostname",
+              "label": "Uplink Switch Hostname",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "uplink_switch_port_number",
+              "label": "Uplink Switch Port number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "hostname",
+              "label": "Hostname",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "ip_address",
+              "label": "IP address",
+              "requirement": "must",
+              "type": "ip"
+            },
+            {
+              "key": "ip_address_is_static_dhcp",
+              "label": "IP address is Static/DHCP",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "mac_address",
+              "label": "MAC Address",
+              "requirement": "good_to_have",
+              "type": "mac"
+            },
+            {
+              "key": "service_owner",
+              "label": "Service Owner",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "special_requirements_for_servers",
+              "label": "Special Requirements for servers (Local ISE/DDI or Site criticality and redundancy in all layers etc)",
+              "requirement": "must",
+              "type": "text",
+              "hint": "Local ISE/DDI or Site criticality and redundancy in all layers etc"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tab": "Endpoint",
+      "scope": "room",
+      "sections": [
+        {
+          "section": "Endpoints",
+          "layout": "table",
+          "repeatable_rows": true,
+          "fields": [
+            {
+              "key": "device_type",
+              "label": "Device Type",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "model",
+              "label": "Model",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "device_service_owner",
+              "label": "Device/Service owner",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "building_name_number",
+              "label": "Building Name/Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "building_wing",
+              "label": "Building Wing",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "lan_port",
+              "label": "LAN Port",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "floor_number",
+              "label": "Floor Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "comms_room_number",
+              "label": "Comms Room Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "switch_port_number",
+              "label": "Switch Port Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "mac_address",
+              "label": "MAC address",
+              "requirement": "must",
+              "type": "mac"
+            },
+            {
+              "key": "hostname",
+              "label": "Hostname",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "ip_address",
+              "label": "IP Address",
+              "requirement": "must",
+              "type": "ip"
+            },
+            {
+              "key": "ip_assignment",
+              "label": "IP assignment (static/DHCP)",
+              "requirement": "must",
+              "type": "text",
+              "hint": "static/DHCP"
+            },
+            {
+              "key": "serial_number",
+              "label": "Serial Number",
+              "requirement": "unspecified",
+              "type": "serial"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tab": "BMS & rVLAN Device Inventory",
+      "scope": "room",
+      "sections": [
+        {
+          "section": "BMS / rVLAN devices",
+          "layout": "table",
+          "repeatable_rows": true,
+          "fields": [
+            {
+              "key": "device_type",
+              "label": "Device Type",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "model",
+              "label": "Model",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "device_service_owner",
+              "label": "Device/Service owner (Connected to IT LAN Network)",
+              "requirement": "must",
+              "type": "text",
+              "hint": "Connected to IT LAN Network"
+            },
+            {
+              "key": "building_name_number",
+              "label": "Building Name/Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "building_wing",
+              "label": "Building Wing",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "floor_number",
+              "label": "Floor Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "poe_or_non_poe",
+              "label": "POE or Non POE",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "mac_address",
+              "label": "MAC address",
+              "requirement": "good_to_have",
+              "type": "mac"
+            },
+            {
+              "key": "hostname",
+              "label": "Hostname",
+              "requirement": "good_to_have",
+              "type": "text"
+            },
+            {
+              "key": "ip_address",
+              "label": "IP Address",
+              "requirement": "must",
+              "type": "ip"
+            },
+            {
+              "key": "ip_assignment",
+              "label": "IP assignment (DHCP/static)",
+              "requirement": "must",
+              "type": "text",
+              "hint": "DHCP/static"
+            },
+            {
+              "key": "uplink_switch_hostname",
+              "label": "Uplink Switch Hostname",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "uplink_switch_port_number",
+              "label": "Uplink Switch Port number",
+              "requirement": "must",
+              "type": "text"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tab": "Storage Area",
+      "scope": "building",
+      "sections": [
+        {
+          "section": "Staging and storage",
+          "layout": "key_value",
+          "fields": [
+            {
+              "key": "staging_area_location",
+              "label": "Staging Area Location",
+              "type": "text",
+              "survey_method": "Ask",
+              "requirement": "must"
+            },
+            {
+              "key": "new_devices_receiving_storage_location",
+              "label": "New Devices Receiving / Storage Location",
+              "type": "text",
+              "survey_method": "Audit/Ask",
+              "requirement": "must"
+            },
+            {
+              "key": "tools_trolleys_availability_for_device_movement",
+              "label": "Tools / Trolleys availability for Device Movement",
+              "type": "text",
+              "survey_method": "Ask",
+              "requirement": "must"
+            },
+            {
+              "key": "staging_space",
+              "label": "Staging Space",
+              "type": "text",
+              "survey_method": "Audit/Ask",
+              "requirement": "must"
+            },
+            {
+              "key": "staging_area_power_sockets_count",
+              "label": "Staging Area Power Sockets Count",
+              "type": "number",
+              "survey_method": "Audit",
+              "requirement": "must"
+            },
+            {
+              "key": "staging_power_sockets_type",
+              "label": "Staging Power Sockets Type",
+              "type": "text",
+              "survey_method": "Audit",
+              "requirement": "must"
+            },
+            {
+              "key": "staging_network_connection",
+              "label": "Staging Network Connection (Count & Type)",
+              "type": "text",
+              "survey_method": "Audit",
+              "requirement": "must"
+            },
+            {
+              "key": "packaging_waste_disposable_location",
+              "label": "Packaging Waste Disposable Location",
+              "type": "text",
+              "survey_method": "Ask",
+              "requirement": "must"
+            },
+            {
+              "key": "staging_area_photos",
+              "label": "Staging area photos",
+              "type": "photo",
+              "requirement": "must_if_allowed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tab": "Rooms and Open Areas",
+      "scope": "room",
+      "sections": [
+        {
+          "section": "Rooms and open areas",
+          "layout": "table",
+          "repeatable_rows": true,
+          "fields": [
+            {
+              "key": "building_name_number",
+              "label": "Building Name/Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "floor_number",
+              "label": "Floor Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "room_type_open_area",
+              "label": "Room Type/Open Area",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "room_number",
+              "label": "Room Number",
+              "requirement": "must",
+              "type": "text"
+            },
+            {
+              "key": "number_of_seats_users",
+              "label": "Number of Seats/Users",
+              "requirement": "must",
+              "type": "number"
+            },
+            {
+              "key": "number_of_aps_in_the_room",
+              "label": "Number of APs in the room",
+              "requirement": "must",
+              "type": "number"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tab": "Reference Images",
+      "scope": "building",
+      "note": "Photo gallery; no structured fields.",
+      "sections": [
+        {
+          "section": "Images",
+          "layout": "gallery",
+          "fields": [
+            {
+              "key": "reference_images",
+              "label": "Reference images",
+              "type": "photo_multi",
+              "requirement": "good_to_have"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tab": "Passive Requirements for FMO",
+      "scope": "building",
+      "note": "Filled after the survey (post-survey planning), per item: placement floor/location, height required, details, remark, photograph.",
+      "sections": [
+        {
+          "section": "Passive requirements",
+          "layout": "item_list",
+          "item_columns": [
+            "placement_floor",
+            "placement_location",
+            "height_required",
+            "details",
+            "remark",
+            "photograph"
+          ],
+          "fields": [
+            {
+              "key": "number_of_racks_required_and_size_in_mm",
+              "label": "Number of racks required and Size (H/L/W) in mm",
+              "type": "text",
+              "requirement": "must"
+            },
+            {
+              "key": "how_many_power_socket_pdu_required",
+              "label": "How many Power Socket/PDU required",
+              "type": "number",
+              "requirement": "must"
+            },
+            {
+              "key": "ladder_requirement_if_any",
+              "label": "Ladder Requirement , if any",
+              "type": "text",
+              "requirement": "must"
+            },
+            {
+              "key": "it_room_server_room_cooling_requirement_for_devices",
+              "label": "IT Room/Server Room cooling requirement for Devices",
+              "type": "text",
+              "requirement": "must"
+            },
+            {
+              "key": "wiring_connectivity_required",
+              "label": "Wiring Connectivity Required",
+              "type": "text",
+              "requirement": "must"
+            },
+            {
+              "key": "uplink_device_connectivity",
+              "label": "Uplink Device Connectivity",
+              "type": "text",
+              "requirement": "must"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
