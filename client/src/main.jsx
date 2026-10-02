@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom'
 import './index.css'
 import App from './App.jsx'
 import { RoleProvider } from './lib/RoleContext.jsx'
+import './e2eTestApi.js'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

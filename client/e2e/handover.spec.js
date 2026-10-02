@@ -18,7 +18,7 @@ async function approveAndDeliverAll(page) {
   await page.goto('/b/b001/solution-package')
   await page.waitForSelector('text=Solution Package — Building B001')
   const token = await page.evaluate(async () => {
-    const mod = await import('/src/api/shareLink.js')
+    const mod = window.__rackiumTestApi.shareLink
     const link = await mod.generateShareLink('b001', { password: 'client123', expiryDays: 14 })
     return link.token
   })
@@ -47,8 +47,8 @@ async function approveAndDeliverAll(page) {
 // realistic end-state data behind it.
 async function finishDeploymentForAllDevices(page) {
   await page.evaluate(async () => {
-    const depMod = await import('/src/api/deploymentDesign.js')
-    const netMod = await import('/src/api/networkStore.js')
+    const depMod = window.__rackiumTestApi.deploymentDesign
+    const netMod = window.__rackiumTestApi.networkStore
     const ctx = await depMod.getDeploymentContext('b001')
     for (const device of ctx.devices) {
       if (device.role === 'wan-circuit') continue
@@ -69,6 +69,10 @@ async function finishDeploymentForAllDevices(page) {
 }
 
 test.describe('Handover', () => {
+  // Serial — see e2e/deployment.spec.js's identical comment. Handover's own
+  // full-workflow test is the single heaviest test in the whole suite.
+  test.describe.configure({ mode: 'serial' })
+
   test('loads with no console errors; the pre-compilation checklist is calculated and starts red', async ({ page }) => {
     const errors = []
     page.on('pageerror', (err) => errors.push(err.message))

@@ -19,7 +19,7 @@ async function approveAndDeliverAll(page) {
   await page.goto('/b/b001/solution-package')
   await page.waitForSelector('text=Solution Package — Building B001')
   const token = await page.evaluate(async () => {
-    const mod = await import('/src/api/shareLink.js')
+    const mod = window.__rackiumTestApi.shareLink
     const link = await mod.generateShareLink('b001', { password: 'client123', expiryDays: 14 })
     return link.token
   })
@@ -42,6 +42,12 @@ async function approveAndDeliverAll(page) {
 }
 
 test.describe('Deployment & Installation', () => {
+  // Serial: several of these tests drive a full approve-BOM-deliver chain
+  // (the heaviest shape of flow in the suite); running them concurrently
+  // across workers was enough load on the shared server to cause occasional
+  // timeouts — see playwright.config.js's webServer comment.
+  test.describe.configure({ mode: 'serial' })
+
   test('loads with no console errors, corrects the breadcrumb, and shows calculated KPIs', async ({ page }) => {
     const errors = []
     page.on('pageerror', (err) => errors.push(err.message))
