@@ -78,6 +78,12 @@ test.describe('Solution Package', () => {
 })
 
 test.describe('Solution Package — client approval end-to-end', () => {
+  // Serial: these are among the heaviest flows in the suite (full
+  // approve-BOM-deliver chains), and running several of them concurrently
+  // across workers was enough load on the shared server to cause occasional
+  // timeouts — see playwright.config.js's webServer comment.
+  test.describe.configure({ mode: 'serial' })
+
   // Uses pushState + popstate instead of page.goto() for the PM -> client ->
   // design-freeze flow: this prototype has no backend, so all state lives
   // in this tab's JS modules — a real browser navigation would reload the
@@ -94,7 +100,7 @@ test.describe('Solution Package — client approval end-to-end', () => {
     await page.waitForSelector('text=Solution Package — Building B001')
 
     const token = await page.evaluate(async () => {
-      const mod = await import('/src/api/shareLink.js')
+      const mod = window.__rackiumTestApi.shareLink
       const link = await mod.generateShareLink('b001', { password: 'client123', expiryDays: 14 })
       return link.token
     })
@@ -136,7 +142,7 @@ test.describe('Solution Package — client approval end-to-end', () => {
     await page.waitForSelector('text=Solution Package — Building B001')
 
     const token = await page.evaluate(async () => {
-      const mod = await import('/src/api/shareLink.js')
+      const mod = window.__rackiumTestApi.shareLink
       const link = await mod.generateShareLink('b001', { password: 'x', expiryDays: 14 })
       return link.token
     })
@@ -151,7 +157,7 @@ test.describe('Solution Package — client approval end-to-end', () => {
     await expect(page.getByText('Thank you — your decision has been recorded.')).toBeVisible()
 
     const statuses = await page.evaluate(async () => {
-      const mod = await import('/src/api/buildings.js')
+      const mod = window.__rackiumTestApi.buildings
       const cards = await mod.getPhaseCards('b001')
       return Object.fromEntries(cards.map((c) => [c.id, c.status]))
     })

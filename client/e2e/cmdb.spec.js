@@ -15,7 +15,7 @@ async function approveAndDeliverAll(page) {
   await page.goto('/b/b001/solution-package')
   await page.waitForSelector('text=Solution Package — Building B001')
   const token = await page.evaluate(async () => {
-    const mod = await import('/src/api/shareLink.js')
+    const mod = window.__rackiumTestApi.shareLink
     const link = await mod.generateShareLink('b001', { password: 'client123', expiryDays: 14 })
     return link.token
   })
@@ -63,6 +63,9 @@ async function deployAndAcceptOneDevice(page) {
 }
 
 test.describe('CMDB', () => {
+  // Serial — see e2e/deployment.spec.js's identical comment.
+  test.describe.configure({ mode: 'serial' })
+
   test('loads with no console errors and starts empty — nothing deployed yet', async ({ page }) => {
     const errors = []
     page.on('pageerror', (err) => errors.push(err.message))

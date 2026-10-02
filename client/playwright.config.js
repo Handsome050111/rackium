@@ -15,11 +15,18 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     ...devices['Desktop Chrome'],
   },
+  // Production build + `vite preview`, not `vite dev` — the dev server's
+  // per-request transform/HMR overhead was enough, under several heavy
+  // multi-step e2e flows running concurrently, to make requests occasionally
+  // time out (and, once, to serve two separate module instances of the same
+  // file — see api/designFreeze.js's comment). The preview server serves
+  // pre-built static assets, which is both faster and immune to that whole
+  // class of dev-mode issue.
   webServer: {
-    command: 'npm run dev -- --port 5173',
+    command: 'npm run build && npm run preview -- --port 5173',
     url: 'http://localhost:5173',
     reuseExistingServer: !process.env.CI,
-    timeout: 30000,
+    timeout: 120000,
   },
   projects: [
     { name: 'desktop', use: { viewport: { width: 1440, height: 900 } } },
