@@ -904,14 +904,17 @@ Audit entries are kept for the life of the organisation. The GDPR purge (brief �
 
 ## 11. Open points
 
-These are not yet answered. Everything else is applied in the entity sections.
+**Answered in this revision** (recorded in the sections noted):
 
-1. **Phase mapping per work type (F1, D4).** Pending client confirmation. Until then the PM picks active phases manually or through a preset (§3.10).
-2. **Phase gating defaults (D3).** Pending client confirmation (§3.2).
-3. **Rackium Team access reason (D8).** Default: a required free-text `comment`. Confirm whether a ticket reference should also be required.
-4. **Lifecycle import template (D14).** Column names are not defined.
-5. **Hosting.** Multi-document transactions need a replica set. Infrastructure decision.
-6. **Placement of planned devices (D1).** Default: the Rack Survey may place a `planned` device before LLD approval; after approval, only through a change request (§4.1). Confirm.
+- **Rackium Team access (D8, §1.4):** each access requires a **mandatory reason**, such as a support ticket reference. Access is **time-limited to 24 hours per organisation**. Every access is audit-logged and **visible to that organisation's Org Admin**.
+- **Lifecycle import template (D14, §4.6):** CSV or Excel, with one row per device. Each row carries a **serial or hostname** to identify the device, plus **warranty start**, **warranty end** and **refresh date**. Built in milestone M6.
+- **Hosting (§0, §10):** one.com VPS running **Node with PM2, behind Nginx**. **MongoDB single-node replica set** on the same server, so transactions work. **Files on VPS disk**, accessed through a storage interface so the location can change later. **Daily encrypted backups**, copied off the server.
+- **Planned devices after LLD approval (D1, §4.1, §5.9):** frozen. Changes go through a change request. Installation differences from the design are logged as **deployment exceptions** (§4.11). After handover acceptance, only **CMDB operational edits** are allowed (§5.8).
+
+**Still pending client confirmation** (defaults apply until confirmed):
+
+1. **Phase mapping per work type (F1, D4).** Until confirmed, the PM picks active phases manually or through a preset (§3.10).
+2. **Phase gating defaults (D3).** PM may add not-started phases; phases with data cannot be removed (§3.2).
 
 ## 12. Decision trace
 
