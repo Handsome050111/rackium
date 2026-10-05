@@ -38,15 +38,44 @@ describe('members, invitations and memberships are Org Admin only', () => {
     expect(res.body.error.code).toBe('forbidden')
   })
 
-  it('a PM cannot invite people; an Org Admin can', async () => {
+  it('a PM invites project members into their own project only', async () => {
     const ctx = t()
     const admin = await signedInOrgAdmin(ctx)
-    const project = (await admin.agent.post(`/api/v1/orgs/${admin.orgId}/projects`).send({ name: 'P', code: 'P2' }).expect(201)).body.project.id
-    await admin.agent.post(`/api/v1/orgs/${admin.orgId}/invitations`).send({ email: 'pm@example.com', role: 'pm', projectId: project }).expect(201)
+    const projectA = (await admin.agent.post(`/api/v1/orgs/${admin.orgId}/projects`).send({ name: 'A', code: 'PA' }).expect(201)).body.project.id
+    const projectB = (await admin.agent.post(`/api/v1/orgs/${admin.orgId}/projects`).send({ name: 'B', code: 'PB' }).expect(201)).body.project.id
+    // The PM is a PM of project A only.
+    await admin.agent.post(`/api/v1/orgs/${admin.orgId}/invitations`).send({ email: 'pm@example.com', role: 'pm', projectId: projectA }).expect(201)
     await ctx.agent().post('/api/v1/auth/invitations/accept').send({ organisationId: admin.orgId, token: tokenFrom(ctx.mailer, 'pm@example.com'), name: 'PM', password: PASSWORD }).expect(201)
     const pm = await signInAs(ctx, 'pm@example.com')
-    await pm.post(`/api/v1/orgs/${admin.orgId}/invitations`).send({ email: 'x@example.com', role: 'viewer', projectId: project }).expect(403)
-    await admin.agent.post(`/api/v1/orgs/${admin.orgId}/invitations`).send({ email: 'x@example.com', role: 'viewer', projectId: project }).expect(201)
+
+    await pm.post(`/api/v1/orgs/${admin.orgId}/invitations`).send({ email: 'viewer-a@example.com', role: 'viewer', projectId: projectA }).expect(201)
+    await pm.post(`/api/v1/orgs/${admin.orgId}/invitations`).send({ email: 'viewer-b@example.com', role: 'viewer', projectId: projectB }).expect(403)
+    // An organisation-level invitation needs Org Admin; a PM holds no organisation role.
+    await pm.post(`/api/v1/orgs/${admin.orgId}/invitations`).send({ email: 'org-admin@example.com', role: 'org_admin' }).expect(403)
+  })
+
+  it('a reviewer, architect or viewer on a project cannot invite into it', async () => {
+    const ctx = t()
+    const admin = await signedInOrgAdmin(ctx)
+    const project = (await admin.agent.post(`/api/v1/orgs/${admin.orgId}/projects`).send({ name: 'R', code: 'PR' }).expect(201)).body.project.id
+    await admin.agent.post(`/api/v1/orgs/${admin.orgId}/invitations`).send({ email: 'rev@example.com', role: 'reviewer', projectId: project }).expect(201)
+    await ctx.agent().post('/api/v1/auth/invitations/accept').send({ organisationId: admin.orgId, token: tokenFrom(ctx.mailer, 'rev@example.com'), name: 'Rev', password: PASSWORD }).expect(201)
+    const reviewer = await signInAs(ctx, 'rev@example.com')
+    await reviewer.post(`/api/v1/orgs/${admin.orgId}/invitations`).send({ email: 'x@example.com', role: 'viewer', projectId: project }).expect(403)
+  })
+
+  it('a project list shows an ordinary member only their own projects; an Org Admin sees all', async () => {
+    const ctx = t()
+    const admin = await signedInOrgAdmin(ctx)
+    const projectA = (await admin.agent.post(`/api/v1/orgs/${admin.orgId}/projects`).send({ name: 'A', code: 'LA' }).expect(201)).body.project.id
+    await admin.agent.post(`/api/v1/orgs/${admin.orgId}/projects`).send({ name: 'B', code: 'LB' }).expect(201)
+    await admin.agent.post(`/api/v1/orgs/${admin.orgId}/invitations`).send({ email: 'vw@example.com', role: 'viewer', projectId: projectA }).expect(201)
+    await ctx.agent().post('/api/v1/auth/invitations/accept').send({ organisationId: admin.orgId, token: tokenFrom(ctx.mailer, 'vw@example.com'), name: 'VW', password: PASSWORD }).expect(201)
+    const viewer = await signInAs(ctx, 'vw@example.com')
+    const seen = await viewer.get(`/api/v1/orgs/${admin.orgId}/projects`).expect(200)
+    expect(seen.body.projects.map((p) => p.name)).toEqual(['A'])
+    const all = await admin.agent.get(`/api/v1/orgs/${admin.orgId}/projects`).expect(200)
+    expect(all.body.projects).toHaveLength(2)
   })
 
   it('a Viewer cannot change memberships', async () => {

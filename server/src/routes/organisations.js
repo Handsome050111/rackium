@@ -4,6 +4,7 @@ import { ACTIONS } from '@rackium/shared/policy.js'
 import { inviteCreateBody, membershipUpdateBody, projectCreateBody, auditQuery } from '@rackium/shared/contracts.js'
 import { validate } from '../http/validate.js'
 import { requireUser, requireOrg, requireAction, actorOf } from '../http/middleware.js'
+import { rolesIn } from '../organisations/service.js'
 
 const idParam = z.object({ membershipId: z.string().regex(/^[a-f0-9]{24}$/) })
 
@@ -17,11 +18,20 @@ export function organisationRoutes({ config, org }) {
     res.json({ members: await org.listMembers({ organisationId: req.org.id }) })
   })
 
+  // Organisation invitations need Org Admin. Project invitations also allow a PM,
+  // checked against the project named in the body. Validation runs first so the
+  // project id is known when the policy is checked.
+  const inviteGate = (req, res, next) => {
+    const projectId = req.input.body.projectId ?? null
+    const action = projectId ? ACTIONS.INVITE_PROJECT_MEMBERS : ACTIONS.MANAGE_USERS_SETTINGS_CATALOGUE
+    return requireAction(action, { projectIdFrom: () => projectId })(req, res, next)
+  }
+
   r.post(
     '/invitations',
     ...base,
-    requireAction(ACTIONS.MANAGE_USERS_SETTINGS_CATALOGUE),
     validate({ body: inviteCreateBody }),
+    inviteGate,
     async (req, res) => {
       const invitation = await org.createInvitation({ organisationId: req.org.id, actor: actorOf(req), body: req.input.body })
       res.status(201).json({ invitation })
@@ -56,7 +66,8 @@ export function organisationRoutes({ config, org }) {
   )
 
   r.get('/projects', ...base, async (req, res) => {
-    res.json({ projects: await org.listProjects({ organisationId: req.org.id }) })
+    const isOrgAdmin = (await rolesIn(req.user._id, req.org.id)).organisationMembership?.role === 'org_admin'
+    res.json({ projects: await org.listProjects({ organisationId: req.org.id, userId: req.user._id, isOrgAdmin }) })
   })
 
   r.post(

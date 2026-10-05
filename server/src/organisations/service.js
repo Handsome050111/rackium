@@ -196,8 +196,18 @@ export function createOrganisationService({ mailer, auth }) {
       })
     },
 
-    async listProjects({ organisationId }) {
-      const rows = await Project.find({}).sort({ createdAt: 1 }).lean()
+    // Org Admins see every project in the organisation. Everyone else sees only the
+    // projects they hold a membership in.
+    async listProjects({ organisationId, userId, isOrgAdmin }) {
+      const filter = {}
+      if (!isOrgAdmin) {
+        const memberships = await membershipsForUser(userId)
+        const ids = memberships
+          .filter((m) => m.level === 'project' && String(m.organisationId) === String(organisationId))
+          .map((m) => m.projectId)
+        filter._id = { $in: ids }
+      }
+      const rows = await Project.find(filter).sort({ createdAt: 1 }).lean()
       return rows.map((p) => ({ id: String(p._id), name: p.name, code: p.code ?? null, status: p.status, organisationId: String(organisationId) }))
     },
 

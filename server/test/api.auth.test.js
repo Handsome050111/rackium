@@ -203,6 +203,19 @@ describe('invitations and memberships', () => {
     expect(ctx.mailer.lastTo('eng@example.com').text).toContain(`org=${orgId}`)
   })
 
+  it('accepting an invitation verifies an unverified existing account, so the session works straight away', async () => {
+    const ctx = t()
+    const host = await signedInOrgAdmin(ctx, { email: 'host@example.com', organisationName: 'Host Co' })
+    // A person who signed up elsewhere but never confirmed their email.
+    await ctx.agent().post('/api/v1/auth/signup').send({ organisationName: 'Their Own', name: 'Pat', email: 'pat@example.com', password: PASSWORD }).expect(202)
+    await host.agent.post(`/api/v1/orgs/${host.orgId}/invitations`).send({ email: 'pat@example.com', role: 'org_admin' }).expect(201)
+    const accepted = await ctx.agent().post('/api/v1/auth/invitations/accept').send({ organisationId: host.orgId, token: tokenFrom(ctx.mailer, 'pat@example.com'), password: PASSWORD }).expect(201)
+    expect(accepted.body.user.emailVerified).toBe(true)
+    const agent = ctx.agent()
+    await agent.post('/api/v1/auth/login').send({ email: 'pat@example.com', password: PASSWORD }).expect(200)
+    await agent.get('/api/v1/me').expect(200)
+  })
+
   it('an invitation cannot be accepted twice', async () => {
     const ctx = t()
     const { agent, orgId } = await signedInOrgAdmin(ctx)

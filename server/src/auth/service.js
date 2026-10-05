@@ -275,6 +275,11 @@ export function createAuthService({ config, mailer, logger }) {
         })
       })
 
+      // The invitation was sent to this address, so accepting it proves ownership.
+      if (user.status === 'pending_verification') {
+        user.status = 'active'
+        user.emailVerifiedAt = new Date()
+      }
       user.lastLoginAt = new Date()
       await user.save()
       const tokens = await issueSession({ userId: user._id, meta })

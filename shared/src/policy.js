@@ -18,6 +18,7 @@ export const ROLE_LABELS = {
 export const ACTIONS = {
   MANAGE_USERS_SETTINGS_CATALOGUE: 'manage_users_settings_catalogue',
   CREATE_PROJECTS: 'create_projects',
+  INVITE_PROJECT_MEMBERS: 'invite_project_members',
   CREATE_BUILDINGS_SET_TARGETS: 'create_buildings_set_targets',
   FILL_SURVEY_UPLOAD_PHOTOS: 'fill_survey_upload_photos',
   VERIFY_REJECT_SURVEY: 'verify_reject_survey',
@@ -38,6 +39,9 @@ export const ACTIONS = {
 const MATRIX = {
   [ACTIONS.MANAGE_USERS_SETTINGS_CATALOGUE]: ['org_admin'],
   [ACTIONS.CREATE_PROJECTS]: ['org_admin', 'pm'],
+  // A PM invites into a project only where they hold the PM role; the caller's
+  // roles are checked for that project, so a PM elsewhere has no rights here.
+  [ACTIONS.INVITE_PROJECT_MEMBERS]: ['org_admin', 'pm'],
   [ACTIONS.CREATE_BUILDINGS_SET_TARGETS]: ['org_admin', 'pm'],
   [ACTIONS.FILL_SURVEY_UPLOAD_PHOTOS]: ['field_engineer'],
   [ACTIONS.VERIFY_REJECT_SURVEY]: ['architect'],

@@ -65,4 +65,12 @@ describe('policy (v2.3 §4.3)', () => {
     expect(canApproveSubmission({ roles: ["pm"], actorId: "x", submitterId: "x" })).toBe(false)
     expect(canApproveSubmission({ roles: ["architect"], actorId: "a", submitterId: "b" })).toBe(false)
   })
+
+  it("a PM may invite project members; reviewers, architects, field engineers and viewers may not", () => {
+    expect(can(["pm"], ACTIONS.INVITE_PROJECT_MEMBERS)).toBe(true)
+    expect(can(["org_admin"], ACTIONS.INVITE_PROJECT_MEMBERS)).toBe(true)
+    for (const role of ["reviewer", "architect", "viewer", "field_engineer"]) {
+      expect(can([role], ACTIONS.INVITE_PROJECT_MEMBERS)).toBe(false)
+    }
+  })
 })
