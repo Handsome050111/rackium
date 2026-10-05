@@ -14,3 +14,6 @@
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Dependencies are installed once at the repo root (npm workspaces)
+node_modules

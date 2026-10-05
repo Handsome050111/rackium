@@ -1,7 +1,8 @@
 import { ArrowRight, History } from 'lucide-react'
-import { formatRelativeTime } from '../lib/time.js'
+import { Link } from 'react-router-dom'
+import { formatRelativeTime } from '@rackium/shared/time.js'
 
-export default function RecentHistoryPanel({ items }) {
+export default function RecentHistoryPanel({ items, buildingId }) {
   return (
     <div className="rounded-xl border border-border bg-surface p-4">
       <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-text">
@@ -16,13 +17,13 @@ export default function RecentHistoryPanel({ items }) {
           </li>
         ))}
       </ul>
-      <button
-        type="button"
+      <Link
+        to={`/b/${buildingId}/activity`}
         className="mt-4 flex items-center gap-1 text-sm font-medium text-brand hover:underline"
       >
         View full history
         <ArrowRight size={14} strokeWidth={2} />
-      </button>
+      </Link>
     </div>
   )
 }

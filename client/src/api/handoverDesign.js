@@ -7,7 +7,7 @@ import { getDeploymentContext } from './deploymentDesign.js'
 import { getCmdbContext } from './cmdbDesign.js'
 import { generateShareLink, getActiveShareLink, recordClientDecision, getClientDecision } from './shareLink.js'
 import { markHandoverAccepted } from './designFreeze.js'
-import { computeChecklist, isReadyToCompile, computeDocumentStatus, handoverPhaseStatus, HANDOVER_DOCUMENTS } from '../lib/handoverModel.js'
+import { computeChecklist, isReadyToCompile, computeDocumentStatus, handoverPhaseStatus, HANDOVER_DOCUMENTS } from '@rackium/shared/handoverModel.js'
 import { registerStore, replaceObjectContents } from '../lib/persistentStore.js'
 
 function resolveAfter(value, ms = 25) {

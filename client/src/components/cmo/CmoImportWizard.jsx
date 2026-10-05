@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { Upload, ArrowLeft, AlertTriangle, CheckCircle2, X } from 'lucide-react'
-import { CMO_FIELDS, ROW_ERROR_LABEL, guessColumnMapping } from '../../lib/cmoModel.js'
+import { CMO_FIELDS, ROW_ERROR_LABEL, guessColumnMapping } from '@rackium/shared/cmoModel.js'
 import { parseCmoFile, previewCmoImport, commitCmoImport } from '../../api/cmoDesign.js'
 
 const STEPS = ['upload', 'map', 'preview']

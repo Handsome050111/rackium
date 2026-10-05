@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Download, X } from 'lucide-react'
 import RackElevation from '../RackElevation.jsx'
-import { buildPortTrace } from '../../lib/cmdbModel.js'
+import { buildPortTrace } from '@rackium/shared/cmdbModel.js'
 import { exportConnectionsXlsx } from '../../lib/cmdbExport.js'
 
 // Brief Step 8: the render's "All (48) = 40 patched + 2 uplinks + 6 free"

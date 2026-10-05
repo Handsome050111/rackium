@@ -21,9 +21,9 @@ import {
   computeDeploymentKpis,
   computeDeploymentPhaseStatus,
   checklistProgress,
-} from '../lib/deploymentModel.js'
-import { computeDguvStatus } from '../lib/dguv.js'
-import { buildResourceEstimate, RESOURCE_TASKS } from '../lib/billOfResources.js'
+} from '@rackium/shared/deploymentModel.js'
+import { computeDguvStatus } from '@rackium/shared/dguv.js'
+import { buildResourceEstimate, RESOURCE_TASKS } from '@rackium/shared/billOfResources.js'
 import { registerStore, replaceObjectContents } from '../lib/persistentStore.js'
 
 function resolveAfter(value, ms = 25) {

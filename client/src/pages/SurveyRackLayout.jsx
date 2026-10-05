@@ -19,8 +19,8 @@ import { useUndoableState } from '../lib/useUndoableState.js'
 import { useDragSensors } from '../lib/useDragSensors.js'
 import { useRole } from '../lib/RoleContext.jsx'
 import { getRackPermissions } from '../lib/permissions.js'
-import { findConflicts, computeFreeRU } from '../lib/rackValidation.js'
-import { computeReadiness } from '../lib/rackReadiness.js'
+import { findConflicts, computeFreeRU } from '@rackium/shared/rackValidation.js'
+import { computeReadiness } from '@rackium/shared/rackReadiness.js'
 
 const AUTOSAVE_DELAY_MS = 800
 

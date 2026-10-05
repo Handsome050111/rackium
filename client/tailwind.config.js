@@ -35,6 +35,14 @@ export default {
           planned: mediaColors.planned.stroke,
         },
       },
+      // h-touch / w-touch are the 44px phone touch-target size. They need the
+      // height and width scales; min-* alone does not make h-touch produce a height.
+      height: {
+        touch: '44px',
+      },
+      width: {
+        touch: '44px',
+      },
       minHeight: {
         touch: '44px',
       },

@@ -2,7 +2,7 @@
 // Step 7: "12 groups with owner, status, due date. Build a real form for
 // group 1 (Network addressing & segmentation) with rule-based checks...
 // Other groups: simple key/value forms.")
-import { validateAddressingEntries } from '../lib/networkAddressingValidation.js'
+import { validateAddressingEntries } from '@rackium/shared/networkAddressingValidation.js'
 import { registerStore, replaceObjectContents } from '../lib/persistentStore.js'
 
 export const REQUIRED_INPUT_GROUPS = [

@@ -9,9 +9,9 @@ import { getPhaseCards } from './buildings.js'
 import { getHldVersion, getHldChangesSince } from './hldVersion.js'
 import { resolveEntity } from './lld.js'
 import { resolveAfter } from './site.js'
-import { getDevicePortMap } from '../lib/portMap.js'
-import { computeFreeRU } from '../lib/rackValidation.js'
-import { suggestNextCableId, isCableIdUnique, isCableIdValid } from '../lib/cableId.js'
+import { getDevicePortMap } from '@rackium/shared/portMap.js'
+import { computeFreeRU } from '@rackium/shared/rackValidation.js'
+import { suggestNextCableId, isCableIdUnique, isCableIdValid } from '@rackium/shared/cableId.js'
 import { getSiteProfile } from '../mock/siteProfile.js'
 import {
   buildConnectionRow,
@@ -19,7 +19,7 @@ import {
   deviceDisplayLabel,
   findDuplicateCableIds,
   findPortConflicts,
-} from '../lib/lldModel.js'
+} from '@rackium/shared/lldModel.js'
 import { registerStore, replaceObjectContents } from '../lib/persistentStore.js'
 
 // "LLD starts" the first time it is opened for a building; from then on it

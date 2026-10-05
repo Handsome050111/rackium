@@ -9,7 +9,7 @@ import { getBomContext } from './bomDesign.js'
 import { getRequiredInputsContext } from './requiredInputsStore.js'
 import { getPhaseCards, updatePhaseStatus } from './buildings.js'
 import { generateShareLink, getActiveShareLink, recordClientDecision, getClientDecision } from './shareLink.js'
-import { buildResourceEstimate } from '../lib/billOfResources.js'
+import { buildResourceEstimate } from '@rackium/shared/billOfResources.js'
 import { getResourceMinutes } from './projectSettings.js'
 import { registerStore, replaceObjectContents } from '../lib/persistentStore.js'
 

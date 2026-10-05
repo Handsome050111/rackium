@@ -5,6 +5,7 @@ import './index.css'
 import App from './App.jsx'
 import { RoleProvider } from './lib/RoleContext.jsx'
 import { OfflineProvider } from './lib/OfflineContext.jsx'
+import { AuthProvider } from './lib/AuthContext.jsx'
 import { hydrateAll, startAutosave } from './lib/persistentStore.js'
 import './e2eTestApi.js'
 
@@ -24,9 +25,11 @@ async function start() {
     <StrictMode>
       <BrowserRouter basename={basename}>
         <RoleProvider>
-          <OfflineProvider>
-            <App />
-          </OfflineProvider>
+          <AuthProvider>
+            <OfflineProvider>
+              <App />
+            </OfflineProvider>
+          </AuthProvider>
         </RoleProvider>
       </BrowserRouter>
     </StrictMode>,

@@ -3,7 +3,7 @@ import { ReactFlow, Background, Controls, MiniMap } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { HLD_NODE_TYPES } from './HldNodes.jsx'
 import { HLD_EDGE_TYPES } from './UplinkEdge.jsx'
-import { computeHldLayout } from '../../lib/hldLayout.js'
+import { computeHldLayout } from '@rackium/shared/hldLayout.js'
 
 function uplinkStatus(finding) {
   if (!finding) return 'validated'

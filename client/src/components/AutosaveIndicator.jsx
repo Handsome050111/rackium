@@ -1,5 +1,5 @@
 import { Loader2, CloudCheck, CloudOff } from 'lucide-react'
-import { formatRelativeTime } from '../lib/time.js'
+import { formatRelativeTime } from '@rackium/shared/time.js'
 
 // status: 'saved' | 'saving' | 'unsaved'
 export default function AutosaveIndicator({ status, lastSavedAt }) {

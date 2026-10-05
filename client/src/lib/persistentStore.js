@@ -13,7 +13,9 @@
 const DB_NAME = 'rackium-demo-state'
 const STORE_NAME = 'modules'
 const DB_VERSION = 1
-const AUTOSAVE_INTERVAL_MS = 2000
+// Edits made in the last interval before a reload or tab close can be lost. Keep
+// this short: at 2000 ms, a reload a second after an edit dropped the edit.
+const AUTOSAVE_INTERVAL_MS = 500
 
 const registry = new Map() // name -> { getSnapshot, restoreSnapshot }
 
@@ -125,6 +127,8 @@ export function startAutosave() {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') persistAll()
   })
+  // Reload and navigation away fire pagehide; flush the pending edits then too.
+  window.addEventListener('pagehide', () => persistAll())
 }
 
 // Dev menu "Reset demo data": wipe the persisted snapshot and reload — a

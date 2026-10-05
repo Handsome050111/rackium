@@ -1,0 +1,19 @@
+{
+  "name": "rackium",
+  "private": true,
+  "workspaces": [
+    "shared",
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "test:shared": "npm test --workspace @rackium/shared",
+    "test:client": "npm test --workspace client",
+    "test:server": "npm test --workspace @rackium/server",
+    "lint": "npm run lint --workspace client",
+    "build": "npm run build --workspace client"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

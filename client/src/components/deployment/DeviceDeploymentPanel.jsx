@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { ScanLine, CheckCircle2, Link2, Camera, AlertTriangle, ShieldCheck, Clock3 } from 'lucide-react'
 import EvidenceSlots from '../EvidenceSlots.jsx'
-import { CHECKLIST_ITEMS } from '../../lib/deploymentModel.js'
-import { DGUV_LABEL } from '../../lib/dguv.js'
+import { CHECKLIST_ITEMS } from '@rackium/shared/deploymentModel.js'
+import { DGUV_LABEL } from '@rackium/shared/dguv.js'
 import { useRole } from '../../lib/RoleContext.jsx'
 import { canRecordDeployment, canAcceptDevice } from '../../lib/permissions.js'
 

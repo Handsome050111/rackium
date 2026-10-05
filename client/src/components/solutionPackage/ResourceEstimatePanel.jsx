@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Clock3 } from 'lucide-react'
-import { RESOURCE_TASKS } from '../../lib/billOfResources.js'
+import { RESOURCE_TASKS } from '@rackium/shared/billOfResources.js'
 
 // Solution Package Section 17 — tasks x PM-editable standard minutes =
 // estimated hours per room and total (brief: no labour cost).

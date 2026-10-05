@@ -1,6 +1,6 @@
 import { organisation, project, country, sal, campus, getBuildingById } from '../mock/hierarchy.js'
 import { PHASES, PHASE_ORDER } from '../mock/phases.js'
-import { computeOverallProgress, findCurrentPhase, countByType } from '../lib/phaseCalculations.js'
+import { computeOverallProgress, findCurrentPhase, countByType } from '@rackium/shared/phaseCalculations.js'
 import { getPhaseStatusOverride, setPhaseStatusOverride } from './phaseStatusStore.js'
 import { getCmoContext } from './cmoDesign.js'
 

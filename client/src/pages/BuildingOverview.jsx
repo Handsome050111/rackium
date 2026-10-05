@@ -7,7 +7,7 @@ import PhaseCard from '../components/PhaseCard.jsx'
 import Stepper from '../components/Stepper.jsx'
 import RecentHistoryPanel from '../components/RecentHistoryPanel.jsx'
 import { getBuilding, getPhaseCards, getBuildingKpis, getRecentHistory } from '../api/index.js'
-import { formatDateTime } from '../lib/time.js'
+import { formatDateTime } from '@rackium/shared/time.js'
 
 export default function BuildingOverview() {
   const { buildingId } = useParams()
@@ -82,7 +82,7 @@ export default function BuildingOverview() {
           <h2 className="mb-2 text-sm font-semibold text-text">Project continuity</h2>
           <Stepper phases={phases} />
         </div>
-        <RecentHistoryPanel items={history} />
+        <RecentHistoryPanel items={history} buildingId={buildingId} />
       </div>
     </div>
   )

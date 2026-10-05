@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { ExternalLink } from 'lucide-react'
-import { DGUV_LABEL } from '../../lib/dguv.js'
-import { DEPLOYMENT_PLACEHOLDER } from '../../lib/lldModel.js'
+import { DGUV_LABEL } from '@rackium/shared/dguv.js'
+import { DEPLOYMENT_PLACEHOLDER } from '@rackium/shared/lldModel.js'
 import { useRole } from '../../lib/RoleContext.jsx'
 import { canEditCmdb } from '../../lib/permissions.js'
 

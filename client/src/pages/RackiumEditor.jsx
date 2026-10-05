@@ -13,9 +13,9 @@ import { getRackEditorContext, suggestCableId, checkCableIdUnique, applyMapping,
 import { isSolutionPackageApproved } from '../api/designFreeze.js'
 import { useUndoableState } from '../lib/useUndoableState.js'
 import { useMediaQuery } from '../lib/useMediaQuery.js'
-import { computeSuggestedLength, stockLengthsFor } from '../lib/cableLength.js'
-import { validateMapping, hasBlockingFailure } from '../lib/validation.js'
-import { formatDateTime } from '../lib/time.js'
+import { computeSuggestedLength, stockLengthsFor } from '@rackium/shared/cableLength.js'
+import { validateMapping, hasBlockingFailure } from '@rackium/shared/validation.js'
+import { formatDateTime } from '@rackium/shared/time.js'
 import { CheckCircle2, AlertTriangle, Eye, Lock } from 'lucide-react'
 
 const EMPTY_DRAFT = {

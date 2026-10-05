@@ -5,8 +5,8 @@
 // store and workflow live in api/surveyFormsDesign.js, same split as every
 // other phase.
 import surveyFields from '../../../docs/survey-fields.json'
-import { matchSerial } from './cmoValidation.js'
-import { isValidMac } from './cmoModel.js'
+import { matchSerial } from '@rackium/shared/cmoValidation.js'
+import { isValidMac } from '@rackium/shared/cmoModel.js'
 
 export const SURVEY_TABS = surveyFields.tabs
 

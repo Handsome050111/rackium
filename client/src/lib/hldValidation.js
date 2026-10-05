@@ -5,7 +5,7 @@
 // 10G-SR reaches 400m, so distance was never the problem. The actual
 // blocker in that scenario is patch-panel capacity, which medium doesn't
 // touch at all.
-import { DEFAULT_MEDIA_LIMITS_M } from './cableLength.js'
+import { DEFAULT_MEDIA_LIMITS_M } from '@rackium/shared/cableLength.js'
 import { isSfpValidForMedia } from '../mock/sfpCatalog.js'
 
 export function validateUplink({

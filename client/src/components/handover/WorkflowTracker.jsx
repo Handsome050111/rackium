@@ -1,5 +1,5 @@
 import { Check } from 'lucide-react'
-import { WORKFLOW_LABEL } from '../../lib/handoverModel.js'
+import { WORKFLOW_LABEL } from '@rackium/shared/handoverModel.js'
 
 // v2.2 §3.11: Pending -> Ready -> Compiled -> Under review -> Delivered ->
 // Accepted. "Changes requested" is a client outcome, not a forward step —

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
-import { paginate, DEPLOYMENT_PLACEHOLDER } from '../../lib/lldModel.js'
+import { paginate, DEPLOYMENT_PLACEHOLDER } from '@rackium/shared/lldModel.js'
 
 export const PORT_COLUMNS = {
   port: { label: 'Port', cell: (r) => <span className="font-medium text-text">{r.port}</span> },
