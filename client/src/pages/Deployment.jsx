@@ -20,7 +20,7 @@ import {
   addEvidence,
   setDeviceStatus,
 } from '../api/deploymentDesign.js'
-import { applyDeploymentStyling } from '../lib/deploymentFlow.js'
+import { applyDeploymentStyling } from '@rackium/shared/deploymentFlow.js'
 import { useMediaQuery } from '../lib/useMediaQuery.js'
 import { isHandoverAccepted } from '../api/designFreeze.js'
 

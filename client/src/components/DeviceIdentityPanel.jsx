@@ -1,5 +1,5 @@
 import { IdCard, CheckCircle2, AlertTriangle, XCircle } from 'lucide-react'
-import { matchSerial, CMO_STATUS_LABEL } from '../lib/cmoValidation.js'
+import { matchSerial, CMO_STATUS_LABEL } from '@rackium/shared/cmoValidation.js'
 
 const STATUS_ICON = { validated: CheckCircle2, 'not-in-cmo': AlertTriangle, duplicate: XCircle }
 const STATUS_COLOR = { validated: 'text-status-green', 'not-in-cmo': 'text-status-amber', duplicate: 'text-status-red' }

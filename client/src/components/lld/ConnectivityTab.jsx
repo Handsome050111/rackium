@@ -7,8 +7,8 @@ import SelectedDevicePanel from './SelectedDevicePanel.jsx'
 import UpstreamPathPanel from './UpstreamPathPanel.jsx'
 import DownstreamPanel from './DownstreamPanel.jsx'
 import NexAiAnalyserPanel from './NexAiAnalyserPanel.jsx'
-import { upstreamPath, downstreamLinks } from '../../lib/lldModel.js'
-import { relevantIdsForSelection, applyConnectivityHighlight } from '../../lib/lldConnectivityFlow.js'
+import { upstreamPath, downstreamLinks } from '@rackium/shared/lldModel.js'
+import { relevantIdsForSelection, applyConnectivityHighlight } from '@rackium/shared/lldConnectivityFlow.js'
 import { useMediaQuery } from '../../lib/useMediaQuery.js'
 
 export default function ConnectivityTab({ context }) {

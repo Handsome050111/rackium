@@ -4,9 +4,9 @@
 import { getLldContext } from './lldDesign.js'
 import { getConnections, findDevice, updateDevice } from './networkStore.js'
 import { updatePhaseStatus } from './buildings.js'
-import { getDevicePortMap } from '../lib/portMap.js'
-import { isCmdbDevice, acceptanceLabel, computeReconciliation, buildCiRows, buildCmdbPortRows, buildPortTrace, computeCmdbPhaseStatus } from '../lib/cmdbModel.js'
-import { computeDguvStatus } from '../lib/dguv.js'
+import { getDevicePortMap } from '@rackium/shared/portMap.js'
+import { isCmdbDevice, acceptanceLabel, computeReconciliation, buildCiRows, buildCmdbPortRows, buildPortTrace, computeCmdbPhaseStatus } from '@rackium/shared/cmdbModel.js'
+import { computeDguvStatus } from '@rackium/shared/dguv.js'
 import { DEVICE_CATALOGUE } from '../mock/deviceCatalogue.js'
 import { registerStore, replaceObjectContents } from '../lib/persistentStore.js'
 

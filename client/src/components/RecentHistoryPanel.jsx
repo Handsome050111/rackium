@@ -1,5 +1,5 @@
 import { ArrowRight, History } from 'lucide-react'
-import { formatRelativeTime } from '../lib/time.js'
+import { formatRelativeTime } from '@rackium/shared/time.js'
 
 export default function RecentHistoryPanel({ items }) {
   return (

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Download } from 'lucide-react'
-import { buildPortScheduleRows, filterPortScheduleRows, paginate } from '../../lib/lldModel.js'
+import { buildPortScheduleRows, filterPortScheduleRows, paginate } from '@rackium/shared/lldModel.js'
 import { exportPortScheduleXlsx } from '../../lib/lldExport.js'
 import { Pagination } from './PortTable.jsx'
 

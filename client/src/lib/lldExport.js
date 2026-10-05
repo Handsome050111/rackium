@@ -1,7 +1,7 @@
 // Cable Schedule → Excel (SheetJS). The client's SC spreadsheet headings
 // have not arrived yet, so SC_COLUMNS holds PLACEHOLDER headings — swap the
 // `heading` strings here when they do; nothing else needs to change.
-import { DEPLOYMENT_PLACEHOLDER } from './lldModel.js'
+import { DEPLOYMENT_PLACEHOLDER } from '@rackium/shared/lldModel.js'
 
 const metres = (n) => (n == null ? '' : n)
 

@@ -7,7 +7,7 @@
 import { getCampusSiteStructure } from './siteStructure.js'
 import { getDevices } from './networkStore.js'
 import { updatePhaseStatus } from './buildings.js'
-import { applyColumnMapping, validateCmoRows, computeCmoKpis, computeBuildingCmoStatus, CMO_FIELDS } from '../lib/cmoModel.js'
+import { applyColumnMapping, validateCmoRows, computeCmoKpis, computeBuildingCmoStatus, CMO_FIELDS } from '@rackium/shared/cmoModel.js'
 import { registerStore, replaceArrayContents } from '../lib/persistentStore.js'
 
 function resolveAfter(value, ms = 25) {

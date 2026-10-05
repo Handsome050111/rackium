@@ -1,6 +1,6 @@
 // PM-editable mock project settings: Bill of Resources standard minutes
 // per task, and the BOM margin % (brief Step 7 / v2.3 §5.5-§5.6).
-import { RESOURCE_TASKS } from '../lib/billOfResources.js'
+import { RESOURCE_TASKS } from '@rackium/shared/billOfResources.js'
 import { registerStore } from '../lib/persistentStore.js'
 
 const state = {

@@ -7,7 +7,7 @@ import PhaseCard from '../components/PhaseCard.jsx'
 import Stepper from '../components/Stepper.jsx'
 import RecentHistoryPanel from '../components/RecentHistoryPanel.jsx'
 import { getBuilding, getPhaseCards, getBuildingKpis, getRecentHistory } from '../api/index.js'
-import { formatDateTime } from '../lib/time.js'
+import { formatDateTime } from '@rackium/shared/time.js'
 
 export default function BuildingOverview() {
   const { buildingId } = useParams()

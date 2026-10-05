@@ -1,5 +1,5 @@
 import { FileText } from 'lucide-react'
-import { DEPLOYMENT_PLACEHOLDER } from '../../lib/lldModel.js'
+import { DEPLOYMENT_PLACEHOLDER } from '@rackium/shared/lldModel.js'
 
 // The render (page 16) shows "Link test: Passed" here — that is Deployment
 // data, not LLD design data (brief Step 6 rule). Every installation-time

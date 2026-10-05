@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { DGUV_LABEL } from '../../lib/dguv.js'
+import { DGUV_LABEL } from '@rackium/shared/dguv.js'
 
 const DGUV_COLOR = { valid: 'text-status-green', expiring_soon: 'text-status-amber', expiring: 'text-status-amber', overdue: 'text-status-red' }
 

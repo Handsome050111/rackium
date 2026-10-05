@@ -1,4 +1,4 @@
-import { buildHostname } from '../lib/naming.js'
+import { buildHostname } from '@rackium/shared/naming.js'
 import { getCompatibleSfps } from './sfpCatalog.js'
 
 const HN = { country: 'DE', sal: 'ERL', campus: 'C01', building: 'B001' }

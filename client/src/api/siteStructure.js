@@ -3,7 +3,7 @@ import * as b001 from '../mock/b001-site.js'
 import * as b002 from '../mock/b002-site.js'
 import * as b003 from '../mock/b003-site.js'
 import { getRoomSurveyMeta, hasRoomSurveyMeta } from '../mock/roomSurveyMeta.js'
-import { validateStructure } from '../lib/siteValidation.js'
+import { validateStructure } from '@rackium/shared/siteValidation.js'
 import { resolveAfter } from './site.js'
 import { registerStore } from '../lib/persistentStore.js'
 

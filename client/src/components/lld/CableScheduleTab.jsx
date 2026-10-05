@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Download, Wand2, AlertTriangle } from 'lucide-react'
-import { DEPLOYMENT_PLACEHOLDER } from '../../lib/lldModel.js'
+import { DEPLOYMENT_PLACEHOLDER } from '@rackium/shared/lldModel.js'
 import { exportCableScheduleXlsx } from '../../lib/lldExport.js'
 import { useRole } from '../../lib/RoleContext.jsx'
 import { canEditLld } from '../../lib/permissions.js'
