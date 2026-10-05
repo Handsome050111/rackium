@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint (client)
+        run: npm run lint
+
+      - name: Unit tests (shared)
+        run: npm run test:shared
+
+      - name: Unit tests (client)
+        run: npm run test:client
+
+      - name: API tests (server, in-memory replica set)
+        run: npm run test:server
+
+      - name: Build (client)
+        run: npm run build
