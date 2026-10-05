@@ -8,7 +8,7 @@ import DeploymentKpiBar from '../components/deployment/DeploymentKpiBar.jsx'
 import DeviceDeploymentPanel from '../components/deployment/DeviceDeploymentPanel.jsx'
 import RoomChecklistPanel from '../components/deployment/RoomChecklistPanel.jsx'
 import LocationTree from '../components/deployment/LocationTree.jsx'
-import { buildLocationTree } from '../lib/locationTree.js'
+import { buildLocationTree } from '@rackium/shared/locationTree.js'
 import { getBuilding } from '../api/index.js'
 import {
   getDeploymentContext,
