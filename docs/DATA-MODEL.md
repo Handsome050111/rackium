@@ -37,6 +37,7 @@ Every tenant document carries `organisationId` (ObjectId, required) and `project
 One Mongoose plugin, `tenantScope`, is applied to every tenant model. It is the only route to tenant data.
 
 - **Required scope.** A query without `organisationId` and `projectId` in the request context throws before reaching the database. Tenant models have no unscoped query path.
+- **Organisation-level read** [F2]. A request carrying an organisation-level Org Admin context is scoped to `organisationId` only and may read any project in it. It may write project records only with a project-level membership.
 - **Filter injection.** The plugin adds `{ organisationId, projectId }` to the filter of `find`, `findOne`, `findById`, `countDocuments`, `updateOne`, `updateMany`, `findOneAndUpdate`, `deleteOne` and `deleteMany`. For `aggregate`, it prepends a `$match` on the same fields.
 - **Write checks.** On `save`, `insertMany` and `bulkWrite`, the plugin rejects a document whose scope differs from the request context.
 - **Immutable scope.** `organisationId` and `projectId` cannot change on an existing document.
@@ -48,7 +49,7 @@ One Mongoose plugin, `tenantScope`, is applied to every tenant model. It is the 
 | Class | Models | Scope |
 |---|---|---|
 | Tenant, project scope | Everything in §2 with `projectId`, including `memberships`, `invitations`, `viewAsSessions`, `projectSettings`, `validationRules` (project rules), `workTypes` (custom) | `organisationId` + `projectId` |
-| Tenant, organisation scope | `organisations` (settings), `validationRules` (organisation rules), `catalogueItems` in the `organisation` layer, `workTypes` (custom to the organisation) | `organisationId` |
+| Tenant, organisation scope | `organisations` (settings), `memberships` at organisation level, `validationRules` (organisation rules), `catalogueItems` in the `organisation` layer | `organisationId` |
 | Global, platform-owned | `surveyTemplates`, `documentTypes`, `workTypes` (predefined), `catalogueItems` in `seeded` and `servon` layers | none. Read-only to customers. |
 | Global, identity | `users` | none. A user can hold memberships in several organisations. |
 
@@ -74,6 +75,8 @@ Run in CI against a replica set, with two organisations of two projects each.
 9. A Rackium Team read outside a platform context is rejected. Inside one, each operation writes exactly one platform-access audit entry.
 10. Unique indexes reject duplicates within a project and allow the same value in another project (cable IDs, serials, hostnames).
 11. Case-insensitive uniqueness: `cable-1` and `CABLE-1` collide inside a project and do not collide across projects.
+12. An Org Admin without a project membership reads every project in the organisation and writes no project record.
+13. The user who creates a project holds the PM membership for it, created in the same transaction.
 
 ### 1.6 Users, memberships, invitations and View As
 
@@ -82,13 +85,15 @@ Run in CI against a replica set, with two organisations of two projects each.
 - `email` (R, unique, case-insensitive) · `name` (R) · `accountType` (`customer` / `rackium_team`, R, default `customer`) · `status` (`invited` / `active` / `disabled`, R) · `lastLoginAt` (Date, O) · `mfaEnabled` (Boolean; required to be true for `org_admin`, `pm` and `architect`, brief §8.1) · `createdAt` (Date, R).
 - No credentials on this document. Authentication is a separate concern (brief §8.1).
 
-**`memberships`** [C; D5] — **per project** [D5].
+**`memberships`** [C; D5, F2] — two levels.
 
-- `organisationId` · `projectId` (R) · `userId` (ObjectId → users, R) · `role` (R; `org_admin` / `pm` / `architect` / `reviewer` / `field_engineer` / `viewer`) · `invitedBy` (ObjectId, O) · `createdAt` (Date, R) · `revokedAt` (Date, O).
-- `scopes[]` (embedded): `{ type: 'country' | 'sal' | 'building', refId }`. **An empty `scopes` array means the whole project** [D5]. Scopes are additive: a user sees the union of their scopes.
+- `organisationId` (R) · `projectId` (O; **null for organisation level**) · `userId` (R) · `level` (`organisation` / `project`, R) · `role` (R; organisation level: `org_admin`; project level: `pm`, `architect`, `reviewer`, `field_engineer`, `viewer`) · `invitedBy` (O) · `createdAt` (R) · `revokedAt` (O).
+- **Organisation level** [F2]: Org Admin manages users, organisation settings and the catalogue, and has **read access to every project in the organisation**. An Org Admin has **no design approval rights** unless also given a project role.
+- **Project level** [F2, D5]: PM, Architect, Reviewer, Field Engineer and Viewer. Memberships are per project. The embedded `scopes[]` (`{ type: 'country' | 'sal' | 'building', refId }`) limit the membership. **An empty `scopes` array means the whole project** [D5]. Scopes are additive.
+- **Project creator** [F2]: the user who creates a project becomes its PM. The PM membership is created in the same transaction as the project (§10).
+- A user may hold one organisation-level membership and any number of project-level memberships.
+- Unique: `(organisationId, userId)` where `level = organisation` and `revokedAt` is null; `(projectId, userId)` where `level = project` and `revokedAt` is null.
 - Brief §4.3 and §2.6: a Field Engineer scoped to one building sees only that building.
-- Unique `(projectId, userId)` where `revokedAt` is null.
-- A project-scoped membership is required for every action, including Org Admin actions inside a project. Org-level administration across projects is open (§11).
 
 **`invitations`** [C]
 
@@ -110,12 +115,12 @@ Run in CI against a replica set, with two organisations of two projects each.
 |---|---|---|---|---|
 | `organisations` | tenancy root, org settings | `settings` | — | `_id` |
 | `users` | people and platform accounts | — | — | `email` |
-| `memberships` | role and scope per project | `scopes[]` | user, project | `(projectId, userId)` active |
+| `memberships` | organisation-level and project-level roles | `scopes[]` | user, organisation, project | `(projectId, userId)` for project level; `(organisationId, userId)` for organisation level |
 | `invitations` | pending access grants | `scopes[]` | project, inviter | `tokenHash` |
 | `viewAsSessions` | view-only role switch | — | user, project | — |
 | `projects` | project, active phases | `activePhases[]`, `workTypeIds[]` | organisation | `(organisationId, code)` |
 | `projectSettings` | one per project | general, hierarchy, roles, naming, resource minutes, margin, cord override | project | `projectId` |
-| `workTypes` | predefined and custom work types | `phaseMapping[]` | organisation (custom) | `(organisationId, name)` |
+| `workTypes` | predefined (global) and custom (per project) work types | `phaseMapping[]` | project (custom) | `key` (predefined); `(projectId, name)` (custom) |
 | `validationRules` | structured custom rules | — | project or organisation | — |
 | `countries`, `sals`, `campuses` | hierarchy | — | parent | `(projectId, code)` |
 | `buildings` | building and site size | — | campus | `(projectId, code)` |
@@ -249,14 +254,54 @@ One document per project (`projectSettings`). Changes are audited (`settings.upd
 - **Commercial:** `marginPercent` (Number, default 15, PM-editable, §5.6).
 - **Power cord:** `powerCordStandardOverride` (`{ label, connectorPair }` or null) [D16]. See §4.9.
 
-### 3.10 Work types [D4]
+### 3.10 Work types [D4, F1]
 
-`workTypes` — predefined rows are global; custom rows belong to an organisation.
+`workTypes` holds the predefined types (global) and custom types (per project).
 
-- `name` (R) · `isPredefined` (Boolean, R) · `organisationId` (ObjectId, null for predefined) · `phaseMapping` (`[phaseKey]`, default **empty, pending client confirmation** [D4]) · `createdBy` · `createdAt`.
-- Unique `(organisationId, name)`, case-insensitive. Predefined rows have `organisationId` null.
-- A project selects work types through `projects.workTypeIds`. Custom types are added per organisation and appear in the selector for every project in it.
-- **Seed status:** the 27 predefined work types from the client audit are **not in this workspace** (§11, open point 1). The seed file is a placeholder with zero rows until the list is supplied.
+- `key` (R, stable, never changes once issued; unique among predefined rows) · `name` (R) · `isPredefined` (Boolean, R) · `organisationId` (null for predefined) · `projectId` (null for predefined; set for custom) · `phaseMapping` (`[phaseKey]`, default empty; **pending client confirmation** [D4]) · `createdBy` · `createdAt`.
+- Unique `(projectId, name)` for custom types, case-insensitive. Predefined keys are unique globally.
+- A project selects work types through `projects.workTypeIds`; it may select several.
+- **Custom type** [F1]: free text, entered per project. It is a `workTypes` row with `isPredefined = false` and `projectId` set.
+
+**Predefined work types** (28):
+
+| # | Name | Key |
+|---|---|---|
+| 1 | Wireless Site Survey | `wireless_site_survey` |
+| 2 | Wireless Network Design (HLD/LLD) | `wireless_network_design` |
+| 3 | Wireless Network Installation & Commissioning | `wireless_installation_commissioning` |
+| 4 | Wired Network Site Survey | `wired_site_survey` |
+| 5 | Wired Network Design (HLD/LLD) | `wired_network_design` |
+| 6 | Wired Network Installation & Commissioning | `wired_installation_commissioning` |
+| 7 | Rack & Stack (Server/Switch/Storage mounting) | `rack_and_stack` |
+| 8 | Structured Cabling Installation (Cat6/Cat6A/Fibre) | `structured_cabling_installation` |
+| 9 | Fibre Optic Installation & Splicing | `fibre_installation_splicing` |
+| 10 | Patch Panel Termination & Testing | `patch_panel_termination_testing` |
+| 11 | Cable Pathway & Containment Installation | `cable_pathway_containment` |
+| 12 | Data Centre Fit-Out | `data_centre_fit_out` |
+| 13 | Server Room Build / Refurbishment | `server_room_build_refurb` |
+| 14 | ITAD (IT Asset Disposition / Decommission) | `itad` |
+| 15 | Site Decommission (Full teardown) | `site_decommission` |
+| 16 | Network Audit / CMDB Reconciliation | `network_audit_cmdb_reconciliation` |
+| 17 | Physical Site Survey Only (no design) | `physical_site_survey_only` |
+| 18 | CCTV / IP Camera Installation | `cctv_ip_camera_installation` |
+| 19 | Access Control System Installation | `access_control_installation` |
+| 20 | UPS / Power Distribution Installation | `ups_power_distribution_installation` |
+| 21 | Environmental Monitoring (sensors, DCIM) | `environmental_monitoring` |
+| 22 | Hardware Break-Fix / IMAC (Install, Move, Add, Change) | `hardware_break_fix_imac` |
+| 23 | Firewall / Security Appliance Deployment | `firewall_appliance_deployment` |
+| 24 | Smart Hands / Remote Hands Support | `smart_hands_remote_hands` |
+| 25 | Cable Certification & Testing (Fluke) | `cable_certification_testing` |
+| 26 | Desktop / Endpoint Rollout | `desktop_endpoint_rollout` |
+| 27 | AV / Conference Room Setup | `av_conference_room_setup` |
+| 28 | Edge / MDF / IDF Room Setup | `edge_mdf_idf_room_setup` |
+
+**Presets** [F1] — a global seed that sets `projects.activePhases`; the PM may edit the result:
+
+- **Full Network Deployment:** all nine phases in order (`cmo`, `survey`, `hld`, `lld`, `solution-package`, `bom`, `deployment`, `cmdb`, `handover`).
+- **Survey & Design Only:** `cmo`, `survey`, `hld`, `lld`, `solution-package`.
+
+Until the per-work-type phase mapping is confirmed (§11, item 1), the PM picks active phases manually or through a preset.
 
 ### 3.11 Custom validation rules [M none; C; D11]
 
@@ -282,7 +327,7 @@ One collection holds every physical item in a rack or room: network devices, pat
 | `origin` | String | R | [D1] `existing` (surveyed on site) or `planned` (designed in HLD and LLD) | `planned` | §5.2, §5.4 | B |
 | `hostname` | String | R | §7 pattern; unique per project, case-insensitive | generated once | §6.6 | M |
 | `role` | String | R | `fusion`, `border`, `distribution`, `edge`, `ap`, `wan_circuit` (the mock uses `wan-circuit`; underscore in the database) | | §4.1, §6.6 | M |
-| `category` | String | R | `network_device`, `patch_panel`, `pdu`, `cable_management`, `accessory`, `wan_circuit` | `network_device` | §6.5 | M partial |
+| `category` | String | R | `network_device`, `patch_panel`, `pdu`, `ups`, `server`, `probe`, `cable_management`, `accessory`, `wan_circuit` | `network_device` | §6.5 | M partial |
 | `model` | String | R | must match a `catalogueItems` device key | | §6.5 | M |
 | `rackId` | ObjectId | O | null when not racked (e.g. ceiling APs) | null | §4.1 | M |
 | `ru` | Number | O | ≥ 1 when racked; null for 0U and unracked | null | §4.1 | M |
@@ -297,7 +342,7 @@ One collection holds every physical item in a rack or room: network devices, pat
 | `portExceptions` | `[{ portId, reason, note, createdBy, createdAt }]` | O | pre-occupied and other exceptions [S4] | `[]` | §6.8 | M |
 | `provenance` | `{ [field]: { source, setBy, setAt, importBatchId } }` | O | §8.2 | `{}` | §5.8 | C |
 
-**Placement rule** [D1]: for `origin = planned`, the Rack Survey may record placement before LLD approval. After LLD approval, a placement change goes through a change request (§5.9). This is a default pending confirmation (§11, item 11).
+**Placement rule** [D1]: for `origin = planned`, the Rack Survey may record placement before LLD approval. After LLD approval, a placement change goes through a change request (§5.9). This is a default pending confirmation (§11, item 6).
 
 **§4.1a `installation`** (embedded, M `deploymentDesign.js`)
 
@@ -368,7 +413,7 @@ Three collections enforce uniqueness across a project. Each row is written in **
 
 | Registry | Fields | Unique index | Written with |
 |---|---|---|---|
-| `cableIdRegistry` | `projectId`, `cableId` (trimmed), `ownerType` (`connection` / `hop`), `connectionId`, `hopSeq` (O), `status` (`reserved` / `retired`), `reservedAt` | `(projectId, cableId)`, case-insensitive | connection create or update, cable ID assignment, hop insert or change, decommission (sets `retired`, does not delete; §11 item 5) |
+| `cableIdRegistry` | `projectId`, `cableId` (trimmed), `ownerType` (`connection` / `hop`), `connectionId`, `hopSeq` (O), `status` (`reserved` / `retired`), `reservedAt` | `(projectId, cableId)`, case-insensitive | connection create or update, cable ID assignment, hop insert or change, decommission (sets `retired`; never deletes or reuses; [F4]) |
 | `portOccupancy` | §4.3 | `(projectId, deviceId, portId)` | connection create, update or decommission; hop insert; pre-occupied exception |
 | `serialRegistry` | `projectId`, `serial` (trimmed), `ownerType` (`cmoDevice` / `device`), `ownerId` | `(projectId, serial)`, case-insensitive | CMO import commit, serial entry on a device, device replacement |
 
@@ -414,13 +459,13 @@ Renamed from "building connection". Device links keep the name *connection*.
 | `mediaSpeed` | `{ media, speed, reachM }` | R for `optic` | the reach check of §6.4 | | M |
 | `stock` | `{ media, lengthM, pricePerMetreMinor }` | R for `stock_cable` | §6.3, D27 | | B |
 
-- **Serialised vs consumable** [D6]: a `device_model` in category `switch`, `router`, `firewall`, `ap` or `wlc` is serialised (§4.10). Optics, cables, power cords, cage nuts and accessories are consumables.
+- **Serialised vs consumable** [F6]: serialised = `switch`, `router`, `firewall`, `ap`, `wlc`, `server`, `ups`, `pdu`, `probe` (§4.10). Everything else in §4.10's consumable list is a consumable.
 - The mock's three device models and two optics seed the `seeded` layer until Technonex supplies the full 20–30 model list (brief §6.5).
 
 ### 4.8 Catalogue layers and categories [C]
 
 - **Layers:** `seeded` (Rackium Team, global) → `servon` (platform product codes, global) → `organisation` → `project`. For any key, the highest layer that defines it wins. A lower layer never removes a key; it overrides values only.
-- **Categories:** passive (`cable`, `patch_panel`, `cabinet`, `cage_nut`, `accessory`, `cable_management`); active networking (`switch`, `router`, `firewall`, `ap`, `wlc`); `server`; infrastructure (`ups`, `pdu`, `sensor`); external (`wan_sp_connection`, `remote_site`).
+- **Categories:** passive (`cable`, `patch_panel`, `cabinet`, `cage_nut`, `accessory`, `cable_management`); active networking (`switch`, `router`, `firewall`, `ap`, `wlc`); `server`; `probe`; infrastructure (`ups`, `pdu`, `sensor`); external (`wan_sp_connection`, `remote_site`).
 - Power and planned are display categories for cables (D7), not catalogue categories.
 
 ### 4.9 Power cord standard [D16]
@@ -432,13 +477,13 @@ Renamed from "building connection". Device links keep the name *connection*.
 
 BOM **lines are computed** from the design (§6). Only procurement facts are stored, in two shapes:
 
-**Serialised line** — one per device, for `kind = device_model` in categories `switch`, `router`, `firewall`, `ap`, `wlc` [D6]:
+**Serialised line** — one per device, for categories `switch`, `router`, `firewall`, `ap`, `wlc`, `server`, `ups`, `pdu`, `probe` [F6]. Serialised items carry DGUV, which is tracked per device (§4.1b):
 
 - `lineType = 'serialised'` · `deviceId` (R) · `procurementStatus` (`not_ordered` / `ordered` / `shipped` / `delivered`, R, default `not_ordered`).
 - Unique `(buildingId, deviceId)`.
 - `ordered` on a serialised line moves the device to `ordered` (§5.2). `delivered` moves it to `delivered`.
 
-**Consumable line** — one per consumable type [D6]:
+**Consumable line** — one per consumable type [F6]. Consumable types: patch cords and cables by media and length, SFPs and optics, DAC and stack cables, power cords, cage-nut sets, patch panels, cable managers, blanking and brush panels, shelves, labels. Patch panels are devices in §4.1 but are procured as consumables; their device status is set by Deployment, not by procurement:
 
 - `lineType = 'consumable'` · `consumableKey` (R, a catalogue key of kind `optic`, `stock_cable`, `consumable`) · `orderedQty` (Number ≥ 0, R) · `deliveredQty` (Number ≥ 0, R).
 - Unique `(buildingId, consumableKey)`.
@@ -448,7 +493,7 @@ BOM **lines are computed** from the design (§6). Only procurement facts are sto
 
 - Procurement unlocks only after Solution Package approval, and is read-only after handover acceptance (brief §5.6).
 - Corrections after `delivered` are PM edits, audited (§8.1). No reverse transitions are enforced.
-- The consumable list is a default pending confirmation (§11, item 8).
+- Consumable types are as listed above [F6].
 
 ### 4.11 Deployment exceptions [M `deploymentDesign.js` `exceptionsByBuilding`] (brief §5.7, §5.9)
 
@@ -497,7 +542,7 @@ Sequence: `planned` → `ordered` → `delivered` → `installed` → `configure
 | any | `maintenance` | maintenance | PM, Architect (CMDB operational change) | |
 | any | `retired` | retirement | PM | |
 
-**Existing devices** [D1 `origin = existing`] start in the state the survey records. The default for newly surveyed existing gear is `in_service`, pending confirmation (§11, item 6).
+**Existing devices** [D1 `origin = existing`] start `in_service` when surveyed [F5]. Removal moves them to `retired` (PM, table above).
 
 **Mock gap:** `DEVICE_STATUS_ORDER` omits `maintenance` and `retired`, and `setDeviceStatus` accepts any value (§13).
 
@@ -514,7 +559,7 @@ Sequence: `designed` → `approved` → `installed` → `tested` → `accepted` 
 | `accepted` | `in_service` | placed in service | PM | |
 | `installed` or `tested` | `faulty` | fault | Field Engineer, PM | |
 | `faulty` | `installed` | repaired | Field Engineer | |
-| any | `decommissioned` | removed | PM | deletes `portOccupancy` rows for both ends and every hop; sets `cableIdRegistry` rows to `retired`; one transaction |
+| any | `decommissioned` | removed | PM | deletes `portOccupancy` rows for both ends and every hop; sets `cableIdRegistry` rows to `retired` (never reused, [F4]); one transaction |
 
 **Mock gap:** `CONNECTION_STATUS_ORDER` omits `faulty` and `decommissioned`.
 
@@ -529,7 +574,7 @@ Sequence: `designed` → `approved` → `installed` → `tested` → `accepted` 
 | `submitted` | `rejected` | Architect rejects | Architect | `rejectReason` required |
 | `rejected` | `draft` | any edit | Field Engineer | automatic |
 | `verified` | `draft` | **any edit** [D2] | Field Engineer | audit `survey.tab.reverted`; one transaction |
-| `imported` | `draft` | **any edit** [D2; interpretation in §11, item 4] | Field Engineer | audit entry; raises a `designFlags` row |
+| `imported` | `draft` | **any edit** [F3] | Field Engineer | audit `survey.tab.reverted`; raises a `designFlags` row |
 | `verified` or `imported` | `imported` | HLD import of the building | Architect, PM | every tab in the building verified or imported |
 
 **Building completion:** every room tab and building tab must be `verified` or `imported` (brief §5.2). The survey phase is `approved` when that holds, calculated (§6).
@@ -841,7 +886,7 @@ Audit entries are kept for the life of the organisation. The GDPR purge (brief �
 | **Update connection** (ports, cable ID, hops) | same set, for the changed rows | the old registry and occupancy rows are released in the same transaction |
 | **Assign cable ID** | `connections.cableId`, `cableIdRegistry` | suggestions are non-binding; the write is the only allocation |
 | **Insert hop** | `connections.hops`, `cableIdRegistry`, `portOccupancy` | `seq` stays contiguous |
-| **Decommission connection** | `connections.status`, `portOccupancy` deletes, `cableIdRegistry` set to `retired` | ports freed; IDs retained (§11, item 5) |
+| **Decommission connection** | `connections.status`, `portOccupancy` deletes, `cableIdRegistry` set to `retired` | ports freed; IDs stay registered as `retired`, never reused [F4] |
 | **Set device serial** | `devices.installation.serial`, `serialRegistry` | |
 | **CMO import commit** | `importBatches`, `cmoDevices`, `serialRegistry` | every valid row, or none |
 | **Lifecycle import commit** | `importBatches`, `devices.lifecycle` | every valid row, or none |
@@ -859,21 +904,14 @@ Audit entries are kept for the life of the organisation. The GDPR purge (brief �
 
 ## 11. Open points
 
-These are not answered. Everything else in this document is applied.
+These are not yet answered. Everything else is applied in the entity sections.
 
-1. **Work-type list (D4).** The 27 predefined work types from the client audit are not in this workspace: the audit document was not provided and the repository holds no copy. The seed is a placeholder with zero rows (§3.10). Phase mapping per work type is pending client confirmation.
-2. **Phase gating defaults (D3)** are pending client confirmation (§3.2).
-3. **Organisation-level administration (D5).** Memberships are per project, but Org Admin manages users, the catalogue and templates across projects. Proposed: an organisation-admin flag on the user, plus a project membership for project actions. Needs confirmation.
-4. **Survey edit after import (D2).** I read "reverts to draft" as applying to imported records too (§5.4). Confirm.
-5. **Cable ID reuse after decommission.** Default: IDs are retained as `retired` and never reused (§4.4). Confirm.
-6. **Initial status of existing gear** (`origin = existing`). Default: `in_service` (§5.2). Confirm.
-7. **Rackium Team access reason (D8).** Default: a required free-text `comment`. Confirm whether a ticket reference should also be required.
-8. **Consumable list (D6).** Default: optics, cables, power cords, cage nuts and accessories (§4.10). Confirm.
-9. **Lifecycle import template (D14).** Column names are not defined.
-10. **Hosting.** Multi-document transactions need a replica set. Infrastructure decision.
-11. **Placement of planned devices (D1).** Default: the Rack Survey may place a `planned` device before LLD approval; after approval, only through a change request (§4.1). Confirm.
-
----
+1. **Phase mapping per work type (F1, D4).** Pending client confirmation. Until then the PM picks active phases manually or through a preset (§3.10).
+2. **Phase gating defaults (D3).** Pending client confirmation (§3.2).
+3. **Rackium Team access reason (D8).** Default: a required free-text `comment`. Confirm whether a ticket reference should also be required.
+4. **Lifecycle import template (D14).** Column names are not defined.
+5. **Hosting.** Multi-document transactions need a replica set. Infrastructure decision.
+6. **Placement of planned devices (D1).** Default: the Rack Survey may place a `planned` device before LLD approval; after approval, only through a change request (§4.1). Confirm.
 
 ## 12. Decision trace
 
@@ -882,7 +920,7 @@ These are not answered. Everything else in this document is applied.
 | D1 | Rack Survey writes to `devices`; one collection with `origin = existing \| planned`; reserved and blocked RUs are separate `ruStates` rows | §4.1, §4.2, §5.2, §5.6 |
 | D2 | Editing a verified survey tab reverts it to draft with an audit entry; an imported tab raises a `designFlags` row on the HLD | §5.4, §10.2 |
 | D3 | Phase gating follows active phases in order; PM may add not-started phases; phases with data cannot be removed (pending confirmation) | §3.2, §6 |
-| D4 | Work types: the 27 seed (not provided, §11 item 1) plus custom types; phase mapping pending confirmation | §3.10 |
+| D4 | Work types: the 28 predefined types (keys and names supplied) plus custom types per project; presets; phase mapping per type pending confirmation | §3.10 |
 | D5 | Memberships are per project; empty scope means the whole project | §1.6 |
 | D6 | Serialised items (switch, router, AP, firewall, WLC) are one procurement line per device; consumables aggregate per type with ordered and delivered quantities | §4.7, §4.10, §6 |
 | D7 | `power` and `planned` are display categories, not connection media | §4.3 |
@@ -900,6 +938,12 @@ These are not answered. Everything else in this document is applied.
 | S3 | Registries `cableIdRegistry`, `portOccupancy`, `serialRegistry`: each unique, written in the same transaction | §4.4, §10 |
 | S4 | Ports are not rows: port list comes from the catalogue `portMap`; store occupancy and pre-occupied exceptions only | §4.1, §4.3 |
 | S5 | Room-to-room route renamed `pathway`; device links stay `connection` | §4.5 |
+| F1 | 28 predefined work types with stable keys; custom type per project; two presets | §3.10 |
+| F2 | Two-level roles: organisation-level Org Admin (reads all projects; no approval rights unless also a project role); project-level PM, Architect, Reviewer, Field Engineer, Viewer; project creator becomes PM | §1.2, §1.5, §1.6 |
+| F3 | Editing an imported survey tab reverts it to draft with an audit entry and flags "survey changed after import" on the HLD, as for verified tabs | §5.4 |
+| F4 | Cable IDs are never reused within a project; a decommissioned connection keeps its ID registered as `retired` | §4.4, §5.3, §10.2 |
+| F5 | Existing gear (`origin = existing`) starts `in_service`; moves to `retired` when removed | §5.2 |
+| F6 | Serialised versus consumable procurement classes, as listed | §4.7, §4.10 |
 
 ---
 
