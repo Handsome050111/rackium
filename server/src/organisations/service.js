@@ -15,6 +15,18 @@ import { membershipsForUser } from '../auth/service.js'
 const { ObjectId } = mongoose.Types
 const INVITE_TTL_MS = 7 * 24 * 3600 * 1000
 
+// A scope must name a country, SAL or building that exists in this organisation.
+// Those records are created in M2, so until then no scope can be valid and any
+// non-empty list is refused. M2 replaces this with a lookup in the organisation's
+// tenant scope. Clearing scopes (an empty list) is always allowed.
+function assertScopesExist(scopes) {
+  if (scopes?.length) {
+    throw badRequest('Scopes must name a country, SAL or building that exists in this organisation', {
+      scopes: scopes.map((s) => s.type),
+    })
+  }
+}
+
 const scopeOf = (m) => (m.scopes ?? []).map((s) => ({ type: s.type, refId: String(s.refId) }))
 const membershipSnapshot = (m) => ({ role: m.role, scopes: scopeOf(m) })
 
@@ -72,6 +84,7 @@ export function createOrganisationService({ mailer, auth }) {
       const pending = await Invitation.exists({ email: body.email, level, projectId, status: 'pending' })
       if (pending) throw conflict('invitation_pending', 'An invitation to this address is already waiting')
 
+      assertScopesExist(body.scopes)
       const token = randomToken()
       const invitation = await Invitation.create({
         email: body.email,
@@ -120,6 +133,7 @@ export function createOrganisationService({ mailer, auth }) {
       }
       if (body.scopes !== undefined) {
         if (membership.level !== 'project') throw badRequest('Scopes apply to project memberships only')
+        assertScopesExist(body.scopes)
         membership.scopes = body.scopes
       }
       await membership.save()

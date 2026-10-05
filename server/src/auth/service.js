@@ -18,6 +18,8 @@ const LOCK_MS = 15 * 60 * 1000
 const VERIFY_TTL_MS = 24 * 3600 * 1000
 const RESET_TTL_MS = 60 * 60 * 1000
 const INVITE_TTL_MS = 7 * DAY_MS
+// A rotated refresh token is accepted again for this long (see refresh()).
+const REFRESH_REUSE_GRACE_MS = 30 * 1000
 
 export const ACCEPTED = Object.freeze({ message: 'If that request can be completed, we have sent an email with the next step.' })
 
@@ -60,6 +62,17 @@ export function createAuthService({ config, mailer, logger }) {
 
   async function revokeFamily(familyId, now = new Date()) {
     await RefreshToken.updateMany({ familyId, revokedAt: null }, { $set: { revokedAt: now } })
+  }
+
+  // The user, if a rotated token may be accepted again: it was rotated within
+  // REFRESH_REUSE_GRACE_MS, its family still has a live token (not logged out or
+  // revoked), and the account is still active. Otherwise null.
+  async function userWithinRotationGrace(seen, now) {
+    if (!seen.revokedAt || now - seen.revokedAt > REFRESH_REUSE_GRACE_MS) return null
+    const familyLive = await RefreshToken.exists({ familyId: seen.familyId, replacedBy: null, revokedAt: null, expiresAt: { $gt: now } })
+    if (!familyLive) return null
+    const user = await User.findById(seen.userId)
+    return user && user.status === 'active' ? user : null
   }
 
   return {
@@ -187,8 +200,15 @@ export function createAuthService({ config, mailer, logger }) {
       if (!claimed) {
         const seen = await RefreshToken.findOne({ tokenHash: hash })
         if (seen?.replacedBy) {
-          // A token that was already rotated is being presented again: treat the
-          // whole family as compromised and end it.
+          // Two requests raced on the same cookie (two tabs, or a retry). The
+          // second one gets a fresh session in the same family.
+          const graceUser = await userWithinRotationGrace(seen, now)
+          if (graceUser) {
+            const next = await issueSession({ userId: graceUser._id, familyId: seen.familyId, meta })
+            return { user: graceUser, tokens: next }
+          }
+          // Presented again after the grace window: treat the whole family as
+          // compromised and end it.
           await revokeFamily(seen.familyId, now)
           const orgId = await primaryOrganisationId(seen.userId)
           await recordAudit({ organisationId: orgId, actor: userActor(seen.userId), action: 'auth.refresh_reuse_detected', objectType: 'User', objectId: seen.userId, changeType: 'system', source: 'ui', comment: 'family revoked' })

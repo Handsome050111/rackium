@@ -22,6 +22,9 @@ cover.
 | 3 | Medium | A PM could not invite anyone, so a PM had to ask an Org Admin to add each member to their own project. | New policy action `invite_project_members` (Org Admin and PM). A PM may invite only into a project where they hold the PM role. Organisation-level invitations stay Org Admin only. Validation runs before authorisation so the project id is known. | `a PM invites project members into their own project only`; `a reviewer, architect or viewer on a project cannot invite into it`; policy unit test |
 | 4 | Medium | No way to resend a verification email. If the send failed after sign-up committed, the person was stuck. (Open item A.) | `POST /auth/verify-email/resend`: rate-limited (5/hour), same reply whether or not the account exists, marks earlier unused links used, audit entry `auth.verification_resent`. Client: "Resend verification email" on the sign-up check-email screen and on the sign-in "email not verified" state. | `server/test/api.resend.test.js` (verification cases); `client/src/api/authApi.resend.test.js` |
 | 5 | Medium | No way to resend an invitation. (Open item B.) | `POST /orgs/:orgId/invitations/:invitationId/resend`: rate-limited (20/hour), replaces the token hash (old link stops working), extends expiry to 7 days, audit entry `invitation.resent`. Org Admins may resend any; a PM only into their own project. Client: Team page "Resend invitation". | `server/test/api.resend.test.js` (invitation cases: org admin, PM own vs other project, reviewer 403, accepted 404, cross-org 404, pending-list scoping) |
+| 6 | Low | Refresh rotation claimed the old token before issuing the new one. Two requests racing on the same cookie (two tabs, or a retry) made the second one look like reuse and signed the user out. (Open item C.) | A rotated refresh token is accepted again for 30 seconds, if its family still has a live token. The request gets a new session in the same family. After that window, or after logout, presenting it still revokes the family. | `a rotated token presented again within 30 seconds gets a session in the same family`; `after logout, a token rotated within the grace window does not start a new session`; `a token presented after rotation and the grace window revokes the whole family` |
+| 7 | Medium | `TRUST_PROXY` defaulted to 0, so behind Nginx every client shared the proxy address. (Open item E.) | Left configurable and default-off (0 = socket address). Set `TRUST_PROXY=1` on the VPS. Documented in BACKEND-SETUP.md and DEPLOY-DEMO.md, with the Nginx `X-Forwarded-For` header. Clients are taken from `X-Forwarded-For` only when enabled. |`api.trust-proxy.test.js`: default ignores X-Forwarded-For; TRUST_PROXY=1 takes it |
+| 8 | Low | Membership scopes were not checked against any object. (Open item F.) | Scopes must name a country, SAL or building in the organisation. Those objects are created in M2, so until then any non-empty scope list is refused, on invitations and on membership updates. Clearing scopes is still allowed. M2 replaces the refusal with a lookup. | `api.scopes.test.js` (invitation with a scope refused; membership update with a scope refused; clearing allowed) |
 
 Earlier in M1 (covered by tests in the M1 commits): logout and password reset
 did not end outstanding access tokens; reuse of a rotated refresh token was
@@ -32,10 +35,7 @@ values escaped the tenant scope.
 
 | # | Severity | Problem | Suggested owner / fix |
 |---|---|---|---|
-| C | Low | Refresh rotation claims the old token before issuing the new one. A request arriving in that gap, using the access token just issued, can see no live session and get 401 once. | Issue the new token first, then revoke the old one in the same step. Low risk; fix with the rotation tests. |
-| D | Medium | Rate limits are held in process memory. Two PM2 instances would each allow the full limit. | Keep one process for M1 (as planned). Before scaling out, move limits to a shared store. |
-| E | Medium | `TRUST_PROXY` defaults to 0. Behind Nginx every client shares the proxy's IP, so one user's failed sign-ins lock out everyone. | Set `TRUST_PROXY=1` in the VPS environment. Add a production check that rejects 0 when `NODE_ENV=production`. |
-| F | Low | Membership scopes (country, SAL, building ids) are not checked to exist or to belong to the organisation. | Validate once the hierarchy exists (M2). |
+| D | Medium | Rate limits are held in process memory. Two PM2 instances would each allow the full limit. | **Documented, not fixed.** The API runs as one PM2 process (`-i 1`), never cluster mode. DEPLOY-DEMO.md says so. Scale-out needs a shared rate-limit store first. |
 | G | Low | The invitation audit entry records the invitee's email address in plain text. | Keep it for the audit trail, but confirm retention with the client when the GDPR purge is built. |
 | H | Info | Approval routes do not exist yet, so the "architect cannot approve own work" rule (`canApproveSubmission`) is not yet enforced by any endpoint. | M2 must call `canApproveSubmission` in every internal approval route, with a test per route. |
 | I | Info | The development console email provider writes verification and reset links, including tokens, to the server log. Production refuses this provider (checked at startup). | None, as long as production config is used. Keep the startup check tested. |
@@ -70,9 +70,11 @@ something on screen.
 
 | # | Severity | Problem | Fix | Test |
 |---|---|---|---|---|
-| 6 | Major | Any unknown screen under a building (for example `/b/b001/no-such-screen`) showed "<phase> screen is built in a later step", which is unfinished text in front of a client. | Replaced with a "Page not found" view and a link back to the building overview. | `client/e2e/bug-sweep.spec.js` › unknown screens |
-| 7 | Minor | The dashboard's "View full history" button had no handler and no target screen. | Restored as a link to a new Activity page (`/b/:id/activity`) listing the dashboard history, with an empty state. Spec v2.3 §7.2, client audit item 13. | `client/e2e/bug-sweep.spec.js` › top bar and dashboard controls open their targets |
-| 8 | Minor | The top bar Notifications bell and Settings button had no handler. | Bell opens a notifications panel with All / Unread tabs and "No notifications yet" (real notifications come in M5). Settings opens a Settings page (`/b/:id/settings`) with Organisation, Members and Project settings. Members links to the Team page in real mode. Other sections say "Available soon". | `client/e2e/bug-sweep.spec.js` › top bar and dashboard controls open their targets |
+| 9 | Major | Any unknown screen under a building (for example `/b/b001/no-such-screen`) showed "<phase> screen is built in a later step", which is unfinished text in front of a client. | Replaced with a "Page not found" view and a link back to the building overview. | `client/e2e/bug-sweep.spec.js` › unknown screens |
+| 10 | Minor | The dashboard's "View full history" button had no handler and no target screen. | Restored as a link to a new Activity page (`/b/:id/activity`) listing the dashboard history, with an empty state. Spec v2.3 §7.2, client audit item 13. | `client/e2e/bug-sweep.spec.js` › top bar and dashboard controls open their targets |
+| 11 | Minor | The top bar Notifications bell and Settings button had no handler. | Bell opens a notifications panel with All / Unread tabs and "No notifications yet" (real notifications come in M5). Settings opens a Settings page (`/b/:id/settings`) with Organisation, Members and Project settings. Members links to the Team page in real mode. Other sections say "Available soon". | `client/e2e/bug-sweep.spec.js` › top bar and dashboard controls open their targets |
+| 12 | Major | Edits were lost if the page reloaded within 2 seconds of them (autosave every 2 s, not flushed on reload). | Autosave every 500 ms, and a flush on `pagehide`. | `client/e2e/sweep-round3.spec.js` › persistence across reload › an edit on a building-scope survey tab survives a reload |
+| 13 | Major (phone) | Every `h-touch` and `w-touch` control was not 44 px. The size was defined only as `minHeight`/`minWidth`, so the height and width utilities produced nothing. Affected 60 and 11 uses across the app. | Added `height` and `width` tokens of 44 px in `tailwind.config.js`. Survey Add row also changed to `h-touch sm:h-8`. | `client/e2e/sweep-round3.spec.js` › phone touch targets |
 
 Note: an earlier draft of this round removed these three controls. That was
 wrong, because the spec requires them. They were restored in the same round.
@@ -88,17 +90,22 @@ wrong, because the spec requires them. They were restored in the same round.
 
 | P | Info | HLD and LLD Playwright specs failed in the first full run (many 30-second timeouts). | Not a code regression. The cause was two Playwright runs at once (plus stale vite servers) competing for port 5173. On a clean run, `develop` (worktree at 7ff2c8b, client only) gives 62 passed and 14 skipped for `hld.spec.js` and `lld.spec.js`, and `feature/m1-backend` gives the same. |
 
-### Not covered in this round
+### Round 3: checks that were not covered before
 
-These were on the sweep list and are not verified yet. They are not known to be
-broken.
+Spec: `client/e2e/sweep-round3.spec.js` (9 tests, run at all four widths).
 
-- Role gating on building-scope tabs and on the LLD and Rackium Editor screens.
-  The earlier sweep covered only the room survey screen, and only role
-  visibility of controls.
-- Persistence and "Reset demo data" across a reload, beyond the existing e2e tests.
-- Phone touch flows beyond overflow checks (drag, tap targets).
-- Offline survey sync in the browser (the unit tests cover the sync code).
-- Demo guide interactions.
-- Layout of the new Team page at each width. It shows only in real mode, so
-  mock-mode Playwright cannot reach it; it is covered by client unit tests only.
+| Area | Result |
+|---|---|
+| Persistence across reload (building-scope survey tab; room table row) | **Bug, fixed (item 12).** Edits were saved every 2 seconds and not on reload, so an edit made in the last 2 seconds before a reload was lost. Now saved every 500 ms and flushed on `pagehide`. Test: edit, wait 1 s, reload, value present. |
+| "Reset demo data" | Checked. The edit is discarded and the seed value returns. |
+| Building-scope role gating (Viewer, Field Engineer) | Checked. A Viewer cannot type into a building-scope tab or a room tab, and has no Submit or Add row. A Field Engineer sees Submit but not Verify. No bug found. |
+| Phone touch targets (survey Add row, user menu) | **Bug, fixed (item 13).** The `touch` size was defined only as `minHeight`/`minWidth`, so every `h-touch`/`w-touch` control (60 and 11 uses) was not 44px on any screen. Added `height`/`width` tokens. Test: Add row and user menu are at least 44px on phone. |
+| Phone tap on a survey tab | Checked. Opens its form. |
+| Offline survey sync in the browser | Covered by existing specs in `survey-forms.spec.js`: an offline edit syncs on reconnect, and a conflicting edit from another device is reported. Not repeated here. |
+| Demo guide click-through | Checked. Every internal link in the guide opens a real screen with no page errors. |
+
+### Open from round 3
+
+| # | Severity | Problem | Reason not fixed |
+|---|---|---|---|
+| Q | Major (phone) | On phone, Deployment shows the topology view-only, and the zoomed-out canvas intercepts taps. A device cannot be selected by tap, so serial, installation and link tests cannot be recorded on phone. The existing deployment specs skip device selection on phone for this reason. | Fixing it needs a new control: a device list for phone that selects the device. That is a UI decision, not a small safe fix. Suggested: a device list on phone that opens the same detail panel. Needs your decision before building. |

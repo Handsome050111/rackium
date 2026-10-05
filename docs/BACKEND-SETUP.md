@@ -58,6 +58,13 @@ The other values have working defaults for development:
 - `EMAIL_PROVIDER=console` writes emails to the server log. Use it in
   development. You do not need a Resend account to sign up and verify.
 
+- `TRUST_PROXY` defaults to `0`: the server uses the connection's own address
+  and ignores `X-Forwarded-For`. Set it to `1` only when the API runs behind one
+  reverse proxy (Nginx on the VPS). Then the client address comes from the
+  proxy's `X-Forwarded-For` header. Leave it at `0` if the API is reached
+  directly, otherwise any client could set its own address. Rate limits and
+  the recorded sign-in address both depend on this value.
+
 `server/.env` is git-ignored. Never commit it.
 
 **Production** is stricter. The server refuses to start when `NODE_ENV=production`

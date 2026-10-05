@@ -22,7 +22,7 @@ export default function TableSection({ section, rows, ctx, editable, onAddRow, o
       <div className="mb-3 flex items-center justify-between gap-2">
         <div className="text-sm font-semibold text-text">{section.section}</div>
         {editable && (
-          <button type="button" onClick={onAddRow} className="flex h-8 items-center gap-1 rounded-lg border border-border px-2 text-[11px] font-medium text-text hover:border-brand">
+          <button type="button" onClick={onAddRow} className="flex h-touch items-center gap-1 rounded-lg border border-border px-2 text-[11px] font-medium text-text hover:border-brand sm:h-8">
             <Plus size={12} strokeWidth={2} />
             Add row
           </button>

@@ -142,13 +142,44 @@ describe('refresh tokens', () => {
     expect(second).not.toBe(first)
   })
 
-  it('a token presented after rotation revokes the whole family', async () => {
+  it('a rotated token presented again within 30 seconds gets a session in the same family', async () => {
     const ctx = t()
     await signedInOrgAdmin(ctx)
     const login = await request(ctx.app).post('/api/v1/auth/login').send({ email: 'owner@example.com', password: PASSWORD }).expect(200)
     const original = cookieValue(login, 'rk_refresh')
     const rotated = cookieValue(await request(ctx.app).post('/api/v1/auth/refresh').set('Cookie', `rk_refresh=${original}`).expect(200), 'rk_refresh')
 
+    // A racing request on the same cookie is not treated as reuse.
+    const raced = cookieValue(await request(ctx.app).post('/api/v1/auth/refresh').set('Cookie', `rk_refresh=${original}`).expect(200), 'rk_refresh')
+    expect(raced).not.toBe(original)
+    expect(raced).not.toBe(rotated)
+    // Both new tokens work, so the user stays signed in.
+    await request(ctx.app).post('/api/v1/auth/refresh').set('Cookie', `rk_refresh=${raced}`).expect(200)
+    await request(ctx.app).post('/api/v1/auth/refresh').set('Cookie', `rk_refresh=${rotated}`).expect(200)
+    const flagged = await mongoose.connection.db.collection('auditentries').countDocuments({ action: 'auth.refresh_reuse_detected' })
+    expect(flagged).toBe(0)
+  })
+
+  it('after logout, a token rotated within the grace window does not start a new session', async () => {
+    const ctx = t()
+    await signedInOrgAdmin(ctx)
+    const login = await request(ctx.app).post('/api/v1/auth/login').send({ email: 'owner@example.com', password: PASSWORD }).expect(200)
+    const original = cookieValue(login, 'rk_refresh')
+    const rotated = cookieValue(await request(ctx.app).post('/api/v1/auth/refresh').set('Cookie', `rk_refresh=${original}`).expect(200), 'rk_refresh')
+    await request(ctx.app).post('/api/v1/auth/logout').set('Cookie', `rk_refresh=${rotated}`)
+
+    await request(ctx.app).post('/api/v1/auth/refresh').set('Cookie', `rk_refresh=${original}`).expect(401)
+  })
+
+  it('a token presented after rotation and the grace window revokes the whole family', async () => {
+    const ctx = t()
+    await signedInOrgAdmin(ctx)
+    const login = await request(ctx.app).post('/api/v1/auth/login').send({ email: 'owner@example.com', password: PASSWORD }).expect(200)
+    const original = cookieValue(login, 'rk_refresh')
+    const rotated = cookieValue(await request(ctx.app).post('/api/v1/auth/refresh').set('Cookie', `rk_refresh=${original}`).expect(200), 'rk_refresh')
+
+    // Move the rotation out of the 30-second grace window.
+    await mongoose.connection.db.collection('refreshtokens').updateMany({ replacedBy: { $ne: null } }, { $set: { revokedAt: new Date(Date.now() - 60 * 1000) } })
     // Presenting the rotated-away token again is reuse.
     await request(ctx.app).post('/api/v1/auth/refresh').set('Cookie', `rk_refresh=${original}`).expect(401)
     // The newest token belongs to the same family, so it is revoked too.

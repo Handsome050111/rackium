@@ -127,3 +127,19 @@ redirect to HTTPS.
   demo sessions beyond that one in-app button, and nothing to back up.
 - Re-deploying a new build is just re-running steps 1-2; Nginx config and
   the certificate don't need to change unless the domain or base path does.
+
+## API process (real mode, when the backend is deployed)
+
+The demo above is static. When the Express API runs on the same VPS:
+
+- Run it with **one** PM2 process: `pm2 start src/index.js --name rackium-api -i 1` (from `server/`).
+  Do not use cluster mode (`-i max` or more than 1). Rate limits are held in
+  memory, so each process would allow the full limit again. Scale-out needs
+  the shared rate-limit store first (see docs/BUG-SWEEP.md, open item D).
+- Set `TRUST_PROXY=1` in `server/.env`. Nginx sits in front of the API, so
+  the client address comes from its `X-Forwarded-For` header. Without this,
+  every user shares Nginx's address and one person's failed sign-ins lock
+  out everyone.
+- Nginx must set the header. In the API `location` block add
+  `proxy_set_header X-Forwarded-For $remote_addr;`, which replaces any value
+  the client sent instead of appending to it.

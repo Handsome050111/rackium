@@ -4,8 +4,8 @@ import { createLogger } from '../../src/logger.js'
 import { createMemoryEmailSender } from '../../src/email/index.js'
 import { testConfig } from './config.js'
 
-export function createTestApp({ rateLimits } = {}) {
-  const config = testConfig()
+export function createTestApp({ rateLimits, config: overrides } = {}) {
+  const config = testConfig(overrides)
   const logger = createLogger({ level: 'silent' })
   const mailer = createMemoryEmailSender()
   const limits = rateLimits ?? { ...DEFAULT_RATE_LIMITS, enabled: false }
