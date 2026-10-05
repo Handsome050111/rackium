@@ -1,1122 +1,990 @@
-# Rackium data model
+# Rackium data model (MongoDB + Mongoose)
 
-Written for: the engineers who will design and build the real backend schema. This is the contract the backend must satisfy. It is derived from the prototype's mock store (`client/src/mock/`, `client/src/api/`, `client/src/lib/`) and the v2.3 brief (`docs/RACKIUM-BRIEF-v2.3.md`), plus the client audit additions. No backend code or schema is defined here.
+Written for: the engineers building the backend. This is the contract the backend must satisfy. It is derived from the prototype's mock store (`client/src/mock/`, `client/src/api/`, `client/src/lib/`), the v2.3 brief (`docs/RACKIUM-BRIEF-v2.3.md`) and the client audit. It defines schema and rules. It contains no backend code.
 
-## 0. Conventions and source legend
+**Source tags** on every entity or field group:
 
-**Source tags** on every entity and field group:
-
-- **[M]** exists in the prototype's mock store. The shape is taken from the code. Gaps against the brief are called out.
-- **[B]** specified in the brief only. No mock store yet.
-- **[C]** client audit addition. Not in the brief and no UI or mock yet. Required by the contract anyway.
-
-**Identifiers.** Opaque, non-guessable IDs (UUIDv7 or ULID) for every stored entity. Human codes (`TR-EG-01`, `R01`, `E-DE-ERL-C01-B001-EG-001`, `PP-01`, cable IDs) are separate attributes, never primary keys. The prototype uses readable IDs such as `b001-eg`, `dev-fusion` and `conn-border-edge-1`. These are seed conventions only and must not leak into the backend.
-
-**Timestamps.** `timestamptz` in UTC, ISO-8601 on the wire. Date-only values (`due_date`, `eol_date`, `dguv_date`) are `date`.
-
-**Enums.** `snake_case` strings with a database-level check or enum type. Labels are UI concerns.
-
-**Money.** Integer minor units (cents) plus an ISO-4217 `currency` code on the row. The prototype stores decimal numbers (`unitPrice: 8500`, `EUR` constant) and this must change. Default currency EUR per organisation (§5.6).
-
-**Required/optional.** R = required, O = optional, C = computed and never stored (see §7).
+- **[M]** exists in the prototype's mock store; the shape comes from the code.
+- **[B]** specified in the brief only, with no mock yet.
+- **[C]** client audit addition, with no UI or mock yet.
+- **[Dn]** a client decision from the decision review. Each is applied in the entity section where it lives. §12 maps each decision to its section.
 
 ---
 
-## 1. Organisation scoping and tenancy
+## 0. Conventions
 
-Brief §4.1: every record belongs to exactly one organisation, and no API call may return another organisation's data.
+| Topic | Rule |
+|---|---|
+| Identifiers | `ObjectId` for every `_id`. References are `ObjectId` with `ref`. Human codes (`TR-EG-01`, `R01`, `E-DE-ERL-C01-B001-EG-001`, `PP-01`, cable IDs) are attributes, never `_id`. Readable seed IDs in the prototype (`b001-eg`, `dev-fusion`) are seed conventions only. |
+| Dates | `Date`, stored in UTC. Date-only values (`dueDate`, `eolDate`, `warrantyEnd`) are stored as UTC midnight and displayed as the calendar date. |
+| Enums | `String` with a Mongoose `enum` validator. Labels are UI concerns. |
+| Money | `Number` in integer minor units, plus `currency` (ISO-4217) on the same document. |
+| Embedding | Embed what is owned by one parent and read with it: connection hops, device installation, device DGUV, device lifecycle, device checklist, room survey facts, rack details, required-input entries, approval decision. Use a separate collection for anything with its own lifecycle or query path, or unbounded growth: audit entries, files, survey tab records, approvals, and the three registries. `Mixed` is avoided; survey field values carry a typed `value` (§5.4). |
+| Case-insensitive uniqueness | Unique index with collation `{ locale: 'en', strength: 2 }`. Queries that rely on the index pass the same collation. Values are trimmed on write. |
+| Transactions | Multi-document transactions need a replica set (Atlas or a replica set in development). Writes described as "same transaction" use a session. |
+| Deletion | Soft delete (`deletedAt`) for customer data. The only hard delete is the GDPR organisation purge (brief §6.11), a resumable job. |
 
-| Scope class | Entities | How scope is carried |
+---
+
+## 1. Tenancy and access
+
+### 1.1 Scope fields
+
+Every tenant document carries `organisationId` (ObjectId, required) and `projectId` (ObjectId, required), except the global collections in §1.3. The scope is denormalised onto every row so queries and indexes never need a join to find a tenant.
+
+### 1.2 Tenant plugin (replaces row-level security)
+
+One Mongoose plugin, `tenantScope`, is applied to every tenant model. It is the only route to tenant data.
+
+- **Required scope.** A query without `organisationId` and `projectId` in the request context throws before reaching the database. Tenant models have no unscoped query path.
+- **Filter injection.** The plugin adds `{ organisationId, projectId }` to the filter of `find`, `findOne`, `findById`, `countDocuments`, `updateOne`, `updateMany`, `findOneAndUpdate`, `deleteOne` and `deleteMany`. For `aggregate`, it prepends a `$match` on the same fields.
+- **Write checks.** On `save`, `insertMany` and `bulkWrite`, the plugin rejects a document whose scope differs from the request context.
+- **Immutable scope.** `organisationId` and `projectId` cannot change on an existing document.
+- **View-As is read-only.** In a View-As session (§1.6), the plugin rejects every write.
+- **Audit is append-only.** Updates and deletes on `auditEntries` throw, except the GDPR purge job (§8.4).
+
+### 1.3 Scope classes
+
+| Class | Models | Scope |
 |---|---|---|
-| **Carries `organisation_id` and `project_id` directly** | `project`, `audit_entry`, `user_membership`, `invitation`, `task`, `notification`, `approval`, `blocker`, `share_link`, `generated_document`, `file`, `custom_validation_rule`, `custom_field_definition`, `project_settings`, `work_type`, `active_phase`, `phase_target`, `milestone`, `design_version`, `required_input_group`, `procurement_line`, `handover_workflow`, `survey_tab_record`, `cmo_import_batch`, `cmo_device` | Direct columns, with a composite index `(organisation_id, project_id, …)`. Every query filters on both. |
-| **Inherit via a parent** | `country`, `sal`, `campus`, `building`, `floor`, `room`, `rack`, `device`, `patch_panel`, `port`, `connection`, `hop`, `survey_rack_placement`, `deployment_exception`, `cmdb_change_log`, `device_field_provenance` | Chain of foreign keys up to `project`. The backend should **denormalise `project_id` onto every row** anyway, so that row-level security and tenant-scoped indexes do not require joins. |
-| **Global (platform-owned)** | `device_model_seed`, `sfp_seed`, `survey_template_seed`, `handover_document_type`, `resource_task_seed` | No organisation column. Read-only to customers. Organisation or project layers sit on top (§5.6). |
-| **Organisation-level, shared across projects** | `organisation`, `user`, `org_settings`, org-layer catalogue | Keyed by `organisation_id` only. |
+| Tenant, project scope | Everything in §2 with `projectId`, including `memberships`, `invitations`, `viewAsSessions`, `projectSettings`, `validationRules` (project rules), `workTypes` (custom) | `organisationId` + `projectId` |
+| Tenant, organisation scope | `organisations` (settings), `validationRules` (organisation rules), `catalogueItems` in the `organisation` layer, `workTypes` (custom to the organisation) | `organisationId` |
+| Global, platform-owned | `surveyTemplates`, `documentTypes`, `workTypes` (predefined), `catalogueItems` in `seeded` and `servon` layers | none. Read-only to customers. |
+| Global, identity | `users` | none. A user can hold memberships in several organisations. |
 
-**[M] Current prototype gap.** Mock floors, rooms, racks, devices and connections carry no `organisationId` or `projectId`. Organisation scope is implicit in the single hard-coded organisation (`hierarchy.js`). Custom survey fields are keyed by tab name only (`surveyFormsDesign.js` `customFieldsByTab`). Both must be scoped in the backend.
+### 1.4 Rackium Team — platform admin [D8]
+
+- Rackium Team is an account type: `users.accountType = 'rackium_team'`. It sits **outside organisation tenancy** and has no membership.
+- To read or write an organisation's data, a Rackium Team user opens a **platform context** naming the organisation and project. Only inside that context does the tenant plugin accept the scope.
+- **Every access is audit-logged, reads included.** Each access writes an `auditEntries` document: `actor.type = 'rackium_team'`, `changeType = 'platform_access'`, the organisation and project, the collection, the operation, and a required `comment` holding the reason.
+- A platform context cannot approve or submit through the normal UI. Any change it makes is audited like any other change.
+
+### 1.5 Isolation tests (required before release)
+
+Run in CI against a replica set, with two organisations of two projects each.
+
+1. A query without scope throws, for every tenant model (generated, one test per model).
+2. `findById` with a valid ID from another organisation returns nothing and does not reveal the ID exists.
+3. `findById` with a valid ID from another project in the same organisation returns nothing.
+4. An insert with a mismatched `organisationId` or `projectId` is rejected.
+5. An aggregate without scope throws. An aggregate with scope cannot read another tenant.
+6. Changing `organisationId` or `projectId` on an existing document is rejected.
+7. A View-As session cannot write through any model.
+8. An audit entry cannot be updated or deleted.
+9. A Rackium Team read outside a platform context is rejected. Inside one, each operation writes exactly one platform-access audit entry.
+10. Unique indexes reject duplicates within a project and allow the same value in another project (cable IDs, serials, hostnames).
+11. Case-insensitive uniqueness: `cable-1` and `CABLE-1` collide inside a project and do not collide across projects.
+
+### 1.6 Users, memberships, invitations and View As
+
+**`users`** [C; brief §4.3]
+
+- `email` (R, unique, case-insensitive) · `name` (R) · `accountType` (`customer` / `rackium_team`, R, default `customer`) · `status` (`invited` / `active` / `disabled`, R) · `lastLoginAt` (Date, O) · `mfaEnabled` (Boolean; required to be true for `org_admin`, `pm` and `architect`, brief §8.1) · `createdAt` (Date, R).
+- No credentials on this document. Authentication is a separate concern (brief §8.1).
+
+**`memberships`** [C; D5] — **per project** [D5].
+
+- `organisationId` · `projectId` (R) · `userId` (ObjectId → users, R) · `role` (R; `org_admin` / `pm` / `architect` / `reviewer` / `field_engineer` / `viewer`) · `invitedBy` (ObjectId, O) · `createdAt` (Date, R) · `revokedAt` (Date, O).
+- `scopes[]` (embedded): `{ type: 'country' | 'sal' | 'building', refId }`. **An empty `scopes` array means the whole project** [D5]. Scopes are additive: a user sees the union of their scopes.
+- Brief §4.3 and §2.6: a Field Engineer scoped to one building sees only that building.
+- Unique `(projectId, userId)` where `revokedAt` is null.
+- A project-scoped membership is required for every action, including Org Admin actions inside a project. Org-level administration across projects is open (§11).
+
+**`invitations`** [C]
+
+- `organisationId` · `projectId` (R) · `email` (R, case-insensitive) · `role` (R) · `scopes[]` (as above) · `invitedBy` (R) · `tokenHash` (R, unique; SHA-256 of a 32-byte random token, as in §5.5) · `expiresAt` (Date, R) · `status` (`pending` / `accepted` / `expired` / `revoked`, R) · `acceptedAt` (Date, O).
+- Accepting an invitation creates a membership. An expired or revoked invitation cannot be accepted.
+
+**`viewAsSessions`** [C; brief-adjacent audit requirement]
+
+- `organisationId` · `projectId` (R) · `actorUserId` (R) · `viewedRole` (R, one of the six roles) · `startedAt` (Date, R) · `endedAt` (Date, O).
+- **View-as is view-only.** The plugin rejects writes in the session (§1.2). The actor's own role, not the viewed role, is what gets audited.
+- Every start and end writes an audit entry (`view_as.started`, `view_as.ended`, `changeType = view_as_access`). Every audit entry created inside a session carries `viewAsSessionId`.
+- The prototype's role switcher (`lib/RoleContext.jsx`) is client-side state with no user binding and no audit (§13).
 
 ---
 
-## 2. Entities
+## 2. Collections
 
-Each entity lists its purpose, fields, relationships and uniqueness. A field table says *name · type · R/O/C · allowed values or format · default · brief section · source*.
-
-### 2.1 Hierarchy
-
-**Organisation** [M `hierarchy.js` `organisation`] (brief §4.1)
-
-*Purpose:* tenancy root. Every other record traces back here.
-
-| Field | Type | R/O/C | Allowed / format | Default | § | Src |
-|---|---|---|---|---|---|---|
-| id | uuid | R | | generated | §4.1 | M |
-| name | text | R | | | §4.1 | M |
-| default_currency | char(3) | R | ISO-4217 | `EUR` | §5.6 | B |
-| default_cord_length_m | numeric | R | >0 | `2` | §6.7 | B |
-| gdpr_deletion_requested_at | timestamptz | O | | null | §6.11 | B |
-| deleted_at | timestamptz | O | soft delete; purge within 30 days (§6.11) | null | §6.11 | B |
-
-**Project** [M `hierarchy.js` `project`; fields marked C are not yet in mock] (brief §4.3 "Create projects": Org Admin or PM)
-
-| Field | Type | R/O/C | Allowed / format | Default | § | Src |
-|---|---|---|---|---|---|---|
-| id | uuid | R | | | | M |
-| organisation_id | uuid | R | FK | | §4.1 | M |
-| name | text | R | | `LANspire` in seed | | M |
-| code | text | O | | | | C |
-| status | enum | R | `active` / `archived` | `active` | | C |
-| work_types | text[] | O | values from the predefined list in §2.9; custom types stored in `work_type` | `[]` | | C |
-| active_phases | ordered list of phase ids | R | non-empty ordered subset of the 9 phase ids (§2.9) | all 9 in order | | C |
-| created_by | uuid | R | FK user | | | B |
-| created_at | timestamptz | R | | now() | | B |
-
-**Country** [M `hierarchy.js` `country`] (brief §4.1 "PM creates Country → Building")
-- id · project_id (FK, R) · code (text R, e.g. `DE`) · name (text R, e.g. `Germany`).
-- Unique `(project_id, code)`.
-
-**SAL** [M `hierarchy.js` `sal`] (brief §4.1)
-- id · country_id (FK, R) · code (text R, e.g. `ERL`).
-- Unique `(country_id, code)`.
-- SAL-level devices (the Unassigned CMO list) hang off this node, not a building (§5.1).
-
-**Campus** [M `hierarchy.js` `campus`] (brief §4.1)
-- id · sal_id (FK, R) · code (text R, e.g. `C01`).
-- Unique `(sal_id, code)`.
-
-**Building** [M `hierarchy.js` `buildings[]`] (brief §4.1, §7.3)
-
-| Field | Type | R/O/C | Allowed / format | Default | § | Src |
-|---|---|---|---|---|---|---|
-| id | uuid | R | | | | M |
-| campus_id | uuid | R | FK | | | M |
-| project_id | uuid | R | denormalised FK | | | B |
-| code | text | R | e.g. `B001`; unique per campus | | §4.1 | M |
-| name | text | R | | | | M |
-| site_size | enum | R | `S` (collapsed core, no Distribution tier) plus other sizes, **values not defined in the brief** (open point) | `S` | §5.3 | M |
-| next_milestone | — | C | derived from `milestone` (§2.13). The prototype stores a free-text string. | | | M |
-| last_sync_at | timestamptz | C | max `audit_entry.occurred_at` for the building | | §7.3 | M (static) |
-
-**Wing** — optional level between Building and Floor (§4.1). **[B] not modelled in the mock.** Schema should include an optional `wing` table or nullable `wing_id` on floor.
-
-**Floor** [M `b001-site.js` `floors`] (brief §4.1, §6.6)
-- id · building_id (FK, R) · wing_id (FK, O, §4.1) · token (text R; allowed `FU1`, `EG`, `1.OG`, `2.OG`, `3.OG` by default, configurable per project §6.6) · name (text R, e.g. `Ground floor (EG)`) · order (int R, ≥0).
-- Unique `(building_id, token)` and `(building_id, order)`.
-- The hostname form strips dots and spaces from the token (`1.OG` → `1OG`). Stored once, see §8.
-
-**Room** [M `b001-site.js` `rooms`, `roomSurveyMeta.js`] (brief §5.2)
-
-| Field | Type | R/O/C | Allowed / format | Default | § | Src |
-|---|---|---|---|---|---|---|
-| id | uuid | R | | | | M |
-| floor_id | uuid | R | FK | | | M |
-| code | text | R | e.g. `TR-EG-01`, `UG1705`; unique per building | | §5.2 | M |
-| name | text | O | | = code | | M |
-| is_main_room | bool | R | | false | | M (`isMainRoom`) |
-| access | enum | R | `verified` / `not_verified` | `not_verified` | §5.2 | M |
-| power | enum | R | `available` / `unknown` | `unknown` | §5.2 | M |
-| environment | enum | R | `verified` / `to_verify` / `unknown` | `unknown` | §5.2 | M |
-| photo_count | int | C | count of attached `file` rows (§9) | 0 | | M (stored counter; should be computed) |
-
-**Rack** [M `b001-site.js` `racks`, `rackSurveyMeta.js`] (brief §4.1, §4.3 rack placement rules)
-
-| Field | Type | R/O/C | Allowed / format | Default | § | Src |
-|---|---|---|---|---|---|---|
-| id | uuid | R | | | | M |
-| room_id | uuid | R | FK | | | M |
-| code | text | R | e.g. `R01`; unique per room | | §5.2 | M |
-| height_u | int | R | one of 12, 24, 42, 45, 48, or a custom height defined by Org Admin (e.g. 23) | 42 | §4.1 | M |
-| type | enum | O | `floor_standing` (mock: `Floor-standing`) | | §5.2 | M |
-| standard | text | O | e.g. `19-inch` | `19-inch` | | M |
-| external_depth_mm · usable_depth_mm · rail_distance_mm | int | O | >0 | | | M |
-| condition | enum | O | `good` (further values open) | | | M |
-| cage_nut_type | text | O | e.g. `M6` | | | M |
-| available_cage_nut_sets | int | O | ≥0 | | | M |
-| mounting_rails | text | O | e.g. `Front & rear` | | | M |
-| redundant_power | enum | O | `available` / `not_available` | | | M |
-| earthing_verified | bool | O | | | | M |
-| main_cable_entry · pathway · secondary_entry | text | O | | | | M |
-| vertical_managers · horizontal_managers | int | O | ≥0 | | | M |
-| clearance front/rear/left/right | enum + mm | O | `accessible` / `not_accessible`; `front_clearance_mm`, `rear_clearance_mm` | | | M |
-| ru_state (per RU) | — | | see `rack_ru` in §2.2. Not a column on rack. | | §4.1 | B |
-
-**Rack power outlets** [M `rackSurveyMeta.mountingPower.pduA/pduB`] — `rack_pdu` (id · rack_id · label `A`/`B` · total_sockets int · free_sockets int · *free_sockets is entered on site*, but Comms Rooms Summary takes it as a calculated input, §5.2).
-
-**Rack RU occupancy** — computed (§7). Stored rows only for explicit states that cannot be derived: `rack_ru_reservation` (rack_id · ru int · state `reserved` | `blocked` · set_by · set_at · reason). Brief §4.1: `reserved` is set by Architect and released by Architect; `blocked` is set by PM or Org Admin and the Architect cannot override it. **[B] not in the mock.**
-
-### 2.2 Devices, ports and patching
-
-**Device** [M `b001-site.js` `devices`, `networkStore.js`] (brief §4.1, §6.6, §5.7, §5.8)
-
-| Field | Type | R/O/C | Allowed / format | Default | § | Src |
-|---|---|---|---|---|---|---|
-| id | uuid | R | | | | M |
-| project_id | uuid | R | denormalised | | | B |
-| hostname | text | R | `{role}-{country}-{sal}-{campus}-{building}-{floorToken}-{seq:03}`, unique project-wide | generated (§8) | §6.6 | M |
-| role | enum | R | `fusion`, `border`, `distribution`, `edge`, `ap`, `wan-circuit` (used in mock, see §10). Brief D36 also mentions probe devices. | | §4.1, §6.5 | M |
-| model | text | R | must exist in device catalogue (§2.8) | | §6.5 | M |
-| category | enum | R | `network_device` \| `patch_panel` \| `accessory` \| `pdu` \| `cable_management` \| `wan_circuit` \| `reserved_space` (mock mixes patch panels in a separate array) | `network_device` | §6.5, §7.5 | M (partial) |
-| rack_id | uuid | O | FK. Null if not racked (e.g. Ceiling APs, §6.5 `rackMounted: false`). | | §4.1 | M |
-| ru | int | O | ≥1; null for ceiling/0U items | | §4.1 | M |
-| height_u | int | R | ≥0; 0 for 0U vertical PDUs (§4.1) | 1 | §4.1 | M |
-| face | enum | R when racked | `front` / `rear`. A `full_depth` item occupies both (§4.1). | `front` | §4.1 | M |
-| full_depth | bool | R | | false | §4.1 | B |
-| rail_side | enum | O | `left` / `right`, only for 0U items | | §4.1 | M (survey placements) |
-| status | enum | R | see §6.2 (device status) | `planned` | §4.4 | M |
-| location_snapshot | — | C | room/rack/floor resolved through FKs, never stored | | | M (`placeOf`) |
-| lifecycle | — | O | see §2.9 device lifecycle | | | C |
-| installation | — | O | see installation sub-record below | | §5.7 | M |
-
-**Device installation sub-record** [M `deploymentDesign.js` `installation` object] — 1:1 with device, written by Deployment (§5.7), never overwrites design fields.
-
-| Field | Type | R/O/C | Allowed / format | § | Src |
-|---|---|---|---|---|---|
-| serial | text | O | unique project-wide case-insensitive (§2.3) | §5.1 | M |
-| mac | text | O | 6 octets hex, `:` or `-` separators, unique project-wide | §5.1 | M |
-| serial_validation | enum | C | `validated` / `not_in_cmo` / `duplicate` — **stored in mock, must be computed** (§10) | §5.1 | M |
-| confirmed_ru | int | O | | §5.7 | M |
-| pdu_outlet | text | O | | §6.7 | M |
-| latitude · longitude · altitude | numeric | O | WGS84 | | M |
-| technician_user_id | uuid | O | FK user (mock stores a name string) | | M |
-| installed_at | timestamptz | O | | | M |
-| checklist | jsonb | R | keys `rack_ru`, `labelled`, `power`, `patched`, `tested`, `dguv`; booleans. Derived progress is C. | §5.7 | M |
-| dguv_last_inspection_date | date | O | | §6.9 | M (`dguvDate`) |
-| evidence_count | int | C | count of `file` rows with `category = evidence` | §5.7 | M (stored counter) |
-
-**Port** [M implicit: port IDs are strings per device, `lib/portMap.js`] — **not a stored entity in the mock.** The backend should store it.
-
-| Field | Type | R/O/C | Allowed / format | § | Src |
-|---|---|---|---|---|---|
-| device_id | uuid | R | FK | | M |
-| port_id | text | R | e.g. `Te1/1/1`, `Gi1/0/48`, `01` for a patch panel. Unique per device. | §5.8 | M |
-| kind | enum | R | `copper` / `sfp` / `uplink_module` | §5.8 | M (`portKind`) |
-| speed | enum | O | `1G` / `10G` / `40G` | §5.8 | M |
-| is_access | bool | R | access ports never exceed the device's real port count (§5.8) | §5.8 | M |
-| preoccupied | bool | O | ports used by legacy cabling outside project scope (mock: `preOccupiedPorts`, PP-09) | §6.8 | M |
-
-**Patch panel** [M `b001-site.js` `patchPanels`] — **modelled as a Device** in the backend with `category = patch_panel`. The prototype keeps a separate array, and this is a mismatch (§10).
-- Fields: code (text R, `PP-CORE-CU`, `PP-01`), `type` (`copper` / `fibre`, R), `ports` (int R, 24 in seed), plus the device fields above.
-
-**Cable and connection** [M `networkStore.js` `connections`] (brief §6.2)
-
-| Field | Type | R/O/C | Allowed / format | Default | § | Src |
-|---|---|---|---|---|---|---|
-| id | uuid | R | | | | M |
-| project_id | uuid | R | denormalised | | | B |
-| source_device_id · source_port | uuid · text | R | FK device, port | | §6.2 | M (`source.deviceId/port`) |
-| dest_device_id · dest_port | uuid · text | R | FK device, port | | §6.2 | M |
-| media | enum | R | `os2`, `om4`, `cat6a`, `stack`, `dac`. Brief §7.1 also lists `power` and `planned` (display categories, not connection media). | | §6.2, §7.1 | M |
-| speed | enum | R | `1G` / `10G` / `40G` | | §6.4 | M |
-| source_sfp_code · dest_sfp_code | text | O | FK `sfp_catalog.code`, must match media and speed (§6.4). Null for `cat6a` and `dac`. | | §6.4 | M |
-| cable_id | text | O until LLD approved; mandatory after | 1–32 chars; unique project-wide, case-insensitive, shared with hop segment IDs (§6.1) | | §6.1 | M |
-| lengths.suggested_m | numeric | C (stored snapshot in mock) | >0 | | §6.3 | M |
-| lengths.engineer_selected_m | numeric | O | >0; null = use suggested | | §6.3 | M |
-| lengths.installed_m | numeric | O | >0, Deployment only | | §6.3 | M |
-| status | enum | R | see §6.3 (connection status) | `designed` | §4.4 | M |
-| test_result | enum | O | `pass` / `fail` | | §6.2 | M |
-| evidence_count | int | C | | | §6.2 | M |
-
-**Connection hop** [M `hops: []` always empty in seed; brief §6.2] — ordered list per connection.
-
-| Field | Type | R/O/C | Allowed / format | § | Src |
-|---|---|---|---|---|---|
-| connection_id | uuid | R | FK | §6.2 | B |
-| seq | int | R | 1..n, unique `(connection_id, seq)` | §6.2 | B |
-| patch_panel_id | uuid | R | FK device | §6.2 | B |
-| in_port · out_port | text | R | FK port on that patch panel | §6.2 | B |
-| room_id · rack_id · ru | uuid · uuid · int | R | location (§6.2) | §6.2 | B |
-| segment_cable_id | text | O | same namespace and uniqueness as `connection.cable_id` (§6.1) | §6.1 | B |
-
-**Building connection (route between rooms)** [M `siteStructure.js` `connections`] — **distinct from a device connection.** See §10 on naming.
-
-| Field | Type | R/O/C | Allowed / format | § | Src |
-|---|---|---|---|---|---|
-| id · from_room_id · to_room_id | uuid | R | FK room (different buildings allowed, §5.2) | §5.2 | M |
-| route_status | enum | R | `surveyed` / `estimated` | §5.2 | M |
-| distance_m | numeric | O | >0 | §6.3 | M |
-| evidence_count | int | C | | | M |
-
-**Cable ID allocation** — see §3 (atomic operation).
-
-### 2.3 CMO and serial records
-
-**CMO import batch** [M `cmoDesign.js` `lastImportAt`] — `cmo_import_batch` (id · project_id · uploaded_by · uploaded_at · source_filename · row_count · status). Brief §5.1: CMO is imported from Excel and scoped per building.
-
-**CMO device** [M `cmoDesign.js` `cmoDevices`] (brief §5.1)
-
-| Field | Type | R/O/C | Allowed / format | Default | § | Src |
-|---|---|---|---|---|---|---|
-| id | uuid | R | | | | M |
-| import_batch_id | uuid | R | FK | | §5.1 | B |
-| hostname | text | O | | | §6.6 | M |
-| model | text | O | matched to device catalogue when possible | | | M |
-| serial | text | R | unique project-wide, case-insensitive (§2.3) | | §5.1 | M |
-| mac | text | O | normalised format | | §5.1 | M |
-| building_id | uuid | O | Null = Unassigned at SAL level (§5.1) | null | §5.1 | M |
-| room_id · rack_id | uuid | O | resolved by room/rack code match | null | §5.1 | M |
-| room_code · rack_code | text | O | as imported (kept for display, §10) | | | M |
-| ru | int | O | | | | M |
-| assigned_by · assigned_at | uuid · timestamptz | O | set when the PM assigns an unassigned device | | §5.1 | B |
-
-*Each unassigned CMO device counts as an open blocker (§5.1). This is computed, not stored (§7).*
-
-**Serial registry** [M three places: `cmo.js` `projectSerials`, `cmoDesign` `cmoDevices.serial`, `networkStore` `installation.serial`] — **target: one table**, not three.
-
-| Field | Type | R/O/C | Notes | § | Src |
-|---|---|---|---|---|---|
-| project_id | uuid | R | | | |
-| serial_normalised | text | R | lowercased, trimmed; unique `(project_id, serial_normalised)` | §5.1 | M |
-| owner_type | enum | R | `cmo_device` \| `device` | | |
-| owner_id | uuid | R | | | |
-
-**Survey record** — the tab-level workflow record is in §2.4.
-
-### 2.4 Physical site survey records
-
-**Survey tab definition** [M `docs/survey-fields.json`, read by `lib/surveyFormModel.js`] — reference data, versioned. **18 tabs.** Target: a `survey_template` in organisation settings (§2.9). Fields per tab are `key`, `label`, `requirement` (`must` / `good_to_have` / `must_if_allowed` / `unspecified`), `type` (`text`, `number`, `number_m`, `yes_no`, `serial`, `mac`, `ip`, `email`, `phone`, `gps`, `photo`, `photo_multi`, `file`, `rack_elevation`), optional `hint` (option list), optional `prefill` (`prefilled` / `prefilled_validated`), section `layout` (`key_value` / `table` / `item_list` / `gallery`).
-
-**Survey tab record** [M `surveyFormsDesign.js` `recordsByKey`, `statusByKey`] (brief §5.2, Step 10)
-
-| Field | Type | R/O/C | Allowed / format | Default | § | Src |
-|---|---|---|---|---|---|---|
-| id | uuid | R | | | | M (key string) |
-| project_id · building_id | uuid | R | | | | M |
-| room_id | uuid | O | Required when `tab.scope = room`. Null for building-scope tabs. | null | §5.2 | M |
-| tab | enum | R | one of the 18 tab names | | §5.2 | M |
-| status | enum | R | see §6.4 | `draft` | §5.2 | M |
-| submitted_at · submitted_by | timestamptz · uuid | O | `submitted_by` is a user ID (mock stores a role string) | | §5.2 | M (partly) |
-| verified_at · verified_by | timestamptz · uuid | O | | | §5.2 | M |
-| rejected_at · reject_reason | timestamptz · text | O | `reject_reason` required when rejected | | §5.2 | M |
-| imported_at | timestamptz | O | set on HLD import | | §5.2 | B |
-| last_modified_at | timestamptz | R | set on every edit; drives offline conflict detection (§3) | now() | §6.10 | M |
-| version | int | R | optimistic concurrency token, incremented on every write | 1 | §6.10 | B |
-
-**Survey section data** [M `sections: [...]` index-aligned with tab definition] — `survey_section_value` rows keyed by `(survey_tab_record_id, section_index)`:
-
-- `key_value` layout: map of field key → value. For `prefilled_validated` fields, a companion boolean `<key>__confirmed` with `confirmed_by` and `confirmed_at` (the "Validated on site" tick).
-- `table` layout: rows. Each row has a stable `row_id` and field → value, plus `__confirmed` companions. **Empty table is complete** (§6.4).
-- `item_list` layout: `{ row_field_key: { column: value } }`.
-- `gallery` layout: photo references (§9).
-- `rack_elevation` / Rack Layout section: one instance per real rack, `rack_id` plus field values. Reconciled on read from the rack list (§2.1).
-
-**Survey custom field** [M `customFieldsByTab`, keyed by tab name only] (brief §5.2, Step 10)
-
-| Field | Type | R/O/C | Notes | § | Src |
-|---|---|---|---|---|---|
-| id | uuid | R | | | |
-| organisation_id · project_id | uuid | R | **mock keys by tab name only; scope is required** | §4.3 | M/B |
-| tab | enum | R | | | M |
-| key | text | R | `custom_<id>`, never editable after creation | | M |
-| label | text | R | renameable only if it is custom, never a core field | | M |
-| type | enum | R | same vocabulary as §2.4 | | M |
-| requirement | — | R | always `unspecified`. Custom fields are never required and never calculated (brief). | | M |
-
-**Core fields cannot be removed or renamed** (Step 10 spec). This is a constraint on the template, not a column.
-
-**Room survey meta** — see Room in §2.1.
-
-**Rack survey placement** [M `survey.js` `placementsByRack`] — the Rack Survey's own capture of what sits in a rack.
-
-| Field | Type | R/O/C | Notes | § | Src |
-|---|---|---|---|---|---|
-| id | uuid or text | R | references `device.id` for real devices, or a survey-only id for extras (cable managers, reserved RU, PDUs, see DEMO_EXTRAS) | §7.5 | M |
-| rack_id | uuid | R | FK | | M |
-| ru · height_u · face · full_depth · mounting · rail_side | — | | same meanings as Device | §4.1 | M |
-| kind | enum | R | `device` / `reserved` / `blocked` | §4.1 | M |
-| category · label · sublabel | text | O | display | | M |
-| revision | — | | see Rack revision below | §6.10 | M |
-
-*Placements duplicate devices (§10).* The target must decide whether the Rack Survey writes to `device` directly or keeps a separate capture (open point).
-
-**Rack revision** [M two counters: `survey.js` `revisionByRack` and `lld.js` `revisionByRack`] — **target: one** `rack_revision` per rack (id · rack_id · revision int · saved_by · saved_at · unsaved_changes int). See §10.
-
-### 2.5 Phases and status
-
-**Phase** [M `phases.js` `PHASES`] — a fixed catalogue of 9 phases in the prototype. **Target: the project chooses an ordered active subset** (§2.9 `active_phase`). The phase catalogue itself is global:
-
-| id | name | stepper label |
-|---|---|---|
-| `cmo` | CMO Inventory Validation | CMO |
-| `survey` | Physical Site Survey | Survey |
-| `hld` | HLD | HLD |
-| `lld` | LLD | LLD |
-| `solution-package` | Solution Package | Sol. Package |
-| `bom` | BOM | BOM |
-| `deployment` | Deployment & Installation | Deployment |
-| `cmdb` | CMDB | CMDB |
-| `handover` | Handover | Handover |
-
-Naming rule (brief §7.2): "Deployment & Installation" in full everywhere except the compact stepper chip.
-
-**Phase status record** [M `phaseStatusStore.js` `overrides`; static fallback in `hierarchy.js` `buildings[].phases`] (brief §4.4, §7.3)
-
-| Field | Type | R/O/C | Allowed / format | Default | Src |
-|---|---|---|---|---|---|
-| building_id · phase_id | uuid · enum | R | unique pair | | M |
-| status | enum | R | §6.1 phase status | `not_started` | M |
-| sub_label | text | O | `Draft` on BOM before Solution Package approval | null | M |
-| updated_at · updated_by | timestamptz · uuid | R | target adds `updated_by`; mock has no actor | | M/B |
-| source | enum | R | `stored` (approval phases) or `derived` (survey, deployment, cmdb, cmo) | | C |
-
-*Approval-driven phases (HLD, LLD, Solution Package, BOM, Handover) store status. Derived phases (CMO, Survey, Deployment, CMDB) recompute from their underlying records and must not be stored (§7). The prototype pushes derived values into `overrides` on every read. See §10.*
-
-### 2.6 Approvals, blockers and open items
-
-**Approval** [B brief §4.3 "Approve HLD / LLD / Solution Package internally", §5.5 client approval; C generic record] — one record per phase gate. **Mock has none** (see §10).
-
-| Field | Type | R/O/C | Allowed / format | Default | § | Src |
-|---|---|---|---|---|---|---|
-| id | uuid | R | | | | C |
-| project_id · building_id | uuid | R | | | | C |
-| phase_id | enum | R | `hld`, `lld`, `solution-package`, `bom`, `deployment`, `handover` | | §4.4 | C |
-| gate | enum | R | `hld_internal`, `lld_internal`, `sp_internal`, `sp_client`, `bom_pm`, `deployment_acceptance`, `handover_client` | | §4.3, §5.5 | C |
-| design_version_id | uuid | R | FK `design_version` (§2.11). The approval attaches to a frozen version, not a moving target. | | §6.10 | C |
-| submitted_by · submitted_at | uuid · timestamptz | R | role must be Architect for HLD/LLD/SP internal submit | | §4.3 | B |
-| reviewer_user_id | uuid | O | PM or Reviewer for internal gates. Null for client gates. | | §4.3 | B |
-| client_link_id | uuid | O | FK `share_link`, for client gates | | §5.5 | B |
-| decision | enum | O | `approved` / `changes_requested` / `rejected` | | §4.4 | C |
-| decided_by · decided_at | uuid/text · timestamptz | O | client decisions record name and role since the client may not be a user (§5.5) | | §5.5 | B |
-| comments | text | O | | | §5.5 | B |
-| acceptance_terms_accepted | bool | O | required for client decisions | | §5.5 | B |
-| signature_file_id | uuid | O | optional drawn signature (§5.5) | | §5.5 | B |
-
-**Blocker** [M `hierarchy.js` `openItems` (type `blocker`) plus computed blockers in `buildings.js`; C fields] (brief §4.4 "Blocked" status, §5.1 unassigned devices)
-
-| Field | Type | R/O/C | Allowed / format | Default | Src |
-|---|---|---|---|---|---|
-| id | uuid | R | | | M (`b001-blk-1`) |
-| project_id · building_id | uuid | R | | | C |
-| phase_id | enum | R | | | M |
-| description | text | R | | | M (`title` + `detail`) |
-| related_object_type · related_object_id | enum · uuid | O | device, connection, rack, bom_line, survey_tab_record, … | | M (partial) |
-| raised_at · raised_by | timestamptz · uuid | R | | | C |
-| owner_user_id | uuid | O | | | C |
-| priority | enum | R | `low` / `medium` / `high` / `critical` | `medium` | C |
-| status | enum | R | `open` / `in_progress` / `resolved` | `open` | C |
-| resolved_at · resolved_by | timestamptz · uuid | O | | | C |
-
-*In the mock, the dashboard's open blocker count is the static `openItems` blockers plus the unassigned CMO device count (`buildings.js`: `countByType(openItems, 'blocker') + cmoKpis.unassigned`). The seed's RU-conflict and unpriced-line blockers are static items, not calculated. The target should calculate them (RU conflicts from placements, unpriced BOM lines from the catalogue) and store only human-raised blockers. Unassigned CMO devices are calculated, not blocker rows. See §7.*
-
-**Open item** — the prototype's `openItems` also contains `type: 'approval'`. These are approval requests shown on the dashboard, and must map to an `approval` row.
-
-### 2.7 Solution Package and required inputs
-
-**Required input group** [M `requiredInputsStore.js` `REQUIRED_INPUT_GROUPS`] (brief §5.5, 12 groups)
-
-| Field | Type | R/O/C | Allowed / format | Src |
+| Collection | Purpose | Embeds | References | Unique indexes (case-insensitive where stated) |
 |---|---|---|---|---|
-| id | enum | R | `addressing`, `routing`, `catalyst-center`, `central-services`, `security`, `wireless`, `software`, `monitoring`, `migration`, `testing`, `commercial`, `governance` | M |
-| n | int | R | 1–12 | M |
-| name | text | R | | M |
-| project_id · building_id | uuid | R | | C |
-| owner_user_id | uuid | O | | M (`meta.owner`) |
-| due_date | date | O | | M (`meta.dueDate`) |
-| status | enum | C | `not_started` / `in_progress` / `complete` — derived from entries | M |
-
-**Addressing entry** (group 1 only) [M `addressing`]: id · group_id · label (text) · vlan_id (int 1–4094) · cidr (text) · gateway (ip). Overlap and duplicate rules live in `lib/networkAddressingValidation.js`.
-
-**Key/value pair** (groups 2–12) [M `kv`]: id · group_id · key (text) · value (text). Pairs are complete only when key and value are both filled.
-
-**Solution Package section** — **computed, not stored** (18 sections, §7). Only the acceptance of a validation warning is stored:
-
-**Accepted validation warning** [M `solutionPackageDesign.js` `warningsByBuilding`]: id · project_id · building_id · area_id (text) · text · accepted_by_user_id · accepted_by_role · accepted_at. Mock stores accepted_by as a display string.
-
-**Share link** [M `shareLink.js` `links`; C fields] (brief §5.5 "PM generates a link with a password and an expiry, default 14 days, 1–30 allowed")
-
-| Field | Type | R/O/C | Allowed / format | Default | Src |
-|---|---|---|---|---|---|
-| id · token | uuid · text | R | token ≥128 bits random, URL-safe. Mock: 16 base-36 characters (~82 bits — **too short for the target**, §10). | | M |
-| project_id · building_id | uuid | R | | | M |
-| kind | enum | R | `solution-package` / `handover` | `solution-package` | M |
-| password_hash | text | R | **bcrypt or argon2**. Mock stores plaintext (§10). | | M (`password`) |
-| expires_at | timestamptz | R | 1–30 days from creation | creation + 14 d | M |
-| created_by | uuid | R | role PM only (§4.3) | | M (no actor) |
-| revoked_at | timestamptz | O | | | M (`revoked` bool) |
-| view_count · last_viewed_at | int · timestamptz | C | | | C |
-
-**Client decision** [M `shareLink.js` `decisions`]: id · share_link_id · decision (`approved` / `changes_requested` / `rejected`) · name · role · comments · accepted_at · has_signature · signature_file_id. Client identity is name and role, not a user (§5.5).
-
-### 2.8 BOM, catalogue and cost
-
-**Device catalogue — seeded** [M `deviceCatalogue.js` `DEVICE_CATALOGUE`] (brief §6.5). Global. Keyed by `model`. Brief §6.5: 20–30 Cisco Catalyst models supplied by Technonex.
-
-| Field | Type | R/O/C | Allowed / format | Default | § | Src |
-|---|---|---|---|---|---|---|
-| model | text | R | unique, exact string used on devices | | §6.5 | M |
-| vendor | text | R | | `Cisco` | §6.5 | M |
-| category | enum | R | `passive` · `active_networking` (`switch`, `router`, `firewall`, `ap`, `wlc`) · `server` · `infrastructure` (`ups`, `pdu`, `sensor`) · `external` (`wan_sp_connection`, `remote_site`) | | C |
-| rack_mounted | bool | R | | | M |
-| height_u | int | R | | | C (not in mock catalogue; device record carries height) |
-| psu_count | int | R | ≥0 (0 = PoE-only; no DGUV obligation, §6.9) | 0 | M |
-| power_inlet_type | enum | O | `C14`, `C20`, … or null | | M |
-| needs_uplink_module | bool | R | | false | M |
-| servon_available · servon_product_code | bool · text | O | Manual flag, no automatic sync (D35) | false | M (flag) / B (code) |
-| unit_price_minor | bigint | R | minor units | | M (`unitPrice`, decimal) |
-| currency | char(3) | R | ISO-4217 | `EUR` | M (constant) |
-| eos_date · eol_date | date | O | | | C |
-| layer | enum | R | `seeded` → `servon` → `organisation` → `project` (see §5.6) | | C |
-
-**SFP / optic** [M `sfpCatalog.js` `SFP_CATALOG`] (brief §6.4, §6.5)
-
-| Field | Type | R/O/C | Allowed / format | Src |
-|---|---|---|---|---|
-| code | text | R | unique, e.g. `SFP-10G-LR` | M |
-| media | enum | R | `os2`, `om4`, `dac`, `stack` | M |
-| speed | enum | R | `1G`, `10G`, `40G` | M |
-| reach_m | numeric | R | >0 (drives the distance-vs-optic check, §6.4) | M |
-| unit_price_minor · currency | bigint · char(3) | R | | M |
-| layer | enum | R | as above | C |
-
-**Stock cable length** [M `lib/cableLength.js`] (brief §6.3, D27): per-media table, configurable by Org Admin. Target: `stock_cable_length` (org_id · media · length_m numeric · unit_price_per_m · currency).
-
-**Cable and device price overrides** (project layer, §5.6): `catalogue_override` (project_id · layer `organisation` | `project` · catalogue_ref (model or sfp code) · unit_price_minor · currency · set_by · set_at · reason). Prices entered by PM or Org Admin (D19).
-
-**Procurement line** [M `bomDesign.js` `procurementOverrides`; computed lines in `bomModel.js`] (brief §5.6, §5.7)
-
-BOM **lines are computed** from HLD and LLD on every read (§7). Only per-line procurement data is stored:
-
-| Field | Type | R/O/C | Allowed / format | Default | § | Src |
-|---|---|---|---|---|---|---|
-| project_id · building_id | uuid | R | | | | C |
-| line_key | text | R | stable key. Mock forms: `device:{role}`, `optic:{sfp code}`, `cable:{media}:{length}`, `power:psu`, `power:cord`, `power:nm`, `power:cage-nuts`. | | M |
-| vendor | text | O | brief: "vendor field", no partial packages | | M |
-| procurement_status | enum | R | `not_ordered` / `ordered` / `shipped` / `delivered` (§6.2 procurement transitions) | `not_ordered` | M |
-| po_number | text | O | | | M |
-| expected_delivery · actual_delivery | date | O | | | M |
-| notes | text | O | | | M |
-| updated_by · updated_at | uuid · timestamptz | R | | | C |
-
-*Granularity is open: `device:{role}` aggregates all devices of that role in the building into one line (§10).*
-
-**Project settings — commercial** [M `projectSettings.js` `margin`; C fields]: `margin_percent` (numeric, default 15, PM-editable, §5.6) · `currency` (default org currency) · `price_visibility` (per export, D20).
-
-### 2.9 Project settings, templates and configuration (client audit additions)
-
-These are required by the audit. The prototype has partial coverage in `projectSettings.js` (margin, resource minutes) and in `powerStandards.js` (customer power-cord standard). Everything else is target.
-
-**Project settings** [M partial; C rest]
-
-- **General:** name, code, description, timezone, units (metric), currency, default cord length (2 m, §6.7).
-- **Hierarchy:** whether a Wing level is used (§4.1), floor token scheme (§6.6), building site-size options.
-- **Device roles:** role codes F / B / D / E / A (§6.6), plus any project-specific role codes. Role codes drive hostname generation.
-- **Connection types:** media and speed allowed per project (§6.2).
-- **Naming conventions:** hostname pattern, floor token map, sequence padding (3 digits in seed). Changes apply to new records; existing hostnames are not rewritten (§8).
-- **Survey templates:** choice of template version per project (`survey_template_version_id`).
-- **Validation rules:** enable or disable built-in rules and assign severity (see custom rules below).
-- **Members and permissions:** membership table (below).
-- **Templates:** document templates for generated documents (§2.12).
-- **Resource standards:** minutes per task (`resource_task_setting`: project_id · task_id · minutes int). Seed in `billOfResources.js` `RESOURCE_TASKS` with `defaultMinutes`.
-
-**Work type** [C] — project multi-select from a predefined list, plus custom types.
-- `work_type` rows: id · organisation_id · name · is_predefined bool · created_by. The predefined list is **not in the audit or the brief** and must be supplied by Technonex (open point).
-- `project_work_type`: project_id · work_type_id (unique pair).
-
-**Active phase** [C]: `project_active_phase`: project_id · phase_id · position int (unique `(project_id, position)` and `(project_id, phase_id)`). A non-empty subset of the 9 phases, in order. Phase gating, progress % and the sidebar use this list, never the fixed nine. Rule for which active phase blocks which is open (§10).
-
-**Phase target** [C]: project_id · building_id · phase_id · target_date date · sla_days int (≥1) · set_by · set_at. Brief §4.3: Org Admin and PM "set phase targets, allow parallel phases".
-
-**Milestone** [C]: id · building_id · name · due_date date · completed_at timestamptz · depends_on_phase_id enum. The dashboard's "next milestone" is derived as the earliest uncompleted milestone (§7).
-
-**Custom validation rule** [C]: id · organisation_id · project_id (null = organisation-wide) · name · definition jsonb (expression over typed fields; DSL to be specified) · entity_type (`connection`, `device`, `rack`, `room`, `survey_tab_record`) · severity (`info` / `warning` / `error` / `blocking`) · scope (`project` / `building`) · enabled bool (default true) · created_by · created_at. Built-in rules remain code, not rows (`lib/validation.js`, `lib/siteValidation.js`).
-
-**Custom field definition** — see the survey custom field in §2.4.
-
-### 2.10 Users, membership, invitations and View As (client audit additions)
-
-**User** [C] (brief §4.3 roles)
-- id · email (unique, lower-cased) · name · status (`invited` / `active` / `disabled`) · last_login_at · mfa_enabled bool (mandatory for Org Admin, PM, Architect, brief §8.1) · created_at.
-- No passwords or secrets in this table. Authentication is a separate concern (§8.1).
-
-**Membership** [C] (brief §4.3, §2.6): membership_id · user_id · organisation_id · role · created_at · revoked_at.
-- `role` enum: `org_admin`, `pm`, `architect`, `reviewer`, `field_engineer`, `viewer`, plus `rackium_team` as a platform role **not** scoped to an organisation (§4.3). Note: `lib/permissions.js` omits `rackium_team` (§10).
-
-**Scope** [C] (brief §4.3, §2.6): `membership_scope` · membership_id · scope_type (`country` / `sal` / `building`, plus `project` for project-wide) · scope_id uuid. A Field Engineer scoped to B001 sees only B001. Scopes are additive. An empty scope set means organisation-wide, and this must be an explicit choice (open point).
-
-**Invitation** [C]: id · organisation_id · project_id · email · role · scopes jsonb · invited_by · expires_at · status (`pending` / `accepted` / `expired` / `revoked`) · token_hash · accepted_at.
-
-**View As** [C] — a view-only role switch. **Every use is audit-logged.** It is session state, not a role change on the user.
-- `view_as_session`: id · actor_user_id · viewed_role · started_at · ended_at (nullable) · organisation_id · project_id.
-- View-As never grants write access. The backend rejects any mutation whose effective role is a view-as role, and the actor's own role is what is audited.
-- Logged events: `view_as.started`, `view_as.ended`, and every audit entry produced while a view-as session is active carries `view_as_session_id`.
-- The prototype's role switcher (`lib/RoleContext.jsx`) is client-side global state with no user binding and no audit (§10).
-
-### 2.11 Design versions, branches and LLD/HLD baselines
-
-**Design version** [M `hldVersion.js` `state.version`, `state.changes`; `lldDesign.js` `baselines`; C fields] (brief §5.4, §6.10)
-
-| Field | Type | R/O/C | Allowed / format | Default | § | Src |
-|---|---|---|---|---|---|---|
-| id | uuid | R | | | | C |
-| project_id · building_id | uuid | R | | | | M |
-| design_type | enum | R | `hld` / `lld` / `solution_package` / `bom` | | §6.10 | C |
-| number | int | R | monotonic per `(building_id, design_type)` | | §6.10 | M (`version`) |
-| label | text | O | e.g. `v2`, `Baseline v1.0` | | §6.10 | C |
-| based_on_version_id | uuid | O | LLD → HLD version (§5.4) | | §5.4 | M (`baselines.hldVersion`) |
-| created_by · created_at | uuid · timestamptz | R | | | §6.10 | M (`at`, no actor) |
-| summaries | text[] | O | change summary lines for the diff | | §6.10 | M (`changes.summaries`) |
-| frozen | bool | R | true on approval or handover acceptance; immutable thereafter | false | §6.10 | C |
-| branch_id | uuid | O | FK branch | null | §6.10 | C |
-| content_ref | — | R | pointer to a snapshot store holding the full design state for this version | | §6.10 | C |
-
-**Branch** [C] (brief §6.10 "Branches can be created, then promoted (replacing the main design) or discarded. No merging."): id · project_id · building_id · name · parent_version_id · status (`open` / `promoted` / `discarded`) · created_by · created_at · resolved_by · resolved_at. Promote replaces the main design by making its head the current version. Discard is a terminal state. No merge operation exists.
-
-**LLD baseline** [M `lldDesign.js` `baselines`]: buildingId → `{ hldVersion, startedAt }`. Represented as `based_on_version_id` on the LLD design version (see above).
-
-**Handover baseline** [M `handoverDesign.js` `workflowByBuilding[].baseline`] (brief §5.9, §6.10): `versionLabel` (`v{n}.0`), `frozenAt`. **Mock counter is global across buildings, not per building** (§10). Target: `design_version` row with `frozen = true` and label per building.
-
-**Rack revision** — see §2.4.
-
-### 2.12 Handover, documents and generated files
-
-**Handover workflow** [M `handoverDesign.js` `workflowByBuilding`] (brief §5.9)
-
-| Field | Type | R/O/C | Allowed / format | Default | Src |
-|---|---|---|---|---|---|
-| building_id | uuid | R | unique | | M |
-| state | enum | R | `pending`, `compiled`, `under_review`, `delivered`, `accepted`, `changes_requested` (see §6.5). `ready` appears in `handoverPhaseStatus` but is never set (§10). | `pending` | M |
-| compiled_at · reviewed_at · delivered_at | timestamptz | O | | M |
-| baseline_design_version_id | uuid | O | set on acceptance | M/C |
-| checklist | — | C | computed pre-compilation checklist (`lib/handoverModel.js` `computeChecklist`) | M |
-
-**Handover document type** [M `handoverModel.js` `HANDOVER_DOCUMENTS`] — reference data, 11 types: `exec-summary`, `survey-report`, `hld-document`, `lld-document`, `cable-matrix` (Excel), `bom-final` (Excel), `deployment-report`, `cmdb-extract` (CSV + PDF), `as-built`, `exception-register`, `photo-evidence` (ZIP). Each has `format` and `exportable` (true for the Excel, CSV and ZIP types in the seed).
-
-**Generated document** [C] (brief §5.5 18-section Solution Package, §5.9 11 handover documents)
-- id · project_id · building_id · doc_type (`handover_document_type` id or `solution_package_section` n) · version_label · format (`pdf`, `xlsx`, `csv`, `zip`, `docx`) · source_design_version_ids uuid[] · generated_by · generated_at · file_id (§9) · status (`generating`, `ready`, `failed`).
-- Mock computes document *status* only (`computeDocumentStatus`); no file is produced.
-
-### 2.13 Deployment exceptions
-
-**Deployment exception** [M `deploymentDesign.js` `exceptionsByBuilding`] (brief §5.7 "must be resolved or logged as an exception")
-
-| Field | Type | R/O/C | Allowed / format | Default | Src |
-|---|---|---|---|---|---|
-| id | uuid | R | | | M (`exc-n`) |
-| building_id · device_id | uuid | R | | | M |
-| connection_id | uuid | O | | | M |
-| field | enum | R | `media`, `sfp`, `port`, `ru`, `cable_id`, `rack_ru`, … | | M |
-| label | text | R | | | M |
-| designed_value · installed_value | text | R | | | M |
-| reason | text | R | | | M |
-| has_photo | bool | R | derived from `file` rows | false | M |
-| resolved | bool | R | | false | M |
-| resolution_note | text | O | **missing in mock**; required by the exception register (§5.9 doc) | | B |
-| resolved_by · resolved_at | uuid · timestamptz | O | | | C |
-| logged_at | timestamptz | R | | now() | M |
-
-### 2.14 CMDB and audit trail
-
-**CMDB record** — derived from the device and its installation. Not stored as a separate entity. Its CI fields are the device fields plus provenance (below).
-
-**Device field provenance** [C; brief §5.8 "operational change"] — one row per CMDB-visible field per device:
-
-| Field | Type | R/O/C | Allowed / format | Src |
-|---|---|---|---|---|
-| device_id · field | uuid · text | R | unique pair | C |
-| value | jsonb | R | | C |
-| source | enum | R | `design` (from HLD/LLD) · `manual` (typed by a user) · `import` (CMO import) · `deployment` (Deployment and installation) | C |
-| set_by | uuid | O | null for `import` where no user exists | C |
-| set_at | timestamptz | R | | C |
-| import_batch_id | uuid | O | FK `cmo_import_batch` when `source = import` | C |
-
-**Audit entry** [M partial: `cmdbDesign.js` `changeLogByBuilding`, `hierarchy.js` `history`, `deploymentDesign.js` exceptions; C target] (brief §6.11: append-only, cannot be edited; §5.8 operational change flag)
-
-| Field | Type | R/O/C | Allowed / format | Default | § | Src |
-|---|---|---|---|---|---|---|
-| id | ulid | R | monotonic within project | generated | §6.11 | M (`chg-n`) |
-| organisation_id · project_id | uuid | R | direct columns (§1) | | §6.11 | C |
-| occurred_at | timestamptz | R | UTC, server clock | now() | §6.11 | M (`at`) |
-| actor_user_id | uuid | O | null for `system` and `client_link` actions | | §6.11 | C (mock: `changedBy` is a role label) |
-| actor_role | enum | O | role the actor held at the time | | §4.3 | M |
-| client_name · client_role | text | O | for `client_link` actions (§5.5) | | §5.5 | B |
-| view_as_session_id | uuid | O | when the action happened under View As (§2.10) | | | C |
-| action | text | R | dotted verb, e.g. `survey.tab.submitted`, `sp.client.approved`, `cmdb.field.updated` | | §6.11 | C |
-| object_type | text | R | entity name | | §6.11 | C |
-| object_id | uuid | R | | | §6.11 | M (`ciId`) |
-| building_id · phase_id | uuid · enum | O | for feed filtering | | §7.3 | C |
-| change_type | enum | R | `design_intent` · `operational_change` · `system` · `client_decision` · `import` · `view_as_access` | `design_intent` | §5.8 | M (`changeType`) |
-| field | text | O | for field-level changes | | | M |
-| before · after | jsonb | O | the changed field's values; null for creates and deletes | | §6.11 | M (`oldValue` / `newValue`) |
-| source | enum | R | `ui`, `import`, `client_link`, `system`, `offline_sync` | `ui` | §6.11 | C |
-| offline_queued_at | timestamptz | O | set when the action replayed from the offline queue (§3) | | §6.10 | M (`queuedAt` in IndexedDB) |
-| conflict | bool | R | true when an offline replay conflicted with a later change | false | §6.10 | M (`resolveQueuedEdit`) |
-| comment | text | O | rejection reasons, approval comments | | §5.5 | M |
-
-**Recent Activity feed** — the last *N* entries for an organisation, project or building, `change_type ∈ {design_intent, operational_change, client_decision, import, system}`, excluding `view_as_access` for non-admins. Each row shows actor, action, object label, phase and time. Mock: `history` on the dashboard is a static array of labels.
-
-**Change Log** — per object or building, filtered to field-level rows, with `before` and `after`, and the `operational_change` flag visible. CMDB's Change Log shows `operational_change` entries only, per §5.8. Mock: `cmdbDesign.js` `getCmdbContext` returns the last 10 entries.
-
-**Retention and deletion.** Audit entries are immutable. The only permitted removal is full organisation deletion under GDPR, which must complete within 30 days (§6.11). The deletion is itself an audit event recorded outside the deleted organisation.
-
-### 2.15 Tasks, notifications and preferences (client audit additions)
-
-**Task** [C] — no mock; `billOfResources` tasks are a different concept (resource estimates).
-- id · project_id · building_id (nullable) · title (text R) · related_object_type · related_object_id (O) · assigned_to_user_id (R) · assigned_by_user_id (R) · deadline date (O) · notes text (O) · status (`not_started` / `in_progress` / `complete`, default `not_started`) · created_at · updated_at · completed_at (set on `complete`).
-- Assignment to an inactive membership is rejected.
-
-**Notification** [C]
-- id · recipient_user_id (R) · type (enum, e.g. `approval_requested`, `approval_decided`, `blocker_raised`, `blocker_resolved`, `task_assigned`, `task_due`, `sync_conflict`, `view_as_started`) · related_object_type · related_object_id · title · body · read_at (null = unread) · created_at · delivered_channels text[].
-- Indexed on `(recipient_user_id, read_at, created_at desc)`.
-
-**Notification preference** [C]: user_id · event_type · channel (`in_app` / `email` / `push`) · enabled bool · digest (`immediate` / `daily`).
-
-### 2.16 Files and photos
-
-**File** [M metadata fragments; no blob store in the prototype] (brief §5.2 photo evidence, §5.7 evidence photos, §6.11)
-
-| Field | Type | R/O/C | Allowed / format | Default | § | Src |
-|---|---|---|---|---|---|---|
-| id | uuid | R | | | | C |
-| organisation_id · project_id | uuid | R | direct (§1) | | §4.1 | C |
-| attached_to_type · attached_to_id | enum · uuid | R | `survey_section_value`, `survey_tab_record`, `room`, `rack`, `device`, `connection`, `deployment_exception`, `generated_document`, `approval` | | §5.2, §5.7 | M (`photoCount` / `evidenceCount` counters, no link) |
-| category | enum | R | `photo_room`, `photo_rack`, `photo_device_label`, `photo_cable`, `photo_reference`, `evidence`, `signature`, `document`, `certificate` | | §5.2, §5.7 | C |
-| storage_key | text | R | object-store key; never a public URL | | §11 | C |
-| mime_type · size_bytes · sha256 | text · bigint · char(64) | R | `image/jpeg`, `image/png`, `image/heic`, `application/pdf`, `application/zip`; size limit to be set | | C |
-| width_px · height_px | int | O | | | C |
-| captured_at | timestamptz | O | EXIF `DateTimeOriginal` when present | | §5.2 | C |
-| captured_by_user_id | uuid | O | | | §5.2 | C |
-| geo_lat · geo_lng | numeric | O | WGS84, from EXIF or device | | §5.7 | C |
-| caption | text | O | | | | C |
-| sort_order | int | O | gallery order | 0 | | M (gallery sequence) |
-| uploaded_at | timestamptz | R | | now() | | C |
-| deleted_at | timestamptz | O | soft delete; retained in the audit trail | | §6.11 | C |
-
-*Offline capture (Step 10 spec): photos are held in IndexedDB until synced. A `file` row is created only on sync, and `captured_at` comes from the device, not the sync time.*
+| `organisations` | tenancy root, org settings | `settings` | — | `_id` |
+| `users` | people and platform accounts | — | — | `email` |
+| `memberships` | role and scope per project | `scopes[]` | user, project | `(projectId, userId)` active |
+| `invitations` | pending access grants | `scopes[]` | project, inviter | `tokenHash` |
+| `viewAsSessions` | view-only role switch | — | user, project | — |
+| `projects` | project, active phases | `activePhases[]`, `workTypeIds[]` | organisation | `(organisationId, code)` |
+| `projectSettings` | one per project | general, hierarchy, roles, naming, resource minutes, margin, cord override | project | `projectId` |
+| `workTypes` | predefined and custom work types | `phaseMapping[]` | organisation (custom) | `(organisationId, name)` |
+| `validationRules` | structured custom rules | — | project or organisation | — |
+| `countries`, `sals`, `campuses` | hierarchy | — | parent | `(projectId, code)` |
+| `buildings` | building and site size | — | campus | `(projectId, code)` |
+| `wings` (optional) | §3.5 | — | building | `(buildingId, code)` |
+| `floors` | floor and token | — | building, wing | `(buildingId, token)`, `(buildingId, order)` |
+| `rooms` | room and survey facts | `survey` | floor, building | `(buildingId, code)` |
+| `racks` | rack and survey facts | `details`, `mountingPower`, `cablePath`, `accessibility` | room, building | `(roomId, code)` |
+| `devices` | network devices, patch panels, PDUs, cable managers, APs | `installation`, `dguv`, `lifecycle`, `portExceptions[]`, `provenance` | rack, room, building, catalogue key | `(projectId, hostname)` |
+| `connections` | device-to-device links | `hops[]`, `lengths` | devices and ports | — (uniqueness through registries) |
+| `pathways` | room-to-room routes [S5 rename] | — | rooms | `(projectId, roomLowId, roomHighId)` |
+| `cableIdRegistry` | cable IDs and hop segment IDs | — | connection, hop | `(projectId, cableId)` |
+| `portOccupancy` | which device port is in use | — | device, connection | `(projectId, deviceId, portId)` |
+| `serialRegistry` | serials across CMO and devices | — | owner | `(projectId, serial)` |
+| `ruStates` | reserved and blocked RUs [D1] | — | rack | `(projectId, rackId, ru, face)` |
+| `catalogueItems` | layered catalogue | `portMap`, `mediaSpeed`, `stock` | organisation, project | `(layer, organisationId, projectId, kind, key)` |
+| `importBatches` | CMO and lifecycle imports | — | uploader, file | — |
+| `cmoDevices` | CMO inventory | — | batch, building, rack | via `serialRegistry` |
+| `surveyTemplates` | 18-tab definitions, versioned, global | `tabs[]` | — | `(templateKey, version)` |
+| `surveyTabRecords` | one per tab per building or room | `sections[]` (with `fieldValues`, `rows`) | building, room | `(projectId, buildingId, roomId, tab)` |
+| `surveyCustomFields` | Org Admin fields per tab | — | project | `(projectId, tab, key)` |
+| `designFlags` | e.g. survey changed after import [D2] | — | building | `(buildingId, kind, surveyTabRecordId)` |
+| `phaseStatuses` | approval phases only | — | building | `(buildingId, phaseKey)` |
+| `phaseTargets`, `milestones` | dates and SLA [C] | — | building | `(buildingId, phaseKey)` |
+| `approvals` | one per gate | `decision`, `client` | design version, share link | — |
+| `shareLinks` | client link, hashed token [D15] | `extensions[]` | building | `tokenHash` |
+| `blockers` | human-raised blockers [C] | — | related object | — |
+| `tasks` | assigned work [C] | — | users, related object | — |
+| `notifications` | per-user alerts [C] | — | recipient | `(recipientId, readAt, createdAt)` |
+| `notificationPreferences` | delivery settings [C] | — | user | `(userId, projectId, eventType, channel)` |
+| `requiredInputGroups` | 12 groups per building | `addressingEntries[]`, `kvPairs[]` | building | `(buildingId, groupKey)` |
+| `acceptedWarnings` | accepted validation warnings | — | building | — |
+| `procurementLines` | serialised devices and consumables [D6] | — | building, device | `(buildingId, deviceId)` and `(buildingId, consumableKey)` |
+| `designVersions` | HLD, LLD, SP, BOM versions | `changeSummaries[]` | building, branch, based-on version | `(buildingId, designType, number)` |
+| `branches` | design branches | — | building, version | — |
+| `handoverWorkflows` | one per building | `baseline` | building | `buildingId` |
+| `generatedDocuments` | document outputs | — | building, file | — |
+| `documentTypes` | the 11 handover types and SP sections | — | — | global seed |
+| `deploymentExceptions` | install deviations | — | device, connection | — |
+| `files` | photos, PDFs, sheets, signatures | — | attached object (polymorphic) | `storageKey` |
+| `auditEntries` | one per user action [D10] | `changes[]` | actor, object | — (append-only) |
 
 ---
 
-## 3. Uniqueness rules and atomic operations
+## 3. Hierarchy and project
 
-### 3.1 Uniqueness
+### 3.1 Organisation [M `hierarchy.js` `organisation`] (brief §4.1)
 
-| Rule | Scope | Enforcement | Src |
+| Field | Type | Req | Allowed / format | Default | § | Src |
+|---|---|---|---|---|---|---|
+| `name` | String | R | | | §4.1 | M |
+| `defaultCurrency` | String | R | ISO-4217 | `EUR` | §5.6 | B |
+| `settings.cordLengthDefaultM` | Number | R | > 0 | `2` | §6.7 | M (hard-coded) |
+| `settings.powerCordStandardDefault` | `{ label, connectorPair }` | O | [D16] | null | §6.7 | M shape |
+| `settings.uploadLimitsMb` | `{ photo, pdf, sheet }` | R | [D12] configurable | `{ 15, 25, 10 }` | §5.2 | C |
+| `settings.standardHeightsU` · `settings.customHeightsU` | `[Number]` | R / O | [§3.8] | `[12,24,42,45,48]` / `[]` | §4.1 | B |
+| `deletedAt` · `gdprDeletionRequestedAt` | Date | O | soft delete, purge within 30 days | null | §6.11 | B |
+
+### 3.2 Project [M `hierarchy.js` `project`] (brief §4.3: Org Admin or PM creates projects)
+
+| Field | Type | Req | Allowed / format | Default | Src |
+|---|---|---|---|---|---|
+| `organisationId` | ObjectId | R | | | M |
+| `name` | String | R | | seed `LANspire` | M |
+| `code` | String | O | unique per organisation, case-insensitive | | C |
+| `status` | String | R | `active` / `archived` | `active` | C |
+| `workTypeIds` | `[ObjectId]` | O | refs `workTypes` (§3.10) [D4] | `[]` | C |
+| `activePhases` | `[{ phaseKey, position }]` | R | ordered, non-empty subset of the nine phase keys; `position` unique | all nine, in order | C |
+| `createdBy` · `createdAt` | ObjectId · Date | R | | | B |
+
+**Phase gating** [D3] — the project's active phases in order define the sequence. **Pending client confirmation.** The default:
+
+- A PM may **add** any phase that has not started.
+- A phase **that contains data cannot be removed**. A phase contains data when its `phaseStatuses` row is not `not_started`, or when it owns any record (survey tab records, approvals, procurement lines, deployment exceptions).
+- Progress, the sidebar and the dashboard use only active phases.
+- Which phase blocks which, and whether an active phase may be skipped, follows the same order and waits on the same confirmation.
+
+### 3.3 Country, SAL, Campus [M `hierarchy.js`] (brief §4.1)
+
+- `countries`: `projectId` (R) · `code` (R, e.g. `DE`) · `name` (R, e.g. `Germany`). Unique `(projectId, code)`, case-insensitive.
+- `sals`: `countryId` (R) · `projectId` (R) · `code` (R, e.g. `ERL`). Unique `(countryId, code)`. SAL-level devices (the Unassigned CMO list) hang here.
+- `campuses`: `salId` (R) · `projectId` (R) · `code` (R, e.g. `C01`). Unique `(salId, code)`.
+
+### 3.4 Building [M `hierarchy.js` `buildings[]`] (brief §4.1, §7.3)
+
+| Field | Type | Req | Allowed / format | Default | § | Src |
+|---|---|---|---|---|---|---|
+| `campusId` · `projectId` · `organisationId` | ObjectId | R | | | | M / B |
+| `code` | String | R | e.g. `B001`; unique per project, case-insensitive | | §4.1 | M |
+| `name` | String | R | | | | M |
+| `siteSize` | String | R | `S` (collapsed core). Other sizes are not defined in the brief, so only `S` is valid until they are. | `S` | §5.3 | M |
+| `lastSyncAt` | — | C | max `auditEntries.occurredAt` for the building | | §7.3 | M (static) |
+
+### 3.5 Wing (optional) [B §4.1]
+
+`wings`: `buildingId` (R) · `code` (R) · `name` (R) · `order` (R). Unique `(buildingId, code)`. A floor may reference a wing. Not in the mock.
+
+### 3.6 Floor [M `b001-site.js` `floors`] (brief §4.1, §6.6)
+
+- `buildingId` (R) · `wingId` (O) · `token` (R; `FU1`, `EG`, `1.OG`, `2.OG`, `3.OG` by default, configurable per project) · `name` (R) · `order` (R, int ≥ 0).
+- Unique `(buildingId, token)` and `(buildingId, order)`.
+- The hostname form derives from `token` by removing dots and spaces (`1.OG` → `1OG`). See §7.
+
+### 3.7 Room [M `b001-site.js` `rooms`, `roomSurveyMeta.js`] (brief §5.2)
+
+- `floorId` (R) · `buildingId` (R, denormalised) · `projectId` (R) · `code` (R, e.g. `TR-EG-01`, `UG1705`; unique per building, case-insensitive) · `name` (O, defaults to `code`) · `isMainRoom` (R, default `false`).
+- Embedded `survey` (M `roomSurveyMeta`): `access` (`verified` / `not_verified`, default `not_verified`), `power` (`available` / `unknown`, default `unknown`), `environment` (`verified` / `to_verify` / `unknown`, default `unknown`).
+- Photo count is **computed** from `files` attached to the room (§6). The mock stores it as a counter, which the backend must not do.
+
+### 3.8 Rack [M `b001-site.js` `racks`, `rackSurveyMeta.js`] (brief §4.1)
+
+- `roomId` (R) · `buildingId` (R) · `projectId` (R) · `code` (R, e.g. `R01`; unique per room, case-insensitive) · `heightU` (R, int).
+- **`heightU` allowed values:** 12, 24, 42, 45, 48, or a custom height defined by the Org Admin (for example 23U from the Siemens survey, §4.1). Allowed = `standardHeightsU ∪ customHeightsU` from organisation settings. Default 42.
+- Embedded `details`: `type` (`floor_standing`), `standard` (`19-inch`), `externalDepthMm`, `usableDepthMm`, `railDistanceMm`, `condition` (`good`; further values open), `frontClearanceMm`, `rearClearanceMm`.
+- Embedded `mountingPower`: `cageNutType` (String, e.g. `M6`), `availableCageNutSets` (Number ≥ 0), `mountingRails` (String), `redundantPower` (`available` / `not_available`), `earthingVerified` (Boolean), `pduA` and `pduB` (`{ totalSockets, freeSockets }`, Numbers ≥ 0).
+- Embedded `cablePath`: `mainCableEntry`, `pathway`, `secondaryEntry` (Strings), `verticalManagers`, `horizontalManagers` (Numbers ≥ 0).
+- Embedded `accessibility`: `front`, `rear`, `left`, `right` (`accessible` / `not_accessible`).
+- Reserved and blocked RUs are not on the rack. See §4.2.
+
+### 3.9 Project settings [M partial `projectSettings.js`, `powerStandards.js`; C rest]
+
+One document per project (`projectSettings`). Changes are audited (`settings.updated`).
+
+- **General:** `timezone` (IANA name), `units` (`metric`), `currency` (defaults to the organisation's; ISO-4217).
+- **Hierarchy:** `wingEnabled` (Boolean, default false, §3.5), `floorTokens` (`[{ floorOrder, token }]`, defaults from §3.6).
+- **Device roles:** `roleCodes` `{ fusion: 'F', border: 'B', distribution: 'D', edge: 'E', ap: 'A', wan_circuit: 'W' }` (role codes per §6.6; `W` is a proposal for `wan_circuit`, flagged in §13).
+- **Connection types:** `allowedMedia` (`[os2, om4, cat6a, stack, dac]`), `allowedSpeeds` (`[1G, 10G, 40G]`).
+- **Naming:** `hostnamePattern` (default `{role}-{country}-{sal}-{campus}-{building}-{floor}-{seq}`), `sequencePadding` (Number, default 3). Changes apply to new records only (§7).
+- **Survey:** `surveyTemplateVersion` (Number, refs `surveyTemplates.version`).
+- **Built-in rules:** `builtInRules` `[{ key, enabled, severity }]` — toggles and severity for the code-defined validators (`lib/validation.js`, `lib/siteValidation.js`).
+- **Resource standards:** `resourceMinutes` `[{ taskKey, minutes }]`, seeded from `billOfResources.js` `RESOURCE_TASKS` `defaultMinutes`. Brief §5.5: PM sets these.
+- **Commercial:** `marginPercent` (Number, default 15, PM-editable, §5.6).
+- **Power cord:** `powerCordStandardOverride` (`{ label, connectorPair }` or null) [D16]. See §4.9.
+
+### 3.10 Work types [D4]
+
+`workTypes` — predefined rows are global; custom rows belong to an organisation.
+
+- `name` (R) · `isPredefined` (Boolean, R) · `organisationId` (ObjectId, null for predefined) · `phaseMapping` (`[phaseKey]`, default **empty, pending client confirmation** [D4]) · `createdBy` · `createdAt`.
+- Unique `(organisationId, name)`, case-insensitive. Predefined rows have `organisationId` null.
+- A project selects work types through `projects.workTypeIds`. Custom types are added per organisation and appear in the selector for every project in it.
+- **Seed status:** the 27 predefined work types from the client audit are **not in this workspace** (§11, open point 1). The seed file is a placeholder with zero rows until the list is supplied.
+
+### 3.11 Custom validation rules [M none; C; D11]
+
+`validationRules` — a **structured builder** with no expression language [D11].
+
+- `name` (R) · `object` (R; allowlist: `device`, `connection`, `pathway`, `rack`, `room`, `surveyTabRecord`, `procurementLine`) · `field` (R; must be in the object's field allowlist, checked on save) · `operator` (R; `eq`, `neq`, `empty`, `notEmpty`, `gt`, `gte`, `lt`, `lte`, `in`, `notIn`) · `value` (typed by the field: stored as `valueString`, `valueNumber`, `valueBoolean` or `valueList`; absent for `empty` and `notEmpty`) · `severity` (R; `info` / `warning` / `error` / `blocking`) · `enabled` (Boolean, default true) · `scope` (`organisation` or `project`) · `projectId` (null for organisation rules).
+- **Who authors** [D11]: Org Admin authors organisation rules (`scope = organisation`). Architect authors project rules (`scope = project`).
+- One condition per rule. Combining conditions is done by writing more rules.
+- A `blocking` finding stops the action it guards (for example submitting a survey tab or approving a design). Other severities are displayed.
+- Built-in rules stay in code and are toggled through `projectSettings.builtInRules`.
+
+---
+
+## 4. Devices, connections, catalogue and registries
+
+### 4.1 Device [M `b001-site.js` `devices`, `networkStore.js`] (brief §4.1, §6.5, §5.7, §5.8)
+
+One collection holds every physical item in a rack or room: network devices, patch panels, PDUs, cable managers, APs and WAN circuits. Rack Survey writes here [D1].
+
+| Field | Type | Req | Allowed / format | Default | § | Src |
+|---|---|---|---|---|---|---|
+| `projectId` · `buildingId` · `organisationId` | ObjectId | R | | | | M / B |
+| `origin` | String | R | [D1] `existing` (surveyed on site) or `planned` (designed in HLD and LLD) | `planned` | §5.2, §5.4 | B |
+| `hostname` | String | R | §7 pattern; unique per project, case-insensitive | generated once | §6.6 | M |
+| `role` | String | R | `fusion`, `border`, `distribution`, `edge`, `ap`, `wan_circuit` (the mock uses `wan-circuit`; underscore in the database) | | §4.1, §6.6 | M |
+| `category` | String | R | `network_device`, `patch_panel`, `pdu`, `cable_management`, `accessory`, `wan_circuit` | `network_device` | §6.5 | M partial |
+| `model` | String | R | must match a `catalogueItems` device key | | §6.5 | M |
+| `rackId` | ObjectId | O | null when not racked (e.g. ceiling APs) | null | §4.1 | M |
+| `ru` | Number | O | ≥ 1 when racked; null for 0U and unracked | null | §4.1 | M |
+| `heightU` | Number | R | ≥ 0; 0 for 0U vertical PDUs | catalogue value | §4.1 | M |
+| `face` | String | R when racked | `front` / `rear` | `front` | §4.1 | M |
+| `fullDepth` | Boolean | R | occupies both faces when true | false | §4.1 | B |
+| `railSide` | String | O | `left` / `right`, 0U only | | §4.1 | M |
+| `status` | String | R | §5.2 (includes `maintenance`, `retired`) | `planned` | §4.4 | M / B |
+| `installation` | embedded | O | §4.1a | | §5.7 | M |
+| `dguv` | embedded | O | §4.1b [D13] | | §6.9 | M / C |
+| `lifecycle` | embedded | O | §4.1c [D14] | | §6.5 | C |
+| `portExceptions` | `[{ portId, reason, note, createdBy, createdAt }]` | O | pre-occupied and other exceptions [S4] | `[]` | §6.8 | M |
+| `provenance` | `{ [field]: { source, setBy, setAt, importBatchId } }` | O | §8.2 | `{}` | §5.8 | C |
+
+**Placement rule** [D1]: for `origin = planned`, the Rack Survey may record placement before LLD approval. After LLD approval, a placement change goes through a change request (§5.9). This is a default pending confirmation (§11, item 11).
+
+**§4.1a `installation`** (embedded, M `deploymentDesign.js`)
+
+- `serial` (String, O; unique through `serialRegistry`, §4.4) · `mac` (String, O; normalised; unique per project through `devices (projectId, installation.mac)` sparse).
+- `confirmedRu` (Number) · `pduOutlet` (String) · `location` `{ latitude, longitude, altitude }` (Numbers; WGS84).
+- `technicianId` (ObjectId, O). The mock stores a name string.
+- `installedAt` (Date).
+- `checklist` (embedded): `rackRu`, `labelled`, `power`, `patched`, `tested`, `dguv` (Booleans). The mock's kebab-case keys (`rack-ru`) become camelCase.
+- `serialValidation` is **not stored**. It is computed from `serialRegistry` and CMO (§6).
+- `evidenceCount` is **not stored**. It is counted from `files` with `category = evidence` (§6).
+
+**§4.1b `dguv`** (embedded) [D13]
+
+- `lastInspectionAt` (Date) — **required** to record an inspection.
+- `inspectorName` (String) — **required** with the inspection date.
+- `certificateFileId` (ObjectId → `files`) — optional.
+- `status` and `nextDueAt` are **calculated** from `lastInspectionAt` (48-month interval, brief §6.9). Not stored.
+
+**§4.1c `lifecycle`** (embedded) [D14]
+
+- `warrantyStart` · `warrantyEnd` · `plannedRefreshAt` (Date, O).
+- `source` (`manual` / `import`) · `importBatchId` (ObjectId, O, set on import).
+- Entered manually by PM or Architect, or imported from Excel or CSV by PM or Architect (§4.6). Warranty status is calculated from `warrantyEnd`.
+
+**Ports are not stored as rows** [S4]. A device's port list comes from the catalogue item's `portMap`. The database stores only occupancy (`portOccupancy`, §4.3) and exceptions (`portExceptions`, above).
+
+### 4.2 RU state [B §4.1] [D1] — `ruStates`
+
+Reserved and blocked space is separate from devices [D1].
+
+- `rackId` (R) · `ru` (Number, R) · `face` (`front` / `rear` / `both`, R) · `state` (`reserved` / `blocked`, R) · `reason` (String, O) · `setBy` (ObjectId, R) · `setByRole` (R) · `setAt` (Date, R) · `releasedAt` (Date, O).
+- Rules (brief §4.1): `reserved` is set and released by the **Architect**. `blocked` is set by **PM or Org Admin**, and the Architect cannot override it.
+- Unique `(projectId, rackId, ru, face)` for active rows.
+- The Rack Survey's "Reserved for FMO" rows become `ruStates` rows.
+
+### 4.3 Connection, hops and port occupancy [M `networkStore.js` `connections`] (brief §6.2, §5.8) [S3, S4, D7]
+
+**Connection** — a device-to-device link. The room-to-room route is a pathway (§4.5).
+
+| Field | Type | Req | Allowed / format | Default | § | Src |
+|---|---|---|---|---|---|---|
+| `projectId` · `organisationId` · `buildingId` | ObjectId | R | | | | B |
+| `source` · `dest` | `{ deviceId, portId }` | R | | | §6.2 | M |
+| `media` | String | R | `os2`, `om4`, `cat6a`, `stack`, `dac`. `power` and `planned` are display categories, not media [D7]. | | §6.2 | M |
+| `speed` | String | R | `1G`, `10G`, `40G` | | §6.4 | M |
+| `sourceSfpCode` · `destSfpCode` | String | O | must match catalogue media and speed (§6.4); null for `cat6a` and `dac` | null | §6.4 | M |
+| `cableId` | String | O until LLD approval, then R | 1–32 characters; registered in `cableIdRegistry` (§4.4) | null | §6.1 | M |
+| `hops` | `[Hop]` | O | ordered | `[]` | §6.2 | M (always empty in seed) |
+| `lengths` | `{ suggestedM, engineerSelectedM, installedM }` | O | > 0 each; `engineerSelectedM` null = use suggested | | §6.3 | M |
+| `status` | String | R | §5.3 | `designed` | §4.4 | M |
+| `testResult` | String | O | `pass` / `fail` | null | §6.2 | M |
+
+**Hop** (embedded in `connections.hops`) [B §6.2]
+
+- `seq` (Number, contiguous from 1 within the connection) · `patchPanelId` (ObjectId → devices) · `inPort` · `outPort` (Strings, must exist in the patch panel's port map) · `roomId` · `rackId` (ObjectIds) · `ru` (Number) · `segmentCableId` (String, O).
+- Each `segmentCableId` is registered in `cableIdRegistry`, and each of `inPort` and `outPort` is registered in `portOccupancy`, in the same transaction (§10).
+
+**Port occupancy** — `portOccupancy` [S3, S4]
+
+- `projectId` (R) · `deviceId` (R) · `portId` (String, R) · `connectionId` (R) · `hopSeq` (Number, O) · `source` (`connection` / `hop` / `pre_occupied`, R).
+- Unique `(projectId, deviceId, portId)`. This one index is the port-assignment guarantee.
+- A decommissioned connection removes its occupancy rows in the same transaction (§5.3).
+- A pre-occupied port is written here with `source = pre_occupied` **and** recorded as a `portExceptions` entry on the device. The occupancy row enforces uniqueness; the exception explains why.
+
+### 4.4 Registries [S3]
+
+Three collections enforce uniqueness across a project. Each row is written in **the same transaction** as the document that owns it. A duplicate-key error aborts the transaction and returns a conflict.
+
+| Registry | Fields | Unique index | Written with |
 |---|---|---|---|
-| Cable ID (connection `cable_id` and hop `segment_cable_id` share one namespace) | per project, **case-insensitive**, 1–32 chars | unique index on `(project_id, lower(cable_id))` across both tables | §6.1 (M: `isCableIdUnique`) |
-| Serial number | per project, case-insensitive (after trim) | unique index on `(project_id, lower(trim(serial)))` in the serial registry (§2.3) | §5.1 (M: `matchSerial`) |
-| MAC address | per project | unique index on normalised MAC | §5.1 (M) |
-| Hostname | per project | unique index on `(project_id, hostname)`; generated from §8 pattern | §6.6 (M) |
-| Floor token | per building | `(building_id, token)` | §6.6 (M) |
-| Room code | per building | `(building_id, code)` | §5.2 (M) |
-| Rack code | per room | `(room_id, code)` | §4.1 (M) |
-| Device model | global catalogue | `(layer, model)`; the project layer may shadow the seeded layer | §6.5 (M) |
-| SFP code | global catalogue | `(layer, code)` | §6.4 (M) |
-| Phase status | per building and phase | `(building_id, phase_id)` | §4.4 (M) |
-| Survey record | per scope key | `(building_id, tab)` for building scope; `(building_id, room_id, tab)` for room scope | §5.2 (M) |
-| Procurement line | per building and line key | `(building_id, line_key)` | §5.6 (M) |
-| Required input group | per building | `(building_id, group_id)` | §5.5 (M) |
-| Membership | per user and organisation | `(user_id, organisation_id)` | §4.3 (C) |
-| Email | global | `lower(email)` | C |
-| Active phase | per project | `(project_id, phase_id)` and `(project_id, position)` | C |
+| `cableIdRegistry` | `projectId`, `cableId` (trimmed), `ownerType` (`connection` / `hop`), `connectionId`, `hopSeq` (O), `status` (`reserved` / `retired`), `reservedAt` | `(projectId, cableId)`, case-insensitive | connection create or update, cable ID assignment, hop insert or change, decommission (sets `retired`, does not delete; §11 item 5) |
+| `portOccupancy` | §4.3 | `(projectId, deviceId, portId)` | connection create, update or decommission; hop insert; pre-occupied exception |
+| `serialRegistry` | `projectId`, `serial` (trimmed), `ownerType` (`cmoDevice` / `device`), `ownerId` | `(projectId, serial)`, case-insensitive | CMO import commit, serial entry on a device, device replacement |
 
-### 3.2 Operations that must be atomic
+A cable ID and a hop segment ID share one namespace (brief §6.1). Both sit in `cableIdRegistry`, and `ownerType` tells them apart.
 
-| Operation | Why | Required guarantee |
-|---|---|---|
-| **Port assignment** — a connection takes a port on a device or patch panel | two connections must never take the same port (§5.8, §6.8) | Single transaction. Check that `(device_id, port_id)` has no active connection endpoint, then insert the connection. Enforce with a unique partial index on `(device_id, port_id)` where the connection is not `decommissioned`. Mock: `occupiedPorts` check then `upsertConnection`, not atomic. |
-| **Cable ID allocation** — assigning or suggesting a new cable ID | two users must not get the same ID (§6.1, §6.10) | Assign inside one transaction with a unique index. Suggestions are non-binding; the assignment is the only write. Mock: `suggestNextCableId` then `upsertConnection` (non-atomic race). |
-| **Hop insertion** — adding a hop to a connection | hop `seq` must stay contiguous and each segment ID must be unique (§6.2) | Single transaction; deferred unique on `(connection_id, seq)`. |
-| **Approval and freeze** — approving HLD, LLD, Solution Package, or accepting handover | approval must freeze the exact design version, and must not race a concurrent edit (§5.4, §5.5, §6.10) | Single transaction: verify the attached `design_version_id` is the current head, set `frozen = true`, record the approval, update phase status, and write audit entries. If the head moved, reject with a conflict. Mock: `approveHld` writes only a phase status. |
-| **Client decision via share link** | one decision per link; approval must freeze the exact version (§5.5) | Single transaction. Lock the share link row; reject if a decision already exists or the link is expired or revoked. |
-| **Survey tab submit / verify / reject / import** | status transitions must not skip or double-apply (§5.2) | Conditional update on the current status (`UPDATE … WHERE status = 'submitted'`), with a version check. |
-| **CMO import commit** | a partial import must not leave half the rows | One transaction per batch, or a batch that commits only when all valid rows are written. |
-| **Procurement status update** | concurrent updates to the same line (§5.6) | Optimistic concurrency via `version`. |
-| **Handover acceptance** | sets baseline and freezes all design phases (§5.9) | Single transaction covering the handover workflow row, the frozen design versions, the phase statuses, and the share-link decision. |
-| **Offline sync replay** | queued edits must apply in queue order and report conflicts (§6.10, Step 10) | Replay each queued edit in its own transaction, in `queued_at` order. Compare `last_modified_at` against the edit's base. Record `conflict` in the audit entry. |
-| **Organisation deletion** | GDPR (§6.11) | Deletion job runs in batches, is resumable, and the job record is itself audited outside the deleted organisation. |
+### 4.5 Pathway (room-to-room route) [M `siteStructure.js` `connections`] [S5 rename]
+
+Renamed from "building connection". Device links keep the name *connection*.
+
+- `projectId` · `buildingId` (R) · `roomLowId` · `roomHighId` (ObjectIds, R; the smaller ID is stored first so the pair is unordered) · `routeStatus` (`surveyed` / `estimated`, R) · `distanceM` (Number, O, > 0) · `fileIds` (ObjectIds → `files`, O) · `createdBy` · `createdAt`.
+- Unique `(projectId, roomLowId, roomHighId)`. Rooms may sit in different buildings (brief §5.2).
+- The mock's `fromRoomId` and `toRoomId` become the normalised pair. A route has no meaningful direction.
+
+### 4.6 CMO, lifecycle imports and import batches [M `cmoDesign.js`] (brief §5.1)
+
+**`importBatches`**: `projectId` (R) · `type` (`cmo` / `lifecycle`, R) · `uploadedBy` (R) · `uploadedAt` (Date, R) · `sourceFileId` (ObjectId → `files`, R) · `rowCount` (Number, R) · `status` (`previewed` / `committed` / `rejected`, R) · `summary` (embedded counts by outcome).
+
+**`cmoDevices`**: `projectId` · `importBatchId` (R) · `hostname` (O) · `model` (O) · `serial` (R, through `serialRegistry`) · `mac` (O, normalised) · `salId` (R) · `buildingId` (O; null = Unassigned at SAL level, §5.1) · `roomId` · `rackId` (O) · `ru` (Number, O) · `assignedBy` (O) · `assignedAt` (Date, O).
+
+- `roomCode` and `rackCode` are **not stored** on the device [§13.1]. They are read from `rooms.code` and `racks.code`.
+- Commit is one transaction per batch: every valid row is written with its registry entry, or none is (§10).
+- Each unassigned CMO device counts as an open blocker. This is calculated (§6).
+- Lifecycle imports [D14] use the same batch model, with `type = lifecycle`, and write `devices.lifecycle`.
+
+### 4.7 Device catalogue, optics and stock cable [M `deviceCatalogue.js`, `sfpCatalog.js`] (brief §6.3–§6.5, D19, D27, D35, D36)
+
+`catalogueItems`, layered (§4.8):
+
+| Field | Type | Req | Allowed / format | Default | Src |
+|---|---|---|---|---|---|
+| `layer` | String | R | `seeded`, `servon`, `organisation`, `project` | | C |
+| `organisationId` · `projectId` | ObjectId | O | null for `seeded` and `servon`; set for the lower layers | null | C |
+| `kind` | String | R | `device_model`, `optic`, `stock_cable`, `consumable` | | C |
+| `key` | String | R | model string, optic code, media-length key or consumable key; unique per layer and kind, case-insensitive | | M |
+| `category` | String | R | §4.8 | | C |
+| `vendor` | String | O | | `Cisco` | M |
+| `unitPriceMinor` | Number | R | integer minor units | | M (decimal) |
+| `currency` | String | R | ISO-4217 | organisation default | M (constant) |
+| `eosDate` · `eolDate` | Date | O | | | C |
+| `servonAvailable` · `servonProductCode` | Boolean · String | O | manual flag, no sync [D35] | false | M / B |
+| `rackMounted` · `heightU` · `psuCount` · `powerInletType` · `needsUplinkModule` | — | R for `device_model` | | | M (except `heightU`: C) |
+| `portMap` | `{ count, type, namingPattern }` | O | the source of truth for a device's port IDs (§4.1) | | M implicit / C |
+| `mediaSpeed` | `{ media, speed, reachM }` | R for `optic` | the reach check of §6.4 | | M |
+| `stock` | `{ media, lengthM, pricePerMetreMinor }` | R for `stock_cable` | §6.3, D27 | | B |
+
+- **Serialised vs consumable** [D6]: a `device_model` in category `switch`, `router`, `firewall`, `ap` or `wlc` is serialised (§4.10). Optics, cables, power cords, cage nuts and accessories are consumables.
+- The mock's three device models and two optics seed the `seeded` layer until Technonex supplies the full 20–30 model list (brief §6.5).
+
+### 4.8 Catalogue layers and categories [C]
+
+- **Layers:** `seeded` (Rackium Team, global) → `servon` (platform product codes, global) → `organisation` → `project`. For any key, the highest layer that defines it wins. A lower layer never removes a key; it overrides values only.
+- **Categories:** passive (`cable`, `patch_panel`, `cabinet`, `cage_nut`, `accessory`, `cable_management`); active networking (`switch`, `router`, `firewall`, `ap`, `wlc`); `server`; infrastructure (`ups`, `pdu`, `sensor`); external (`wan_sp_connection`, `remote_site`).
+- Power and planned are display categories for cables (D7), not catalogue categories.
+
+### 4.9 Power cord standard [D16]
+
+- `organisations.settings.powerCordStandardDefault` (organisation default) and `projectSettings.powerCordStandardOverride` (project override, nullable). Both hold `{ label, connectorPair }`.
+- Resolution order for a device's cord: project override → organisation default → country plug table (brief §6.7). Default cord length comes from `organisations.settings.cordLengthDefaultM`.
+
+### 4.10 Procurement lines [M `bomDesign.js` `procurementOverrides`; C shape] (brief §5.6) [D6]
+
+BOM **lines are computed** from the design (§6). Only procurement facts are stored, in two shapes:
+
+**Serialised line** — one per device, for `kind = device_model` in categories `switch`, `router`, `firewall`, `ap`, `wlc` [D6]:
+
+- `lineType = 'serialised'` · `deviceId` (R) · `procurementStatus` (`not_ordered` / `ordered` / `shipped` / `delivered`, R, default `not_ordered`).
+- Unique `(buildingId, deviceId)`.
+- `ordered` on a serialised line moves the device to `ordered` (§5.2). `delivered` moves it to `delivered`.
+
+**Consumable line** — one per consumable type [D6]:
+
+- `lineType = 'consumable'` · `consumableKey` (R, a catalogue key of kind `optic`, `stock_cable`, `consumable`) · `orderedQty` (Number ≥ 0, R) · `deliveredQty` (Number ≥ 0, R).
+- Unique `(buildingId, consumableKey)`.
+- Consumable status is **calculated**: `not_ordered` when `orderedQty = 0`, `delivered` when `deliveredQty ≥ orderedQty`, otherwise `partial`. Not stored (§6).
+
+**Both shapes** — `vendor` (String, O) · `poNumber` (String, O) · `expectedDelivery` · `actualDelivery` (Date, O) · `notes` (String, O) · `updatedBy` (R) · `updatedAt` (Date, R) · `version` (Number, R, optimistic concurrency).
+
+- Procurement unlocks only after Solution Package approval, and is read-only after handover acceptance (brief §5.6).
+- Corrections after `delivered` are PM edits, audited (§8.1). No reverse transitions are enforced.
+- The consumable list is a default pending confirmation (§11, item 8).
+
+### 4.11 Deployment exceptions [M `deploymentDesign.js` `exceptionsByBuilding`] (brief §5.7, §5.9)
+
+`deploymentExceptions`: `projectId` · `buildingId` (R) · `deviceId` (R) · `connectionId` (O) · `field` (R; `media`, `sfp`, `port`, `ru`, `cable_id`, `rack_ru`, `length`) · `label` (R) · `designedValue` · `installedValue` (String, R) · `reason` (String, R) · `resolved` (Boolean, R, default false) · `resolutionNote` (String, O; required to resolve, feeds the exception register) · `resolvedBy` · `resolvedAt` (O) · `loggedAt` (Date, R).
+
+- `hasPhoto` is **computed** from `files` attached to the exception (§6), not stored.
 
 ---
 
-## 4. Ownership and relationships
+## 5. Lifecycles and records
 
-One-to-many unless marked otherwise.
+### 5.1 Phase status [M `phaseStatusStore.js`, `hierarchy.js`] (brief §4.4, §7.3)
 
-- Organisation → Project → Country → SAL → Campus → Building → Floor → Room → Rack → Device / Patch panel → Port.
-- Building → Wing (optional) → Floor.
-- Building → Survey tab record (building scope) and Room → Survey tab record (room scope).
-- Survey tab record → Survey section value → (rows) → File.
-- Rack → Rack revision; Rack → Rack placement (survey capture) → Device reference.
-- Device → Installation (1:1), Port (many), Device field provenance (many).
-- Device or patch panel → Port → Connection endpoint.
-- **Connection** (device to device) → Hop (ordered) → Patch panel and Port.
-- **Connection** → Deployment exception (zero or more).
-- Building connection (room to room) → no device link.
-- CMO device → CMO import batch (many to one); CMO device → Building (nullable: SAL-level Unassigned).
-- Building → Phase status (one per phase in the project's active set).
-- Building → Design version (many); Design version → Branch (optional); LLD version → HLD version (`based_on`).
-- Design version → Approval (many over time, one frozen version per gate).
-- Approval → Client decision (zero or one per client gate, via share link).
-- Share link → Client decision (one).
-- Building → Share link (many); only one active `solution-package` link at a time (mock: most recent wins).
-- Building → Required input group (12) → Addressing entry or key/value pair.
-- Building → Procurement line (one per line key) → Vendor (text).
-- Building → Handover workflow (one) → Generated document (many).
-- Building → Blocker (many); Blocker → related object (polymorphic).
-- Membership → Membership scope (many); User → Membership (many, one per organisation).
-- Task → assignee and assigner (User).
-- Notification → recipient (User); Notification preference → User.
-- Audit entry → actor (User, nullable), object (polymorphic), View-As session (nullable).
-- File → attached object (polymorphic).
+Stored only for **approval-driven** phases: `hld`, `lld`, `solution-package`, `bom`, `handover`. The phases `cmo`, `survey`, `deployment` and `cmdb` are computed from their records and never stored.
 
----
+`phaseStatuses`: `buildingId` (R) · `phaseKey` (R) · `status` (R) · `subLabel` (O; `Draft` on the BOM before Solution Package approval, calculated, §6) · `updatedAt` (Date, R) · `updatedBy` (R).
 
-## 5. Catalogue layers and tenancy of seed data
+Values: `not_started` · `in_progress` · `awaiting_approval` · `changes_requested` · `blocked` · `approved` · `completed`. "Pending" is never used (brief §4.4).
 
-**Layer resolution (client audit):** seeded (Rackium Team, global) → SERVON (platform-provided product codes, global) → organisation override → project override. For each catalogue key (device model, SFP code, stock length, resource minute), the most specific layer that defines the key wins. Layers below seeded never remove a seeded key, they only override its values.
-
-**Categories** (device catalogue, `category`):
-
-- Passive: cable, patch panel, cabinet, cage nut, accessory, cable management.
-- Active networking: `switch`, `router`, `firewall`, `ap`, `wlc`.
-- Server.
-- Infrastructure: `ups`, `pdu`, `sensor`.
-- External: `wan_sp_connection`, `remote_site`.
-
-The brief's roles map onto active networking: fusion, border, distribution and edge are switches (or routers, per design). The mock only has Cisco network devices.
-
----
-
-## 6. State machines
-
-For each machine: states, allowed transitions, and the roles that may trigger each transition. **Mock behaviour is noted where it differs**, since the backend must enforce the target rules.
-
-### 6.1 Phase status (brief §4.4)
-
-States: `not_started` (grey) · `in_progress` (amber) · `awaiting_approval` (amber, pulsing) · `changes_requested` (red) · `blocked` (red) · `approved` (green) · `completed` (green). "Pending" is not a state and must never be used (§4.4).
-
-| From | To | Trigger | Allowed roles | Mock |
+| From | To | Trigger | Allowed roles | Guard / effect |
 |---|---|---|---|---|
-| `not_started` | `in_progress` | first real work on the phase | system, on first record write | derived or manual |
-| `in_progress` | `awaiting_approval` | Architect submits (HLD, LLD, SP internal) | Architect | `submitForApproval` sets it; **no role check** |
-| `awaiting_approval` | `approved` | internal approval (HLD, LLD, SP) | PM, Reviewer | `approveHld` sets it; **no role check, no record** |
-| `awaiting_approval` | `approved` | client approves via share link (SP, Handover) | client (share link) | `clientApprove` |
-| `awaiting_approval` | `changes_requested` | reviewer or client requests changes | PM, Reviewer, client | `requestHldChanges` |
-| `changes_requested` | `in_progress` | Architect edits and resubmits | Architect | implicit |
-| any active | `blocked` | an open blocker is raised | system (from blocker row) | blockers are static, not derived |
-| `blocked` | prior state | last open blocker resolved | system | not implemented |
-| `approved` | `in_progress` | **change request only**, after freeze (§5.5) | PM | not implemented; design is currently editable after approval in mock |
-| `completed` | — | CMO: all devices validated; CMDB: rule in `computeCmdbPhaseStatus` | system | derived |
+| `not_started` | `in_progress` | first record written in the phase | system | |
+| `in_progress` | `awaiting_approval` | Architect submits HLD, LLD or SP internal approval | Architect | creates an `approvals` row (§5.9) |
+| `awaiting_approval` | `approved` | internal approval | PM, Reviewer (not the submitter) | §5.9, freezes the design version (§5.6) |
+| `awaiting_approval` | `approved` | client approves via share link (SP, Handover) | client | §5.5 checks |
+| `awaiting_approval` | `changes_requested` | reviewer or client requests changes | PM, Reviewer, client | comment required |
+| `changes_requested` | `in_progress` | Architect edits and resubmits | Architect | |
+| `approved` | `in_progress` | change request only, after freeze (§5.9) | PM | |
+| any active | `blocked` | an open `blockers` row is raised | system | §5.10 |
 
-**Derived phases** (CMO, Survey, Deployment, CMDB) must be computed from their records. The mock pushes values into the store on read. The backend should expose a computed status and store nothing (§7).
+**Mock gap:** `approveHld`, `requestHldChanges`, `submitForApproval` and `submitForClientApproval` write the status with no role check and no `approvals` row (§13).
 
-### 6.2 Device status (brief §4.4)
+### 5.2 Device status [M `deploymentModel.js`] (brief §4.4)
 
 Sequence: `planned` → `ordered` → `delivered` → `installed` → `configured` → `tested` → `accepted` → `in_service`. Side states: `maintenance`, `retired`.
 
 | From | To | Trigger | Allowed roles | Guard |
 |---|---|---|---|---|
-| `planned` | `ordered` | BOM procurement status set to Ordered | PM | line is procurement-unlocked (§5.6) |
-| `ordered` | `delivered` | BOM line Delivered | PM | — |
-| `delivered` | `installed` | installation confirmed | Field Engineer | materials Delivered (§5.7) |
-| `installed` | `configured` | configuration recorded | Field Engineer | — |
-| `configured` | `tested` | link or device tests pass | Field Engineer | — |
-| `tested` | `accepted` | acceptance | PM, Reviewer | all checklist items done |
-| `accepted` | `in_service` | placed in service | PM | — |
-| any | `maintenance` | maintenance | PM, Architect (CMDB operational edit) | — |
-| any | `retired` | retirement | PM | — |
+| `planned` | `ordered` | serialised procurement line `ordered` (§4.10) | PM | line exists |
+| `ordered` | `delivered` | serialised line `delivered` | PM | |
+| `delivered` | `installed` | installation confirmed | Field Engineer | materials delivered (§5.7) |
+| `installed` | `configured` | configuration recorded | Field Engineer | |
+| `configured` | `tested` | link or device test pass | Field Engineer | |
+| `tested` | `accepted` | acceptance | PM, Reviewer | checklist complete |
+| `accepted` | `in_service` | placed in service | PM | |
+| any | `maintenance` | maintenance | PM, Architect (CMDB operational change) | |
+| any | `retired` | retirement | PM | |
 
-*Mock:* `DEVICE_STATUS_ORDER` omits `maintenance` and `retired` (§10). `setDeviceStatus` accepts any status with no guard. Device deployment label: `pending` = planned, ordered, delivered; `installed` = installed, configured; `ready` = tested, accepted, in_service.
+**Existing devices** [D1 `origin = existing`] start in the state the survey records. The default for newly surveyed existing gear is `in_service`, pending confirmation (§11, item 6).
 
-### 6.3 Connection status (brief §4.4)
+**Mock gap:** `DEVICE_STATUS_ORDER` omits `maintenance` and `retired`, and `setDeviceStatus` accepts any value (§13).
+
+### 5.3 Connection status [M `deploymentModel.js`] (brief §4.4)
 
 Sequence: `designed` → `approved` → `installed` → `tested` → `accepted` → `in_service`. Side states: `faulty`, `decommissioned`.
 
+| From | To | Trigger | Allowed roles | Guard / effect |
+|---|---|---|---|---|
+| `designed` | `approved` | LLD approved | PM, Reviewer | cable ID present and registered |
+| `approved` | `installed` | install recorded | Field Engineer | |
+| `installed` | `tested` | link test pass | Field Engineer | `testResult = pass` |
+| `tested` | `accepted` | acceptance | PM, Reviewer | |
+| `accepted` | `in_service` | placed in service | PM | |
+| `installed` or `tested` | `faulty` | fault | Field Engineer, PM | |
+| `faulty` | `installed` | repaired | Field Engineer | |
+| any | `decommissioned` | removed | PM | deletes `portOccupancy` rows for both ends and every hop; sets `cableIdRegistry` rows to `retired`; one transaction |
+
+**Mock gap:** `CONNECTION_STATUS_ORDER` omits `faulty` and `decommissioned`.
+
+### 5.4 Survey records [M `surveyFormsDesign.js`, `docs/survey-fields.json`] (brief §5.2, Step 10) [D2]
+
+**Survey tab record** — `surveyTabRecords`. States: `draft` · `submitted` · `verified` · `rejected` · `imported`.
+
+| From | To | Trigger | Allowed roles | Guard / effect |
+|---|---|---|---|---|
+| `draft` | `submitted` | Field Engineer submits | Field Engineer | every `must` field filled; empty tables are complete; a started incomplete row blocks |
+| `submitted` | `verified` | Architect verifies | Architect | |
+| `submitted` | `rejected` | Architect rejects | Architect | `rejectReason` required |
+| `rejected` | `draft` | any edit | Field Engineer | automatic |
+| `verified` | `draft` | **any edit** [D2] | Field Engineer | audit `survey.tab.reverted`; one transaction |
+| `imported` | `draft` | **any edit** [D2; interpretation in §11, item 4] | Field Engineer | audit entry; raises a `designFlags` row |
+| `verified` or `imported` | `imported` | HLD import of the building | Architect, PM | every tab in the building verified or imported |
+
+**Building completion:** every room tab and building tab must be `verified` or `imported` (brief §5.2). The survey phase is `approved` when that holds, calculated (§6).
+
+**Design flag** — `designFlags` [D2]: `projectId` · `buildingId` (R) · `designType` (`hld`) · `kind` (`survey_changed_after_import`) · `surveyTabRecordId` (R) · `raisedAt` (Date, R) · `resolvedAt` (O) · `resolvedBy` (O). The flag appears on the HLD. It does not change the HLD's phase status. It resolves when the tab is verified and imported again.
+
+**Record shape**
+
+- `projectId` · `organisationId` · `buildingId` (R) · `roomId` (O; required for room-scope tabs, null for building-scope) · `tab` (R; one of the 18 names in the template).
+- Unique `(projectId, buildingId, roomId, tab)`.
+- `sections[]` — index-aligned with the template's sections. Each has `sectionIndex` and `layout` (`key_value`, `table`, `item_list`, `gallery`, `rack_layout`).
+  - `fieldValues[]` for `key_value` sections: `{ key, value, confirmed, confirmedBy, confirmedAt }`. `value` is typed by the field: String, Number, Boolean, or an ObjectId → `files` for photo and file types. `confirmed` is the "Validated on site" tick on `prefilled_validated` fields.
+  - `rows[]` for `table` sections: each row has `rowId` (ObjectId) and its own `fieldValues[]`. An empty table is complete.
+  - `rows[]` for `rack_layout`: one row per real rack, with `rackId` and field values.
+  - Gallery sections hold `files` references.
+- `status` (R) · `submitted` `{ at, by }` · `verified` `{ at, by }` · `rejected` `{ at, by, reason }` · `imported` `{ at, designVersionId }`.
+- `lastModifiedAt` (Date, R) — drives offline conflict detection (§5.7).
+- `version` (Number, R) — optimistic concurrency token.
+
+**Survey template** — `surveyTemplates` (global, read-only): `templateKey`, `version`, `tabs[]`. Each tab: `name`, `scope` (`building` / `room`), `sections[]` (`layout`, `fields[]`). Each field: `key`, `label`, `requirement` (`must` / `good_to_have` / `must_if_allowed` / `unspecified`), `type`, optional `hint` (option list), optional `prefill` (`prefilled` / `prefilled_validated`). A project chooses its version in `projectSettings.surveyTemplateVersion`. Core fields cannot be removed or renamed.
+
+**Survey custom field** — `surveyCustomFields`: `projectId` · `organisationId` · `tab` (R) · `key` (`custom_<id>`, R, immutable) · `label` (R) · `type` (R) · `requirement` (always `unspecified`). Custom fields are stored and shown. They are never used in calculations or completeness. Scoped per project; the mock keys them by tab name only (§13).
+
+### 5.5 Solution Package and share links [M `shareLink.js`, `requiredInputsStore.js`] (brief §5.5) [D15]
+
+**Share link** — `shareLinks`:
+
+- `projectId` · `organisationId` · `buildingId` (R) · `kind` (`solution_package` / `handover`, R).
+- `tokenHash` (String, R, unique). The token is 32 random bytes, encoded base64url in the link and shown once. Only the SHA-256 hash is stored. Lookup hashes the presented token and matches the index. The mock's 16-character base-36 token is replaced.
+- `passwordHash` (String, R). Argon2id or bcrypt. Plaintext is never stored. Password attempts are rate-limited (brief §8.1).
+- `createdBy` (ObjectId, R; PM only, brief §4.3) · `createdAt` (Date, R).
+- `expiresAt` (Date, R). Set at creation to creation + 14 days by default, between 1 and 30 days [D15].
+- **Expiry is checked at decision submit.** A decision submitted after `expiresAt` is rejected with "link expired"; the approval stays pending.
+- `extensions[]` (embedded): `{ extendedBy, extendedAt, previousExpiresAt, newExpiresAt }`. **PM can extend** a link [D15]; each extension is audited.
+- `revokedAt` (Date, O).
+
+**Client decisions** are stored on the approval (§5.9), not on the link. The client's identity is a name and role; the client is not a user.
+
+**Solution Package** [M]: section status is calculated (§6). Stored data:
+
+- `requiredInputGroups` (per building, 12 rows): `groupKey` (R, one of the 12 keys) · `n` (1–12) · `name` (R) · `ownerId` (O) · `dueDate` (O, Date) · `addressingEntries[]` (group 1 only: `label`, `vlanId` 1–4094, `cidr`, `gateway`) · `kvPairs[]` (groups 2–12: `key`, `value`). Status is calculated.
+- `acceptedWarnings`: `projectId` · `buildingId` (R) · `areaKey` (R) · `text` (R) · `acceptedBy` (ObjectId, R) · `acceptedByRole` (R) · `acceptedAt` (Date, R).
+
+### 5.6 Design versions, branches and baselines [M `hldVersion.js`, `lldDesign.js`] (brief §5.4, §6.10) [D1]
+
+**`designVersions`**
+
+- `buildingId` (R) · `projectId` · `designType` (`hld` / `lld` / `solution_package` / `bom`, R) · `number` (Number, R, monotonic per building and design type) · `label` (String, O, e.g. `v2`) · `basedOnVersionId` (ObjectId, O; LLD → HLD version, §5.4) · `frozen` (Boolean, R, default false) · `frozenAt` (Date, O) · `branchId` (ObjectId, O) · `changeSummaries` (`[String]`, O) · `snapshotFileId` (ObjectId → `files`, R; the full design state as JSON) · `createdBy` (R) · `createdAt` (Date, R).
+- Unique `(buildingId, designType, number)`.
+- **Approval freezes a version:** `frozen` becomes true in the same transaction as the approval (§10). A frozen version never changes.
+
+**`branches`** [B §6.10]: `buildingId` · `parentVersionId` (R) · `status` (`open` / `promoted` / `discarded`, R) · `createdBy` · `createdAt` · `resolvedBy` · `resolvedAt`. Promotion makes the branch head the building's current head. Discard is terminal. There is no merge.
+
+**LLD baseline** [M `lldDesign.js` `baselines`]: the LLD version's `basedOnVersionId` replaces the mock's `{ hldVersion, startedAt }`.
+
+**Rack revisions** [M two counters in `survey.js` and `lld.js`]: `rackRevisions`, one row per rack: `rackId` (unique) · `revision` (Number, monotonic) · `unsavedChanges` (Number) · `savedBy` (ObjectId) · `savedAt` (Date). Autosave does not change `revision`; only an explicit save does (brief §6.10).
+
+### 5.7 Offline replay and conflicts [M `offlineQueue.js`] (brief §6.10, Step 10)
+
+- Queued edits replay in `queuedAt` order, each in its own transaction.
+- A replay compares the record's `lastModifiedAt` with the edit's base. A later server change is a conflict. The last save wins, and the conflict is written to the audit entry's `conflict` field and reported to the user.
+- Photos captured offline upload on sync. `capturedAt` comes from the device, not from the sync time.
+
+### 5.8 CMDB operational change (brief §5.8)
+
+Architect and PM edits to a device after handover, or during operation, are audited with `changeType = operational_change`. Design-intent edits are `design_intent`. Provenance is recorded per field (§8.2).
+
+### 5.9 Approvals — one record per gate [B brief §4.3, §5.5; C model]
+
+`approvals`. Each row is one gate for one phase.
+
+| Field | Type | Req | Allowed / format | Notes |
+|---|---|---|---|---|
+| `projectId` · `organisationId` · `buildingId` | ObjectId | R | | |
+| `phaseKey` | String | R | `hld`, `lld`, `solution-package`, `bom`, `deployment`, `handover` | |
+| `gate` | String | R | `hld_internal`, `lld_internal`, `sp_internal`, `sp_client`, `bom_pm`, `deployment_acceptance`, `handover_client`, `change_request` | brief §4.3 and §5.5 |
+| `designVersionId` | ObjectId | R for design gates | → `designVersions` | the approval attaches to a version, not a moving target |
+| `submittedBy` · `submittedAt` | ObjectId · Date | R | Architect for internal design gates | |
+| `status` | String | R | `pending`, `approved`, `changes_requested`, `rejected`, `expired` | |
+| `reviewerId` | ObjectId | O | internal gates; must differ from `submittedBy` | brief §4.3: Architect cannot approve own work |
+| `client` | `{ name, role, shareLinkId }` | O | client gates | a client is not a user |
+| `decision` | `{ value, decidedAt, decidedBy, comments, termsAccepted, signatureFileId }` | O | `value`: `approved` / `changes_requested` / `rejected` | `termsAccepted` required for client decisions; comment required for `changes_requested` and `rejected` |
+| `changeRequestOf` | ObjectId | O | `change_request` gate only; the frozen version it changes | §5.6 |
+
+**Rules**
+
+- Internal: Architect submits; PM or Reviewer decides; the submitter cannot decide their own submission.
+- Client: decided through a share link (§5.5); expiry is checked at submit.
+- On `approved` for a design gate, the referenced `designVersions` row is frozen in the same transaction (§10).
+- After freeze, changes go through a `change_request` gate (brief §5.5). A rename of a device after LLD approval is one of those changes (§7).
+
+### 5.10 Blockers, milestones and phase targets [C; brief §4.3, §7.3]
+
+**`blockers`** — human-raised:
+
+- `projectId` · `organisationId` · `buildingId` (R) · `phaseKey` (R) · `description` (R) · `relatedObjectType` (O) · `relatedObjectId` (ObjectId, O) · `raisedAt` (Date, R) · `raisedBy` (R) · `ownerId` (O) · `priority` (`low` / `medium` / `high` / `critical`, R, default `medium`) · `status` (`open` / `in_progress` / `resolved`, R, default `open`) · `resolvedAt` · `resolvedBy` (O).
+- Transitions: `open` → `in_progress` (owner or PM); `open` or `in_progress` → `resolved` (owner or PM); `resolved` → `open` (any project member re-raises).
+- **Calculated** blockers are not rows: unassigned CMO devices, RU conflicts, and BOM lines without a price (§6). The mock seeds RU-conflict and unpriced-line blockers as static items (§13).
+
+**`milestones`**: `buildingId` (R) · `name` (R) · `dueDate` (Date, R) · `completedAt` (Date, O) · `dependsOnPhaseKey` (O). The dashboard's "next milestone" is the earliest uncompleted one.
+
+**`phaseTargets`**: `projectId` · `buildingId` (R) · `phaseKey` (R) · `targetDate` (Date, O) · `slaDays` (Number ≥ 1, O) · `setBy` (R) · `setAt` (Date, R). Org Admin and PM set these (brief §4.3). Unique `(buildingId, phaseKey)`.
+
+### 5.11 Tasks and notifications [C]
+
+**`tasks`**: `projectId` · `organisationId` · `buildingId` (O) · `title` (R) · `relatedObjectType` · `relatedObjectId` (O) · `assignedTo` (ObjectId, R; must hold an active membership on the project) · `assignedBy` (R) · `deadline` (Date, O, UTC midnight) · `notes` (String, O) · `status` (`not_started` / `in_progress` / `complete`, R, default `not_started`) · `createdAt` · `updatedAt` · `completedAt` (O).
+
+- Transitions: `not_started` → `in_progress` (assignee); `in_progress` → `complete` (assignee); any → `not_started` (assigner or PM, reopen).
+- Assignment to a user without an active membership is rejected.
+- `billOfResources` tasks are a different concept (resource estimates, §5.5 of the brief) and are not `tasks`.
+
+**`notifications`**: `recipientId` (R) · `organisationId` · `projectId` (R) · `type` (R; `approval_requested`, `approval_decided`, `blocker_raised`, `blocker_resolved`, `task_assigned`, `task_due`, `sync_conflict`, `view_as_started`) · `relatedObjectType` · `relatedObjectId` (O) · `title` (R) · `body` (String, O) · `readAt` (Date, O; null = unread) · `createdAt` (Date, R) · `deliveredChannels` (`[String]`).
+
+**`notificationPreferences`**: `userId` (R) · `projectId` (O; null = all projects) · `eventType` (R, one of the notification types) · `channel` (`in_app` / `email` / `push`, R) · `enabled` (Boolean, R, default true) · `digest` (`immediate` / `daily`, R, default `immediate`). Unique `(userId, projectId, eventType, channel)`.
+
+### 5.12 Handover workflow, generated documents and document types [M `handoverDesign.js`, `handoverModel.js`] (brief §5.9, §3.11)
+
+**`handoverWorkflows`** (one per building):
+
+- `buildingId` (R, unique) · `state` (R) · `compiledAt` · `reviewedAt` · `deliveredAt` (Date, O).
+- `baseline` (embedded, set on acceptance): `{ label, frozenAt, designVersionId }`. `label` is `v{baselineNumber}.0`, where `baselineNumber` counts accepted baselines **for this building** [§13].
+- States: `pending` → `compiled` → `under_review` → `delivered` → `accepted`; side branch `changes_requested`.
+
 | From | To | Trigger | Allowed roles | Guard |
 |---|---|---|---|---|
-| `designed` | `approved` | LLD approved (connection Cable ID mandatory) | PM, Reviewer (internal LLD approval) | cable ID present and unique (§6.1) |
-| `approved` | `installed` | Field Engineer records install | Field Engineer | — |
-| `installed` | `tested` | link test pass | Field Engineer | `test_result = pass` |
-| `tested` | `accepted` | acceptance | PM, Reviewer | — |
-| `accepted` | `in_service` | placed in service | PM | — |
-| `installed` or `tested` | `faulty` | test or field fault | Field Engineer, PM | — |
-| `faulty` | `installed` | repaired and re-installed | Field Engineer | — |
-| any | `decommissioned` | removed from service | PM | — |
+| `pending` or `changes_requested` | `compiled` | package compiled | PM | pre-compilation checklist green |
+| `compiled` | `under_review` | marked reviewed | PM, Reviewer | |
+| `under_review` | `delivered` | sent to client (share link created, §5.5) | PM | |
+| `delivered` | `accepted` | client accepts through share link | client | design versions frozen; baseline written; one transaction (§10) |
+| `delivered` | `changes_requested` | client requests changes or rejects | client | comment required |
 
-*Mock:* `confirmUplinking` moves `designed` or `approved` to `installed`. `recordLinkTest` moves to `tested` on pass. No `faulty` or `decommissioned` transitions exist.
+The mock's `ready` state is removed: it appears in the phase mapping but is never set (§13).
 
-### 6.4 Survey tab record (brief §5.2, Step 10)
+**`generatedDocuments`**: `buildingId` (R) · `docTypeKey` (R; one of `documentTypes.key`) · `versionLabel` (String, R) · `format` (`pdf` / `xlsx` / `csv` / `zip` / `docx`, R) · `generatedBy` (R) · `generatedAt` (Date, R) · `fileId` (ObjectId → `files`, O until ready) · `sourceVersionIds` (`[ObjectId]`) · `status` (`generating` / `ready` / `failed`, R).
 
-States: `draft` · `submitted` · `verified` · `rejected` · `imported`.
-
-| From | To | Trigger | Allowed roles | Guard |
-|---|---|---|---|---|
-| `draft` | `submitted` | Field Engineer submits | Field Engineer | all `must` fields filled; empty tables are complete (§6.4 decision); started incomplete rows block |
-| `submitted` | `verified` | Architect verifies | Architect | — |
-| `submitted` | `rejected` | Architect rejects | Architect | `reject_reason` required |
-| `rejected` | `draft` | any edit after rejection | Field Engineer | automatic |
-| `verified` | `imported` | HLD import | Architect, PM | every tab in the building verified |
-| `verified` | `draft` | edit after verification | — | **open point**: mock does not revert (see §10) |
-
-*Building-level completion:* every room tab and building tab must be `verified` or `imported` (brief §5.2). Survey phase is approved when all are verified or imported.
-
-### 6.5 Handover workflow (brief §5.9, §3.11)
-
-States: `pending` → `compiled` → `under_review` → `delivered` → `accepted`; side branch `changes_requested`.
-
-| From | To | Trigger | Allowed roles | Guard |
-|---|---|---|---|---|
-| `pending` | `compiled` | package compiled | PM | pre-compilation checklist is green |
-| `compiled` | `under_review` | marked reviewed | PM, Reviewer | — |
-| `under_review` | `delivered` | sent to client (share link created) | PM | — |
-| `delivered` | `accepted` | client accepts via share link | client | baseline frozen |
-| `delivered` | `changes_requested` | client requests or rejects | client | — |
-| `changes_requested` | `compiled` | recompiled | PM | checklist green |
-
-*Mock:* `compilePackage` checks the checklist only, not the current state. A `changes_requested` package can be recompiled, which matches the target, but the `pending` → `compiled` guard is also missing. `ready` appears in the phase mapping but is never set.
-
-### 6.6 Solution Package (brief §5.5, §3.7A.4)
-
-Section states (computed, §7): `input_required` → `generated` → `validated`. BOM section additionally `under_review`.
-
-Package approval states follow the phase machine in §6.1 (`awaiting_approval` after PM submits to client; `approved` / `changes_requested` from client decision). Submission for client approval is **PM only** (§4.3), but the mock's `submitForClientApproval` has no role check.
-
-Procurement unlocks only at `approved` and only while handover is not accepted (§5.6).
-
-### 6.7 Procurement line (brief §5.6, §3.8)
-
-States: `not_ordered` → `ordered` → `shipped` → `delivered`.
-
-| From | To | Trigger | Allowed roles | Guard |
-|---|---|---|---|---|
-| `not_ordered` | `ordered` | PO raised | PM | Solution Package approved; not handed over |
-| `ordered` | `shipped` | shipment notified | PM | — |
-| `shipped` | `delivered` | goods received | PM | — |
-| `delivered` | `shipped` / `ordered` | correction | PM | **open point**: no reverse transitions are defined |
-
-*Mock:* `setLineProcurement` accepts any status with no transition check. `PROCUREMENT_STATUSES` is not validated.
-
-### 6.8 Approval (generic, client audit)
-
-States: `pending` → `approved` | `changes_requested` | `rejected`.
-
-| From | To | Trigger | Allowed roles | Guard |
-|---|---|---|---|---|
-| `pending` | `approved` | internal reviewer or PM approves | PM, Reviewer (not the submitter) | design version is current head |
-| `pending` | `approved` | client approves | client via share link | link active, terms accepted |
-| `pending` | `changes_requested` | reviewer or client requests changes | PM, Reviewer, client | comment required |
-| `pending` | `rejected` | client rejects | client | comment required |
-
-On `approved`, the referenced design version becomes `frozen`.
-
-### 6.9 Blocker (client audit)
-
-States: `open` → `in_progress` → `resolved`.
-
-| From | To | Trigger | Allowed roles |
-|---|---|---|---|
-| `open` | `in_progress` | owner starts work | owner, PM |
-| `open` or `in_progress` | `resolved` | work done | owner, PM |
-| `resolved` | `open` | re-raised | any project member |
-
-### 6.10 Task (client audit)
-
-States: `not_started` → `in_progress` → `complete`.
-
-| From | To | Trigger | Allowed roles |
-|---|---|---|---|
-| `not_started` | `in_progress` | assignee starts | assignee |
-| `in_progress` | `complete` | assignee completes | assignee |
-| any | `not_started` | reopened | assigner, PM |
-
-### 6.11 Invitation (client audit)
-
-States: `pending` → `accepted` | `expired` | `revoked`. `pending` → `expired` on `expires_at`. `pending` → `revoked` by inviter or Org Admin. Accepted invitations create a membership.
-
-### 6.12 Design version and branch (brief §6.10)
-
-Design version states: `draft` (head, editable) → `frozen` (approved or handed over, immutable). Branch states: `open` → `promoted` | `discarded` (both terminal). Promotion replaces the main design by making the branch head the new current head. No merge state exists.
+**`documentTypes`** (global seed, M `handoverModel.js` `HANDOVER_DOCUMENTS`): `exec-summary` (PDF), `survey-report` (PDF), `hld-document` (PDF), `lld-document` (PDF), `cable-matrix` (Excel, exportable), `bom-final` (Excel, exportable), `deployment-report` (PDF), `cmdb-extract` (CSV + PDF, exportable), `as-built` (PDF), `exception-register` (PDF), `photo-evidence` (ZIP, exportable). Plus the 18 Solution Package section keys.
 
 ---
 
-## 7. Calculated values (never stored)
+## 6. Calculated values (never stored)
 
-These must be computed from source records on read, or on a cached projection that is rebuilt from source. None may be a stored column that can drift.
+These are computed from source records on read, or from a projection rebuilt from them. None is a stored column that can drift.
 
 | Value | Computed from | Brief § | Mock today |
 |---|---|---|---|
-| Overall progress % (dashboard) | phase statuses across active phases | §7.3 | calculated (`computeOverallProgress`) |
-| Current phase | first active phase not `approved`/`completed` | §7.3 | calculated |
-| Open blockers count | open blocker rows + unassigned CMO devices (target also calculates RU conflicts and unpriced BOM lines) | §5.1, §7.3 | partly stored (`openItems`); unassigned CMO count is calculated |
-| Approvals awaiting action | approval rows `pending` | §7.3 | stored in `openItems` |
-| Next milestone | earliest uncompleted milestone | §7.3 | static string |
-| Last synchronisation | max audit `occurred_at` | §7.3 | static |
-| Survey tab completeness % | tab definition and section values | Step 10 | calculated (`computeTabCompleteness`) |
-| Survey building verified count and `allVerified` | survey tab statuses | §5.2 | calculated |
-| Rack used RU and free RU | rack placements or devices, per face | §4.1 | calculated (`computeFreeRU`) |
-| RU conflicts | overlapping placements on the same face | §4.1 | calculated |
-| Rack readiness and validation results | rack, placement and power data | §6.8 | calculated |
-| Comms Rooms Summary RU and power columns | rack stats for the room | §5.2 | calculated (`rackStatsForRoom`) |
-| Hostname | naming pattern and floor token and sequence | §6.6 | **stored once** on device (§8) |
-| Cable ID suggestion | max existing cable ID + 1 (project namespace) | §6.1 | calculated, then stored on assignment |
-| Length suggestion | route distance and rack positions | §6.3 | **stored snapshot** `lengths.suggested` (should be computed) |
-| Port map | device model | §5.8 | calculated (`getDevicePortMap`) |
-| BOM lines | HLD devices, connections, optics, cables, power | §5.6 | calculated live (`buildBom`) |
-| BOM quantities | count of lines per key | §5.6 | calculated |
-| BOM line totals and cost total | unit price × quantity | §5.6 | calculated |
+| Overall progress % | active phases only [D3] | §7.3 | calculated |
+| Current phase | first active phase not `approved` or `completed` | §7.3 | calculated |
+| Open blockers count | `blockers` with status not `resolved` + unassigned CMO devices + RU conflicts + BOM lines without price | §5.1, §7.3 | partly static |
+| Approvals awaiting action | `approvals` with status `pending` | §7.3 | static |
+| Next milestone | earliest uncompleted `milestones` | §7.3 | static string |
+| Last synchronisation | max `auditEntries.occurredAt` | §7.3 | static |
+| Survey tab completeness | template and section values | Step 10 | calculated |
+| Survey verified count | tab statuses | §5.2 | calculated |
+| Rack used and free RU | devices per face, and `ruStates` | §4.1 | calculated |
+| RU conflicts | overlapping devices on the same face | §4.1 | calculated (mock seeds as static blocker) |
+| Rack readiness | rack, device and power data | §6.8 | calculated |
+| Comms Rooms Summary RU and power | rack stats for the room | §5.2 | calculated |
+| Photo count, evidence count, `hasPhoto` | `files` rows | §5.2, §5.7 | stored counters |
+| Serial validation | `serialRegistry` and CMO | §5.1 | stored |
+| Cable ID suggestion | next free ID in the project namespace | §6.1 | calculated, then stored on assignment |
+| Length suggestion | route distance and rack positions | §6.3 | stored snapshot |
+| Port map | catalogue `portMap` | §5.8 | calculated |
+| Port availability | `portOccupancy` | §6.8 | calculated |
+| BOM lines, quantities, totals | design and devices | §5.6 | calculated |
 | Price with margin | cost total × (1 + margin) | §5.6 | calculated |
-| BOM reconciliation (counts vs design) | BOM vs devices | §5.6 | calculated |
-| Solution Package section completeness and status | Required Inputs, LLD, BOM | §5.5 | calculated |
+| Serialised procurement status | the line | §5.6 | stored on line |
+| Consumable procurement status | `deliveredQty` vs `orderedQty` [D6] | §5.6 | not in mock |
+| Solution Package section status and completeness | required inputs, LLD, BOM | §5.5 | calculated |
 | Validation area pass counts | checks per area | §5.5 | calculated |
-| Package completeness % | section completeness | §5.5 | calculated |
-| Handover pre-compilation checklist | phase statuses, BOM delivery, deployment, CMDB, exceptions, sign-off | §5.9 | calculated |
-| Handover document status | data bag | §5.9 | calculated |
-| Deployment pipeline counts (installed, ready, APs mounted, uplinks live, overall progress) | device and connection statuses | §5.7 | calculated (`computeDeploymentKpis`) |
-| Deployment label per device | device status | §4.4 | calculated |
-| Connection "live" flag | connection status | §4.4 | calculated |
-| Bill of Resources task minutes and totals | device, connection, rack counts × task minutes | §5.5 | calculated (`buildResourceEstimate`) |
-| CMDB KPIs (CIs, switches, APs, accepted, awaiting, compliance actions) | device status and DGUV status | §5.8 | calculated |
-| CMDB reconciliation | HLD count vs CMDB count vs cable IDs | §5.8 | calculated |
-| DGUV status and due date | last inspection date, `mains_powered`, +48 months | §6.9 | calculated (`computeDguvStatus`) |
-| Warranty status | warranty end date | C | not in mock |
-| Serial validation result | CMO and project serial registry | §5.1 | **stored** `installation.serial_validation` (should be computed) |
-| CMO status per building | CMO devices | §5.1 | calculated (`computeBuildingCmoStatus`) |
-| Photo count and evidence count | file rows | §5.2, §5.7 | **stored counters** (should be computed) |
-| HLD version number and changes since version | design versions | §5.4 | stored counter (HLD version is a real state change, so storing it as a version row is correct) |
-| LLD stale flag | LLD based-on version vs HLD head | §5.4 | calculated |
-| Survey building phase status | survey tab statuses | §5.2 | calculated, then **pushed** into the store (should not be stored) |
-| Deployment and CMDB phase status | device and connection statuses | §5.7, §5.8 | calculated, then **pushed** into the store |
-| Recent history (dashboard) | audit entries | §7.3 | static array (should be derived from audit) |
+| Handover checklist | phase statuses, BOM delivery, deployment, CMDB, exceptions | §5.9 | calculated |
+| Deployment pipeline counts and device deployment label | device and connection statuses | §5.7, §4.4 | calculated |
+| Connection live flag | connection status | §4.4 | calculated |
+| Bill of Resources minutes | counts × task minutes | §5.5 | calculated |
+| CMDB KPIs and reconciliation | device status, DGUV, cable IDs | §5.8 | calculated |
+| DGUV status and next due date | `dguv.lastInspectionAt`, `mainsPowered`, +48 months [D13] | §6.9 | calculated |
+| Warranty status | `lifecycle.warrantyEnd` [D14] | C | not in mock |
+| CMO status per building | CMO devices | §5.1 | calculated |
+| Survey, deployment and CMDB phase status | records | §5.2, §5.7, §5.8 | calculated, then pushed into the store (§13) |
+| Recent Activity | `auditEntries` | §7.3 | static array |
 
 ---
 
-## 8. Stored, not recalculated: hostnames and immutable identifiers
+## 7. Hostnames and identifiers [D9]
 
-- **Hostname** is generated once from the naming pattern at device creation and stored. Changing a floor token or building code later must not rewrite existing hostnames, since they appear in the CMDB and in issued documents. New records use the new pattern. Re-naming is a deliberate operation that writes an audit entry per device (open point, §10).
-- **Cable ID** is stored once assigned. Reassignment is an audited operation.
-- **Serial** and **MAC** are stored as entered. Validation results are computed (§7).
-- **Design version numbers** are stored and monotonic.
+- **Hostnames never regenerate automatically.** A hostname is generated once from the naming pattern at creation, and stored on the device.
+- **Explicit rename.** Architect or PM runs a rename action. It shows a **preview** of every affected hostname, then applies the change in one transaction. The rename writes one audit entry (`device.hostname.renamed`) with the old and new value for each device.
+- **After LLD approval, a rename goes only through a change request** (§5.9, gate `change_request`), like any other frozen change.
+- Cable IDs are stored once and never regenerate. Reassignment is an audited action.
+- Serials and MACs are stored as entered. Validation results are calculated.
+- Design version numbers are stored and monotonic.
 
 ---
 
-## 9. Files and photos
+## 8. Audit, provenance and activity
 
-See §2.16 for the `file` entity. Where photos attach:
+### 8.1 Audit entry [M partial: `cmdbDesign.js` `changeLog`, `hierarchy.js` `history`; C target] (brief §6.11, §5.8) [D10]
 
-| Context | Attached to | Category | Brief § |
+**One entry per user action.** Field-level changes are **embedded children** in `changes[]`, so one action is one atomic write. A bulk action above the cap of 200 field changes is split into several entries that share a `batchId`.
+
+| Field | Type | Req | Notes |
 |---|---|---|---|
-| Survey gallery and photo fields | survey section value | `photo_reference`, `photo_room`, `photo_rack` | §5.2 |
-| Room survey | room | `photo_room` | §5.2 |
-| Rack survey | rack | `photo_rack` | §5.2 |
-| Device label | device | `photo_device_label` | §5.7 |
-| Cable | connection | `photo_cable` | §5.7 |
-| Deployment evidence | device or deployment exception | `evidence` | §5.7 |
-| Client signature | approval | `signature` | §5.5 |
-| Generated document | generated document | `document` | §5.9 |
-| Certificate (DGUV) | device installation | `certificate` | §6.9 (C fields) |
+| `organisationId` · `projectId` | ObjectId | R (`projectId` O for organisation-level and platform events) | direct scope |
+| `occurredAt` | Date | R | server clock, UTC |
+| `actor` | `{ type, userId, role, clientName, clientRole, shareLinkId }` | R | `type`: `user`, `client_link`, `system`, `rackium_team`. A client is identified by name and role. |
+| `viewAsSessionId` | ObjectId | O | set during a View-As session (§1.6) |
+| `action` | String | R | dotted verb: `survey.tab.submitted`, `survey.tab.reverted`, `sp.client.approved`, `device.hostname.renamed`, `cmdb.field.updated`, `view_as.started` |
+| `objectType` · `objectId` | String · ObjectId | R | |
+| `buildingId` · `phaseKey` | ObjectId · String | O | feed filtering |
+| `changeType` | String | R | `design_intent`, `operational_change`, `system`, `client_decision`, `import`, `view_as_access`, `platform_access` |
+| `source` | String | R | `ui`, `import`, `client_link`, `system`, `offline_sync` |
+| `offlineQueuedAt` | Date | O | set on offline replay |
+| `conflict` | Boolean | R | default false |
+| `comment` | String | O | rejection reason, approval comment, or the reason for platform access (§1.4) |
+| `changes[]` | embedded | O | `{ objectType, objectId, field, before, after }`; `before` and `after` null for creates and deletes |
+| `batchId` | ObjectId | O | links split entries |
 
-Rules: content is stored in an object store with a private key. Downloads go through short-lived signed URLs. Thumbnails are derived. EXIF GPS is copied to `geo_lat` and `geo_lng` only when the uploader consents, and EXIF is stripped from exported files.
+**Immutability:** no update or delete (§1.2). Indexes: `(organisationId, projectId, occurredAt desc)` and `(objectType, objectId, occurredAt desc)`.
+
+### 8.2 Device field provenance [C; brief §5.8]
+
+Stored on the device as `provenance` (§4.1), keyed by CMDB-visible field: `{ source, setBy, setAt, importBatchId }`. `source` is `design`, `manual`, `import` or `deployment`. The CMDB reads provenance with the device, so it is not a separate collection.
+
+### 8.3 Recent Activity and Change Log
+
+- **Recent Activity:** the latest *N* entries for an organisation, project or building, excluding `view_as_access` and `platform_access` for non-admins.
+- **Change Log:** per object or building, field-level, with `before`, `after` and the operational-change flag. The CMDB Change Log shows `operational_change` entries only (brief §5.8).
+
+### 8.4 Retention and purge
+
+Audit entries are kept for the life of the organisation. The GDPR purge (brief §6.11) removes them within 30 days of a verified request. The purge job writes its own audit event outside the organisation being purged.
 
 ---
 
-## 10. Mismatches and open points
+## 9. Files, photos and uploads [D12]
 
-### 10.1 Mismatches between the mock and the v2.3 brief
+### 9.1 File [M metadata fragments; C model]
 
-1. **Device statuses.** The brief lists `maintenance` and `retired`. `deploymentModel.js` `DEVICE_STATUS_ORDER` omits both.
-2. **Connection statuses.** The brief lists `faulty` and `decommissioned`. `CONNECTION_STATUS_ORDER` omits both.
-3. **Roles.** The brief defines `rackium_team` as a platform super-admin. `lib/permissions.js` `ROLES` omits it.
-4. **Approvals have no record.** `approveHld`, `requestHldChanges`, `submitForApproval` and `submitForClientApproval` only write a phase status. There is no approver identity, no comment, no timestamp of decision, and no role check in the API layer. Permission gating is UI-only.
-5. **Share-link passwords are plaintext** (`shareLink.js`). The brief requires a secure password policy (§8.1). The token is 16 base-36 characters, which is short for the target.
-6. **Client identity** is stored as a name and role string, not a user reference. That is correct for a client who is not a user, but the audit must also record the share link ID.
-7. **Survey custom fields are keyed by tab name only** (`customFieldsByTab`). They must be scoped to organisation and project, and must not be shared across projects.
-8. **Two different "connections".** A device link (`networkStore`) and a building route (`siteStructure`, `fromRoomId`/`toRoomId`, `routeStatus`) share the name. Rename one in the backend (suggestion: `device_link` and `building_route`).
-9. **Rack revision is stored twice** under the same rack IDs, with different seeds: `survey.js` (revision 3) and `lld.js` (revision 12). They must be one counter.
-10. **Serial is stored in three places**: `cmo.js` `projectSerials` (survey), `cmoDesign` `cmoDevices[].serial`, and `networkStore` `installation.serial`. Uniqueness is checked over a mixed set.
-11. **Rack placements duplicate devices.** `survey.js` `placementsByRack` seeds from the device list, then autosave writes a separate copy. The Rack Survey and the LLD/HLD can diverge. Decide whether the Rack Survey writes to `device` directly.
-12. **Handover version labels are global.** `baselineCounter` is one counter across all buildings, so the second building to be accepted gets `v2.0` rather than `v1.0`.
-13. **Handover `ready` state** appears in `handoverPhaseStatus` but is never set. `compilePackage` does not check the current state (see §6.5).
-14. **Survey edit after verification.** Only `rejected` reverts to `draft`. An edit to a `verified` tab changes the data but keeps the verified status. Decide whether this must revert or raise a change request.
-15. **`imported` survey status** is written by `importBuildingIntoHld` and counted as verified by the progress checks, but no HLD code reads survey import status. The survey-to-HLD link is not modelled, so the import has no effect on HLD data.
-16. **Procurement transitions are unchecked** (`setLineProcurement`). No reverse transitions are defined (see §6.7).
-17. **Hops are unused.** `connection.hops` is always `[]` in the seed, and cable-ID uniqueness currently checks hop segment IDs that never exist. Brief §6.2 requires ordered hops.
-18. **Port assignment is not atomic** (`occupiedPorts` then `upsertConnection`). See §3.2.
-19. **Cable ID allocation is not atomic** (`suggestNextCableId` then `upsertConnection`). See §3.2.
-20. **Stored but should be computed**: `installation.serial_validation`, `lengths.suggested`, `photoCount`, `evidenceCount`, pushed phase statuses for survey/deployment/cmdb, and the static `history` array.
-21. **Two sources of phase truth.** `hierarchy.js` `buildings[].phases` (static) and `phaseStatusStore` `overrides` (dynamic). The dashboard merges them.
-22. **Blockers are a static array** (`openItems`). The RU-conflict and unpriced-BOM blockers are seeded as static items, not calculated from placements or the catalogue. Only unassigned CMO devices are calculated into the count. Static items have no link to the object they concern, no owner, no priority, and no dates.
-23. **Audit has no store.** `cmdbDesign` `changeLog` stores `changedBy` as a role label, not a user. `hierarchy` `history` has labels with no actor. Deployment exceptions have no resolution note (brief §5.9 exception register).
-24. **No organisation scoping** on floors, rooms, racks, devices or connections. Single organisation hard-coded.
-25. **Wing level** (§4.1) is not modelled.
-26. **Rack heights.** The brief lists 12, 24, 42, 45, 48 and custom heights. The mock uses plain integers with no allowed list. Custom height is defined by Org Admin, which is not modelled.
-27. **BOM line granularity.** The brief says each line keeps a source tag (Survey, HLD, LLD) and a vendor field. The mock keys procurement by `device:{role}`, which aggregates every device of a role into one line, so procurement status cannot differ per device. Decide per-device or per-role (open point).
-28. **Media values.** The brief lists `power` and `planned` as cable media categories. The mock uses only `os2`, `om4`, `cat6a`, `stack` and `dac` on connections. Confirm whether `power` and `planned` are connection media or display categories.
-29. **Device role `wan-circuit`** is used in the mock and in CMDB filtering but is not in the brief's role list. Add it to the role enum or model WAN circuits as `external` category devices.
-30. **Probe devices** (brief D36) are not modelled.
-31. **Phase gating** and parallel phases (brief §4.3 "allow parallel phases") are not modelled. The sidebar and progress are fixed to nine phases.
-32. **Price currency** is a constant (`CURRENCY = 'EUR'`), not per organisation. Prices are decimal numbers, not minor units.
-33. **Hostname floor token** in the mock is `FU1`, `EG`, `1OG`, `2OG`, `3OG` after stripping dots. The brief says floor tokens are configurable per project (§6.6). The token belongs on the floor record with a hostname-safe derived form.
-34. **Power cords.** Default length is a hard-coded constant (`DEFAULT_CORD_LENGTH_M = 2`), but the brief makes it an org setting (§6.7). `customerStandard` is a PM project setting and is correctly per project.
+`files`:
 
-### 10.2 Duplicated data between modules
+- `organisationId` · `projectId` (R).
+- `attachedTo` `{ type, id }` (R, polymorphic): `surveyTabRecord`, `room`, `rack`, `device`, `pathway`, `connection`, `deploymentException`, `generatedDocument`, `approval`, `designVersion`, `importBatch`.
+- `category` (R): `photo_room`, `photo_rack`, `photo_device_label`, `photo_cable`, `photo_reference`, `evidence`, `signature`, `document`, `certificate`, `import_source`, `data_snapshot`.
+- `storageKey` (R; private object-store key, never a public URL) · `mimeType` (R) · `sizeBytes` (R) · `sha256` (R) · `widthPx` · `heightPx` (O).
+- `capturedAt` (Date, O; from EXIF when present) · `capturedBy` (ObjectId, O) · `geo` `{ lat, lng }` (O).
+- `caption` (String, O) · `sortOrder` (Number, default 0).
+- `uploadedAt` (Date, R) · `deletedAt` (Date, O; soft delete, the row stays for the audit trail).
 
-| Concept | Copies | Target |
+### 9.2 Upload rules [D12]
+
+| Type | Accepted | Default limit | Configurable |
+|---|---|---|---|
+| Photos | JPG, PNG, HEIC, WebP | 15 MB after compression | yes, `organisations.settings.uploadLimitsMb.photo` |
+| PDF | PDF | 25 MB | yes, `.pdf` |
+| Spreadsheets | Excel (`.xlsx`, `.xls`), CSV | 10 MB | yes, `.sheet` |
+
+- Photos are compressed in the browser before upload. The server enforces the limit after compression and rejects anything over it.
+- Limits are read from organisation settings on each request.
+- Downloads go through short-lived signed URLs. EXIF GPS is copied to `geo` only with the uploader's consent, and EXIF is stripped from exported files.
+
+### 9.3 Where files attach
+
+| Context | Attached to | Category |
 |---|---|---|
-| Serial | `cmo.js`, `cmoDesign.cmoDevices`, `networkStore.installation.serial`, `survey.deviceSerials` | one serial registry (§2.3) |
-| Room code | `cmoDevices.roomCode`, `lld` entity `roomCode`, survey context `roomCode` | derive from `room.code` by FK |
-| Rack code | `cmoDevices.rackCode`, survey context | derive from `rack.code` by FK |
-| Rack revision | `survey.revisionByRack`, `lld.revisionByRack` | one `rack_revision` |
-| Rack placements | `survey.placementsByRack`, `networkStore.devices` (ru, face, rackId) | one source of truth (open point 11) |
-| Phase status | `hierarchy.buildings[].phases`, `phaseStatusStore.overrides`, derived counts | stored for approval phases only; derived for others |
-| Building connection route | `siteStructure.connections` only | keep one table |
-| Survey photo count | room meta `photoCount`, survey gallery `count` | count of `file` rows |
-| Evidence count | device `installation.evidenceCount` | count of `file` rows |
-| Hop cable IDs | `connection.hops[].cableId` (unused) and `connection.cableId` | one namespace (§6.1) |
-| Blocker | `openItems` and calculated blockers | one blocker table, with calculated items shown alongside |
-| Handover checklist inputs | phase statuses and deployment and CMDB data | derived only |
-
-### 10.3 Fields defined but unused or only partly used
-
-- `connection.hops` (always empty), `connection.lengths.installed` (always null in seed).
-- `device.height_u` is used, but `device.full_depth` has no mock field (only the brief).
-- `rack.details` and `mountingPower` are entered-only, with no validation.
-- `requiredInputs.meta.dueDate` and `owner`: no UI binding confirmed in the audit.
-- `procurement.expectedDelivery`, `actualDelivery`, `notes`: set through the API, display not confirmed.
-- `handover.baseline` used, but `handover.reviewedAt` only set on mark-reviewed.
-- `survey.custom` fields: stored but never shown in calculations (by design, brief §5.2).
-- `shareLink.revoked`: no revoke operation exists in the API.
-- `phaseStatus.subLabel` on BOM: `Draft` is calculated, not stored (fix needed, `bomDesign.js` comment says so).
-
-### 10.4 Open decisions for the backend (need an answer before schema freeze)
-
-1. Does Rack Survey write to `device`, or keep its own capture? (10.1 #11)
-2. Survey tab edit after verification: revert, or raise a change request? (10.1 #14)
-3. Which phases block which when a project changes its active phase set, and whether any phase may be skipped? (§2.9)
-4. Predefined work-type list (not in audit or brief; Technonex to supply). (§2.9)
-5. Empty scope set on a membership: organisation-wide, or invalid? (§2.10)
-6. Granularity of procurement lines: per device or per role. (10.1 #27)
-7. Connection media: are `power` and `planned` media, or display categories? (10.1 #28)
-8. Does the Rackium Team role live in the organisation tenancy model, or outside it? (10.1 #3)
-9. Hostname regeneration on floor-token change: never, or an explicit re-naming operation? (§8)
-10. Audit granularity: one entry per field change, or one per user action with a list of changes? Per field is required for the CMDB change log; per action is cheaper for the activity feed. Recommend both: per action with field-level children.
-11. Custom validation rule DSL: what expression language, and who may author it? (§2.9)
-12. Maximum upload size and accepted types for files (§2.16).
-13. DGUV "inspector" and "certificate" fields: are they required before a DGUV status is `valid`? (C fields)
-14. Warranty and refresh dates: source of truth is the vendor, the PM, or an import?
-15. Share-link token length and expiry handling for a link that is already in use when it expires mid-review.
-16. Whether `customer power cord standard` (`powerStandards.js`) is a project setting or an organisation default.
+| Survey gallery and photo fields | survey tab record | `photo_reference`, `photo_room`, `photo_rack` |
+| Room survey | room | `photo_room` |
+| Rack survey | rack | `photo_rack` |
+| Device label | device | `photo_device_label` |
+| Cable | connection | `photo_cable` |
+| Deployment evidence | device or deployment exception | `evidence` |
+| Client signature | approval (`decision.signatureFileId`) | `signature` |
+| Generated document | generated document | `document` |
+| DGUV certificate | device (`dguv.certificateFileId`) | `certificate` |
+| Import source | import batch | `import_source` |
+| Design snapshot | design version | `data_snapshot` |
 
 ---
 
-## 11. Entity-relationship diagram
+## 10. Uniqueness, transactions and atomic operations
 
-Core entities and their main relationships. Attributes are omitted for legibility; see §2.
+### 10.1 Uniqueness
+
+| Rule | Scope | Index | Notes |
+|---|---|---|---|
+| Cable ID and hop segment ID | project, case-insensitive | `cableIdRegistry (projectId, cableId)` | written with the owner |
+| Serial | project, case-insensitive | `serialRegistry (projectId, serial)` | |
+| Port use | project, device, port | `portOccupancy (projectId, deviceId, portId)` | |
+| Hostname | project, case-insensitive | `devices (projectId, hostname)` | |
+| MAC | project | `devices (projectId, installation.mac)` sparse | normalised |
+| Floor token | building | `floors (buildingId, token)` | |
+| Room code | building, case-insensitive | `rooms (buildingId, code)` | |
+| Rack code | room, case-insensitive | `racks (roomId, code)` | |
+| Project code | organisation, case-insensitive | `projects (organisationId, code)` | |
+| Email | global, case-insensitive | `users (email)` | |
+| Membership | project, user | `memberships (projectId, userId)` where active | §1.6 |
+| Phase status | building, phase | `phaseStatuses (buildingId, phaseKey)` | approval phases only |
+| Survey record | project, building, room, tab | `surveyTabRecords (projectId, buildingId, roomId, tab)` | `roomId` null for building tabs |
+| Procurement line | building, device or consumable key | `procurementLines` | §4.10 |
+| Design version | building, design type, number | `designVersions` | |
+| Required input group | building, group | `requiredInputGroups (buildingId, groupKey)` | |
+| Pathway | project, unordered room pair | `pathways (projectId, roomLowId, roomHighId)` | |
+| RU state | project, rack, RU, face | `ruStates` | active only |
+| Work type | organisation, name, case-insensitive | `workTypes (organisationId, name)` | predefined rows have null organisation |
+
+### 10.2 Atomic operations
+
+| Operation | Writes in one transaction | Guarantee |
+|---|---|---|
+| **Create connection** | `connections`, `cableIdRegistry` (connection and each hop segment), `portOccupancy` (both ends and each hop's in and out ports) | a duplicate cable ID or occupied port aborts everything |
+| **Update connection** (ports, cable ID, hops) | same set, for the changed rows | the old registry and occupancy rows are released in the same transaction |
+| **Assign cable ID** | `connections.cableId`, `cableIdRegistry` | suggestions are non-binding; the write is the only allocation |
+| **Insert hop** | `connections.hops`, `cableIdRegistry`, `portOccupancy` | `seq` stays contiguous |
+| **Decommission connection** | `connections.status`, `portOccupancy` deletes, `cableIdRegistry` set to `retired` | ports freed; IDs retained (§11, item 5) |
+| **Set device serial** | `devices.installation.serial`, `serialRegistry` | |
+| **CMO import commit** | `importBatches`, `cmoDevices`, `serialRegistry` | every valid row, or none |
+| **Lifecycle import commit** | `importBatches`, `devices.lifecycle` | every valid row, or none |
+| **Approve design gate** | `approvals`, `designVersions.frozen`, `phaseStatuses`, `auditEntries` | the approved version must still be the head; otherwise a conflict is returned |
+| **Client decision** | `approvals.decision`, `phaseStatuses`, `auditEntries` | share link expiry and revocation checked at submit (§5.5); one decision per gate |
+| **Handover acceptance** | `handoverWorkflows` (baseline), `designVersions` (frozen), `phaseStatuses`, `approvals`, `auditEntries` | one baseline per building, numbered per building |
+| **Survey edit after verify or import** | `surveyTabRecords` (status to draft, `version` increment), `designFlags` (if imported), `auditEntries` | [D2] |
+| **Survey submit, verify, reject, import** | `surveyTabRecords` conditional update on current status and `version`, `auditEntries` | no skipped or doubled transition |
+| **Procurement update** | `procurementLines` with `version` check; `devices.status` for serialised lines | |
+| **Hostname rename (batch)** | `devices.hostname` for all selected, `auditEntries` | preview first [D9] |
+| **Offline replay** | per queued edit: the record and `auditEntries` (with `conflict`) | §5.7 |
+| **Organisation purge** | batched deletes, resumable job state | §8.4 |
+
+---
+
+## 11. Open points
+
+These are not answered. Everything else in this document is applied.
+
+1. **Work-type list (D4).** The 27 predefined work types from the client audit are not in this workspace: the audit document was not provided and the repository holds no copy. The seed is a placeholder with zero rows (§3.10). Phase mapping per work type is pending client confirmation.
+2. **Phase gating defaults (D3)** are pending client confirmation (§3.2).
+3. **Organisation-level administration (D5).** Memberships are per project, but Org Admin manages users, the catalogue and templates across projects. Proposed: an organisation-admin flag on the user, plus a project membership for project actions. Needs confirmation.
+4. **Survey edit after import (D2).** I read "reverts to draft" as applying to imported records too (§5.4). Confirm.
+5. **Cable ID reuse after decommission.** Default: IDs are retained as `retired` and never reused (§4.4). Confirm.
+6. **Initial status of existing gear** (`origin = existing`). Default: `in_service` (§5.2). Confirm.
+7. **Rackium Team access reason (D8).** Default: a required free-text `comment`. Confirm whether a ticket reference should also be required.
+8. **Consumable list (D6).** Default: optics, cables, power cords, cage nuts and accessories (§4.10). Confirm.
+9. **Lifecycle import template (D14).** Column names are not defined.
+10. **Hosting.** Multi-document transactions need a replica set. Infrastructure decision.
+11. **Placement of planned devices (D1).** Default: the Rack Survey may place a `planned` device before LLD approval; after approval, only through a change request (§4.1). Confirm.
+
+---
+
+## 12. Decision trace
+
+| # | Decision | Applied in |
+|---|---|---|
+| D1 | Rack Survey writes to `devices`; one collection with `origin = existing \| planned`; reserved and blocked RUs are separate `ruStates` rows | §4.1, §4.2, §5.2, §5.6 |
+| D2 | Editing a verified survey tab reverts it to draft with an audit entry; an imported tab raises a `designFlags` row on the HLD | §5.4, §10.2 |
+| D3 | Phase gating follows active phases in order; PM may add not-started phases; phases with data cannot be removed (pending confirmation) | §3.2, §6 |
+| D4 | Work types: the 27 seed (not provided, §11 item 1) plus custom types; phase mapping pending confirmation | §3.10 |
+| D5 | Memberships are per project; empty scope means the whole project | §1.6 |
+| D6 | Serialised items (switch, router, AP, firewall, WLC) are one procurement line per device; consumables aggregate per type with ordered and delivered quantities | §4.7, §4.10, §6 |
+| D7 | `power` and `planned` are display categories, not connection media | §4.3 |
+| D8 | Rackium Team is a platform-admin account type outside organisation tenancy; every access to organisation data is audit-logged | §1.4 |
+| D9 | Hostnames never regenerate automatically; explicit rename with preview and audit; after LLD approval only via change request | §7, §5.9 |
+| D10 | Audit: one entry per user action, with field-level changes as embedded children | §8.1 |
+| D11 | Custom validation rules: structured builder (object, field, operator, value, severity), no expression language; Org Admin authors organisation rules, Architect authors project rules | §3.11 |
+| D12 | Uploads: photos JPG, PNG, HEIC, WebP up to 15 MB after compression; PDF up to 25 MB; Excel and CSV up to 10 MB; configurable | §9.2, §3.1 |
+| D13 | DGUV: inspection date and inspector name required; certificate optional; status calculated from date | §4.1b, §6 |
+| D14 | Warranty and refresh dates: manual entry plus Excel or CSV import by PM or Architect | §4.1c, §4.6 |
+| D15 | Share link: 32 random bytes, stored hashed; password hashed; expiry checked at decision submit; PM can extend | §5.5, §5.9 |
+| D16 | Power cord standard: organisation default plus project override | §3.9, §4.9 |
+| S1 | Mongo and Mongoose conventions: ObjectId, UTC dates, embedding, references, plugin-based tenancy replacing row-level security, case-insensitive collation | §0, §1.2, §1.5 |
+| S2 | Explicit embedding: connection hops, device installation, lifecycle, checklist | §4.1a–c, §4.3 |
+| S3 | Registries `cableIdRegistry`, `portOccupancy`, `serialRegistry`: each unique, written in the same transaction | §4.4, §10 |
+| S4 | Ports are not rows: port list comes from the catalogue `portMap`; store occupancy and pre-occupied exceptions only | §4.1, §4.3 |
+| S5 | Room-to-room route renamed `pathway`; device links stay `connection` | §4.5 |
+
+---
+
+## 13. Mismatches between the mock and the target
+
+| # | Mock | Target | Status |
+|---|---|---|---|
+| 1 | Device statuses omit `maintenance` and `retired` (`deploymentModel.js`) | §5.2 | open — code change |
+| 2 | Connection statuses omit `faulty` and `decommissioned` | §5.3 | open — code change |
+| 3 | Role list omits `rackium_team` (`permissions.js`) | §1.4 — an account type, not a project role | open — code change |
+| 4 | Approval functions write a phase status only: no `approvals` row, no role check | §5.1, §5.9 | open — API change |
+| 5 | Share-link passwords plaintext; token 16 base-36 characters | §5.5 [D15] | open — API change |
+| 6 | Client identity stored as a string | §8.1 `actor.clientName` | resolved by model |
+| 7 | Survey custom fields keyed by tab name only | §5.4, scoped per project | open — API change |
+| 8 | Two different "connections": device link and building route | §4.3 connection, §4.5 pathway [S5] | resolved by rename |
+| 9 | Rack revision stored twice under the same rack IDs with different seeds | §5.6: one counter per rack | open — merge |
+| 10 | Serial stored in three places | §4.4 `serialRegistry` | resolved by registry |
+| 11 | Rack placements duplicate devices | §4.1 [D1] | resolved by D1 |
+| 12 | Handover baseline counter is global across buildings | §5.12: per-building `baselineNumber` | open — API change |
+| 13 | `ready` handover state never set; `compilePackage` does not check current state | §5.12: guard added; `ready` removed | open — API change |
+| 14 | Edit after verification keeps verified status | §5.4 [D2] | resolved by D2 |
+| 15 | `imported` survey status not linked to HLD | §5.4 `designFlags` [D2] | resolved by D2 |
+| 16 | Procurement transitions unchecked | §4.10 [D6] | open — API change |
+| 17 | `connection.hops` always empty | §4.3 | open — seed data |
+| 18 | Port assignment not atomic | §4.3, §10.2 | resolved by `portOccupancy` |
+| 19 | Cable ID allocation not atomic | §4.4, §10.2 | resolved by `cableIdRegistry` |
+| 20 | Stored but should be calculated: serial validation, length suggestion, photo and evidence counts, pushed phase statuses, static history | §6 | resolved by model |
+| 21 | Two sources of phase truth | §5.1: approval phases stored only | resolved by model |
+| 22 | Blockers static, mixed with calculated | §5.10 | open — API change |
+| 23 | No audit store; `changedBy` is a role label | §8.1 | resolved by model |
+| 24 | No organisation scoping on floors, rooms, racks, devices | §1.1 | resolved by model |
+| 25 | Wing level not modelled | §3.5 | open — schema addition |
+| 26 | Rack heights as plain integers | §3.8 | resolved by model |
+| 27 | Procurement keyed by role (`device:{role}`) | §4.10 [D6] | resolved by D6 |
+| 28 | `power` and `planned` listed as media | §4.3 [D7] | resolved by D7 |
+| 29 | `wan-circuit` role not in brief | §4.1 `wan_circuit`; the `W` role code in §3.9 is a proposal | open — confirm |
+| 30 | Probe devices not modelled (brief D36) | §4.1 | open — schema addition |
+| 31 | Phase gating and parallel phases not modelled | §3.2 [D3] | pending confirmation |
+| 32 | Currency a constant; prices decimal | §4.7 minor units | resolved by model |
+| 33 | Hostname floor token derived | §3.6, §7 | resolved by model |
+| 34 | Default cord length hard-coded | §3.1 | resolved by model |
+| 35 | Device `roomCode` and `rackCode` stored on CMO devices | §4.6: read from `rooms` and `racks` | resolved by model |
+
+### 13.1 Duplicated data — target
+
+| Concept | Target |
+|---|---|
+| Serial | `serialRegistry` only |
+| Room code and rack code on CMO devices | read from `rooms` and `racks` by ID |
+| Rack revision | one counter per rack |
+| Rack placement | `devices` only [D1] |
+| Phase status | approval phases stored; others calculated |
+| Photo count, evidence count | count of `files` |
+| Hop cable IDs | `cableIdRegistry` only |
+| Blockers | `blockers` for human-raised; calculated for the rest |
+
+### 13.2 Fields defined but unused in the mock
+
+- `connection.hops` (always empty) and `connection.lengths.installedM` (always null).
+- Required-input `owner` and `dueDate`: display not confirmed.
+- Procurement `expectedDelivery`, `actualDelivery`, `notes`: display not confirmed.
+- `shareLink.revoked`: no revoke operation exists in the API.
+
+---
+
+## 14. Entity-relationship diagram
+
+Core collections and their main references. Attributes are omitted; see §2–§5.
 
 ```mermaid
 erDiagram
     ORGANISATION ||--o{ PROJECT : owns
-    ORGANISATION ||--o{ MEMBERSHIP : has
-    ORGANISATION ||--o{ CATALOGUE_OVERRIDE : defines
+    ORGANISATION ||--o{ CATALOGUE_ITEM : layers
     USER ||--o{ MEMBERSHIP : holds
+    PROJECT ||--o{ MEMBERSHIP : grants
     MEMBERSHIP ||--o{ MEMBERSHIP_SCOPE : limited_by
-    USER ||--o{ TASK : assigned
-    USER ||--o{ NOTIFICATION : receives
-    PROJECT ||--o{ WORK_TYPE_LINK : has
-    PROJECT ||--o{ ACTIVE_PHASE : runs
-    PROJECT ||--o{ CUSTOM_VALIDATION_RULE : defines
-    PROJECT ||--o{ CUSTOM_FIELD_DEFINITION : defines
-    PROJECT ||--o{ SERIAL_REGISTRY : enforces
+    PROJECT ||--|| PROJECT_SETTINGS : configured_by
+    PROJECT ||--o{ VALIDATION_RULE : defines
+    PROJECT ||--o{ SURVEY_CUSTOM_FIELD : defines
+    PROJECT ||--o{ IMPORT_BATCH : imports
     PROJECT ||--o{ AUDIT_ENTRY : records
-    PROJECT ||--o{ COUNTRY : contains
+    PROJECT ||--o{ FILE : stores
+    PROJECT ||--o{ WORK_TYPE : selects
     COUNTRY ||--o{ SAL : contains
     SAL ||--o{ CAMPUS : contains
-    SAL ||--o{ CMO_DEVICE : holds_unassigned
     CAMPUS ||--o{ BUILDING : contains
     BUILDING ||--o{ FLOOR : contains
     BUILDING ||--o{ PHASE_STATUS : tracks
@@ -1128,37 +996,33 @@ erDiagram
     BUILDING ||--|| HANDOVER_WORKFLOW : closes
     BUILDING ||--o{ REQUIRED_INPUT_GROUP : needs
     BUILDING ||--o{ SURVEY_TAB_RECORD : surveys
+    BUILDING ||--o{ PATHWAY : routes
+    BUILDING ||--o{ DESIGN_FLAG : flags
     BUILDING ||--o{ MILESTONE : targets
     FLOOR ||--o{ ROOM : contains
     ROOM ||--o{ RACK : houses
     ROOM ||--o{ SURVEY_TAB_RECORD : room_scope
-    ROOM ||--o{ BUILDING_ROUTE : from_or_to
-    RACK ||--o{ RACK_PLACEMENT : holds
-    RACK ||--o{ RACK_REVISION : versions
+    ROOM ||--o{ PATHWAY : from_or_to
     RACK ||--o{ DEVICE : mounts
-    DEVICE ||--|| DEVICE_INSTALLATION : installed_as
-    DEVICE ||--o{ PORT : exposes
-    DEVICE ||--o{ DEVICE_FIELD_PROVENANCE : sourced
+    RACK ||--o{ RU_STATE : reserves
+    DEVICE ||--o{ PORT_OCCUPANCY : uses
     DEVICE ||--o{ DEPLOYMENT_EXCEPTION : deviates
-    DEVICE }o--|| DEVICE_MODEL : instance_of
-    DEVICE_MODEL }o--o| SFP_MODEL : uses_optic
-    PORT ||--o{ CONNECTION_ENDPOINT : terminates
-    CONNECTION ||--|{ CONNECTION_ENDPOINT : has
-    CONNECTION ||--o{ HOP : routed_by
-    HOP }o--|| DEVICE : through_patch_panel
+    DEVICE }o--|| CATALOGUE_ITEM : instance_of
+    CONNECTION ||--|{ PORT_OCCUPANCY : occupies
+    CONNECTION ||--o{ CABLE_ID_REGISTRY : registers
     CONNECTION ||--o{ DEPLOYMENT_EXCEPTION : deviates
-    CMO_IMPORT_BATCH ||--o{ CMO_DEVICE : imports
-    CMO_DEVICE }o--o| BUILDING : assigned_to
-    SURVEY_TAB_RECORD ||--o{ SURVEY_SECTION_VALUE : contains
-    SURVEY_TAB_RECORD }o--|| SURVEY_TEMPLATE_TAB : defined_by
-    DESIGN_VERSION ||--o{ APPROVAL : frozen_by
+    CONNECTION }o--|| DEVICE : source_and_dest
+    CMO_DEVICE }o--|| IMPORT_BATCH : imported_in
+    CMO_DEVICE ||--o| SERIAL_REGISTRY : owns
+    DEVICE ||--o| SERIAL_REGISTRY : owns
+    SURVEY_TAB_RECORD }o--|| SURVEY_TEMPLATE : defined_by
     DESIGN_VERSION }o--o| DESIGN_VERSION : based_on
     DESIGN_VERSION }o--o| BRANCH : on
+    APPROVAL }o--o| DESIGN_VERSION : freezes
     APPROVAL |o--o| SHARE_LINK : via
-    SHARE_LINK ||--o| CLIENT_DECISION : receives
     HANDOVER_WORKFLOW ||--o{ GENERATED_DOCUMENT : produces
     GENERATED_DOCUMENT }o--o| FILE : stored_as
-    FILE }o--|| AUDIT_ENTRY : attached_in
+    FILE }o--|| AUDIT_ENTRY : referenced_in
     AUDIT_ENTRY }o--o| USER : actor
     AUDIT_ENTRY }o--o| VIEW_AS_SESSION : under
     VIEW_AS_SESSION }o--|| USER : started_by
