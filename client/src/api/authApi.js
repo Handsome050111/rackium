@@ -16,5 +16,9 @@ export const authApi = {
   verifyEmail: (token) => (real ? apiRequest('/auth/verify-email', { method: 'POST', body: { token } }) : Promise.resolve({ ok: true })),
   requestPasswordReset: (email) => (real ? apiRequest('/auth/password-reset/request', { method: 'POST', body: { email } }) : Promise.resolve(ACCEPTED)),
   confirmPasswordReset: (token, password) => (real ? apiRequest('/auth/password-reset/confirm', { method: 'POST', body: { token, password } }) : Promise.resolve({ ok: true })),
+  resendVerification: (email) => (real ? apiRequest('/auth/verify-email/resend', { method: 'POST', body: { email } }) : Promise.resolve(ACCEPTED)),
+  listInvitations: (orgId) => (real ? apiRequest(`/orgs/${orgId}/invitations`) : Promise.resolve({ invitations: [] })),
+  resendInvitation: (orgId, invitationId) =>
+    real ? apiRequest(`/orgs/${orgId}/invitations/${invitationId}/resend`, { method: 'POST' }) : Promise.resolve({ invitation: { id: invitationId } }),
   acceptInvitation: (body) => (real ? apiRequest('/auth/invitations/accept', { method: 'POST', body }) : Promise.resolve({ user: DEMO_USER, memberships: [] })),
 }

@@ -20,7 +20,7 @@ export function apiRouter({ config, auth, org, rateLimits, openapiDocument, vers
   })
 
   r.use('/auth', authRoutes({ config, auth, rateLimits }))
-  r.use('/orgs/:orgId', organisationRoutes({ config, org }))
+  r.use('/orgs/:orgId', organisationRoutes({ config, org, rateLimits }))
 
   return r
 }

@@ -37,6 +37,8 @@ export const signUpBody = z.object({
 
 export const verifyEmailBody = z.object({ token })
 
+export const resendVerificationBody = z.object({ email })
+
 export const loginBody = z.object({
   email,
   password: z.string().min(1).max(PASSWORD_MAX),

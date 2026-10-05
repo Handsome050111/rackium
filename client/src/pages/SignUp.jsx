@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { signUpBody } from '@rackium/shared/contracts.js'
 import AuthShell, { authInput, authButton } from '../components/auth/AuthShell.jsx'
+import ResendVerification from '../components/auth/ResendVerification.jsx'
 import { authApi } from '../api/authApi.js'
 import { ApiError } from '../api/httpClient.js'
 
@@ -38,6 +39,7 @@ export default function SignUp() {
     return (
       <AuthShell title="Check your email">
         <p className="text-sm text-text-secondary">We have sent a confirmation link. Open it to activate your account, then sign in.</p>
+        <ResendVerification email={form.email} />
         <Link to="/login" className="block text-center text-sm font-medium text-brand hover:underline">Go to sign in</Link>
       </AuthShell>
     )

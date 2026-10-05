@@ -2,6 +2,7 @@ import { Router } from 'express'
 import {
   signUpBody,
   verifyEmailBody,
+  resendVerificationBody,
   loginBody,
   passwordResetRequestBody,
   passwordResetConfirmBody,
@@ -40,6 +41,15 @@ export function authRoutes({ config, auth, rateLimits }) {
     validate({ body: verifyEmailBody }),
     async (req, res) => {
       res.json(await auth.verifyEmail(req.input.body))
+    }
+  )
+
+  r.post(
+    '/verify-email/resend',
+    authLimiter({ ...rateLimits.resend, enabled: rateLimits.enabled }),
+    validate({ body: resendVerificationBody }),
+    async (req, res) => {
+      res.status(202).json(await auth.resendVerification(req.input.body))
     }
   )
 

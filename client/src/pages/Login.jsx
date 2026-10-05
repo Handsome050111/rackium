@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Mail, Lock, FlaskConical } from 'lucide-react'
 import AuthShell, { authInput, authButton } from '../components/auth/AuthShell.jsx'
+import ResendVerification from '../components/auth/ResendVerification.jsx'
 import { authApi } from '../api/authApi.js'
 import { ApiError } from '../api/httpClient.js'
 import { useAuth } from '../lib/AuthContext.jsx'
@@ -19,6 +20,7 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [unverified, setUnverified] = useState(false)
 
   if (API_MODE === 'mock') {
     return (
@@ -44,6 +46,7 @@ export default function Login() {
       navigate(next, { replace: true })
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong. Try again.')
+      setUnverified(err instanceof ApiError && err.code === 'email_not_verified')
     } finally {
       setBusy(false)
     }
@@ -79,6 +82,7 @@ export default function Login() {
           </div>
         </label>
         {error && <p role="alert" className="text-xs text-status-red">{error}</p>}
+        {unverified && <ResendVerification email={email} />}
         <button type="submit" disabled={busy} className={authButton}>
           {busy ? 'Signing in…' : 'Sign in'}
         </button>

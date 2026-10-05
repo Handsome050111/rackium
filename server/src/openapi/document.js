@@ -74,6 +74,27 @@ export function buildRegistry() {
     responses: { 201: ok('Accepted', C.meResponse), 401: err('Password incorrect'), 409: err('Already a member') },
   })
   registry.registerPath({
+    method: 'post',
+    path: '/api/v1/auth/verify-email/resend',
+    summary: 'Send a fresh verification link; earlier links stop working (always accepted)',
+    request: { body: { content: json(C.resendVerificationBody) } },
+    responses: { 202: ok('Accepted', C.accepted), 429: err('Rate limited') },
+  })
+  registry.registerPath({
+    method: 'get',
+    path: '/api/v1/orgs/{orgId}/invitations',
+    summary: 'Pending invitations the caller may act on (Org Admin: all; PM: their projects)',
+    request: { params: z.object({ orgId: z.string() }) },
+    responses: { 200: ok('Invitations', z.object({ invitations: z.array(z.any()) })), 404: err('Not found') },
+  })
+  registry.registerPath({
+    method: 'post',
+    path: '/api/v1/orgs/{orgId}/invitations/{invitationId}/resend',
+    summary: 'Send a fresh invitation link; the earlier link stops working',
+    request: { params: z.object({ orgId: z.string(), invitationId: z.string() }) },
+    responses: { 200: ok('Resent', z.object({ invitation: z.any() })), 403: err('Forbidden'), 404: err('Not found or not pending'), 429: err('Rate limited') },
+  })
+  registry.registerPath({
     method: 'get',
     path: '/api/v1/me',
     summary: 'The signed-in user and their memberships',

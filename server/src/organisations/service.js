@@ -196,6 +196,60 @@ export function createOrganisationService({ mailer, auth }) {
       })
     },
 
+    // Pending invitations the caller may act on: an Org Admin sees all of them; a
+    // PM sees the project invitations for projects where they are PM.
+    async listPendingInvitations({ organisationId, userId, isOrgAdmin }) {
+      const rows = await Invitation.find({ status: 'pending' }).sort({ createdAt: -1 }).lean()
+      let visible = rows
+      if (!isOrgAdmin) {
+        const memberships = await membershipsForUser(userId)
+        const pmProjects = new Set(
+          memberships
+            .filter((m) => m.level === 'project' && m.role === 'pm' && String(m.organisationId) === String(organisationId))
+            .map((m) => String(m.projectId))
+        )
+        visible = rows.filter((r) => r.projectId && pmProjects.has(String(r.projectId)))
+      }
+      const now = Date.now()
+      return visible.map((i) => ({
+        id: String(i._id),
+        email: i.email,
+        role: i.role,
+        level: i.level,
+        projectId: i.projectId ? String(i.projectId) : null,
+        expiresAt: i.expiresAt,
+        expired: new Date(i.expiresAt).getTime() < now,
+      }))
+    },
+
+    // The old link stops working at once: the stored hash is replaced. The
+    // invitation's own expiry restarts from now.
+    async resendInvitation({ organisationId, invitation, actor }) {
+      const before = invitation.expiresAt
+      const token = randomToken()
+      invitation.tokenHash = hashToken(token)
+      invitation.expiresAt = new Date(Date.now() + INVITE_TTL_MS)
+      await invitation.save()
+      await recordAudit({
+        organisationId,
+        projectId: invitation.projectId,
+        actor: userActor(actor.userId, actor.role),
+        action: 'invitation.resent',
+        objectType: 'Invitation',
+        objectId: invitation._id,
+        changeType: 'design_intent',
+        source: 'ui',
+        comment: 'previous link invalidated',
+        changes: [{ objectType: 'Invitation', objectId: String(invitation._id), field: 'expiresAt', before, after: invitation.expiresAt }],
+      })
+      await mailer.send({
+        to: invitation.email,
+        subject: 'You have been invited to Rackium',
+        text: `You have been invited to join a Rackium organisation as ${invitation.role}.\n\nAccept the invitation:\n\n${auth.inviteLink(organisationId, token)}\n\nThis invitation expires in seven days. Any earlier link no longer works.`,
+      })
+      return { id: String(invitation._id), expiresAt: invitation.expiresAt }
+    },
+
     // Org Admins see every project in the organisation. Everyone else sees only the
     // projects they hold a membership in.
     async listProjects({ organisationId, userId, isOrgAdmin }) {

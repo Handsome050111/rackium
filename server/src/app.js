@@ -22,6 +22,8 @@ export const DEFAULT_RATE_LIMITS = {
   login: { windowMs: 15 * 60 * 1000, limit: 10, message: 'Too many sign-in attempts. Try again in 15 minutes.' },
   signup: { windowMs: 60 * 60 * 1000, limit: 5, message: 'Too many sign-up attempts. Try again later.' },
   verify: { windowMs: 15 * 60 * 1000, limit: 20, message: 'Too many attempts. Try again later.' },
+  resend: { windowMs: 60 * 60 * 1000, limit: 5, message: 'Too many resend requests. Try again later.' },
+  resendInvite: { windowMs: 60 * 60 * 1000, limit: 20, message: 'Too many resend requests. Try again later.' },
   refresh: { windowMs: 15 * 60 * 1000, limit: 60, message: 'Too many requests. Try again later.' },
   reset: { windowMs: 60 * 60 * 1000, limit: 5, message: 'Too many reset requests. Try again later.' },
   invite: { windowMs: 15 * 60 * 1000, limit: 10, message: 'Too many attempts. Try again later.' },

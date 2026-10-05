@@ -82,7 +82,7 @@ export default function BuildingOverview() {
           <h2 className="mb-2 text-sm font-semibold text-text">Project continuity</h2>
           <Stepper phases={phases} />
         </div>
-        <RecentHistoryPanel items={history} />
+        <RecentHistoryPanel items={history} buildingId={buildingId} />
       </div>
     </div>
   )

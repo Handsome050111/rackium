@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { Search, Bell, Settings, ChevronDown, Menu, FlaskConical, Check, WifiOff, Wifi, RotateCcw, Map } from 'lucide-react'
+import { Link, useParams } from 'react-router-dom'
+import { Search, Settings, ChevronDown, Menu, FlaskConical, Check, WifiOff, Wifi, RotateCcw, Map } from 'lucide-react'
 import Logo from './Logo.jsx'
+import NotificationsPanel from './NotificationsPanel.jsx'
 import { useRole } from '../lib/RoleContext.jsx'
 import { ROLES } from '../lib/permissions.js'
 import { useOffline } from '../lib/OfflineContext.jsx'
@@ -94,6 +95,11 @@ function UserMenu() {
           </button>
 
           {mode === 'real' && (
+            <Link to="/team" onClick={() => setOpen(false)} className="flex h-touch w-full items-center gap-2 rounded-lg px-2 text-sm text-text hover:bg-surface-muted sm:h-8">
+              Team
+            </Link>
+          )}
+          {mode === 'real' && (
             <button type="button" onClick={() => { setOpen(false); signOut() }} className="flex h-touch w-full items-center rounded-lg px-2 text-sm text-text hover:bg-surface-muted sm:h-8">
               Sign out
             </button>
@@ -126,6 +132,7 @@ function UserMenu() {
 }
 
 export default function TopBar({ onMenuClick }) {
+  const { buildingId = 'b001' } = useParams()
   return (
     <header className="flex h-16 shrink-0 items-center gap-3 border-b border-border bg-surface px-4 sm:px-6">
       <button
@@ -153,20 +160,14 @@ export default function TopBar({ onMenuClick }) {
       </div>
 
       <div className="ml-auto flex items-center gap-1 sm:gap-2">
-        <button
-          type="button"
-          aria-label="Notifications"
-          className="flex h-touch w-touch items-center justify-center rounded-lg text-brand hover:bg-surface-muted"
-        >
-          <Bell size={20} strokeWidth={2} />
-        </button>
-        <button
-          type="button"
+        <NotificationsPanel />
+        <Link
+          to={`/b/${buildingId}/settings`}
           aria-label="Settings"
           className="flex h-touch w-touch items-center justify-center rounded-lg text-brand hover:bg-surface-muted"
         >
           <Settings size={20} strokeWidth={2} />
-        </button>
+        </Link>
         <UserMenu />
       </div>
     </header>

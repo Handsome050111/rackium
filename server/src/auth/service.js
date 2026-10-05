@@ -111,6 +111,26 @@ export function createAuthService({ config, mailer, logger }) {
       return { ok: true }
     },
 
+    // Issues a fresh link and retires every earlier unused one. The reply is the
+    // same whether or not the address has a pending account.
+    async resendVerification({ email }) {
+      const user = await User.findOne({ email, status: 'pending_verification' })
+      if (user) {
+        const now = new Date()
+        await EmailToken.updateMany({ userId: user._id, purpose: 'verify_email', usedAt: null }, { $set: { usedAt: now } })
+        const token = randomToken()
+        await EmailToken.create({ userId: user._id, purpose: 'verify_email', tokenHash: hashToken(token), expiresAt: new Date(now.getTime() + VERIFY_TTL_MS) })
+        const orgId = await primaryOrganisationId(user._id)
+        await recordAudit({ organisationId: orgId, actor: userActor(user._id), action: 'auth.verification_resent', objectType: 'User', objectId: user._id, changeType: 'system', source: 'ui', comment: 'previous links invalidated' })
+        await mailer.send({
+          to: user.email,
+          subject: 'Confirm your Rackium account',
+          text: `Confirm your email to start using Rackium:\n\n${link('/verify-email', { token })}\n\nThis link expires in 24 hours. Any earlier link no longer works.`,
+        })
+      }
+      return ACCEPTED
+    },
+
     async login({ email, password, meta }) {
       const user = await User.findOne({ email }).select('+passwordHash')
       if (!user) {
