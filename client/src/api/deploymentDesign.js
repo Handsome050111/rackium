@@ -86,6 +86,7 @@ export async function getDeploymentContext(buildingId) {
   return resolveAfter({
     floors: hldContext.floors,
     rooms: hldContext.rooms,
+    racks: hldContext.racks,
     devices,
     connections: hldContext.connections,
     connectionFindings: hldContext.connectionFindings,

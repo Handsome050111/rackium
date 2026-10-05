@@ -71,7 +71,6 @@ test.describe('Deployment & Installation', () => {
   })
 
   test('a device cannot start installation until its BOM line is Delivered', async ({ page }, testInfo) => {
-    test.skip(testInfo.project.name === 'phone', 'Canvas device selection at phone zoom needs mouse-precision pointer interaction')
     await page.goto('/b/b001/deployment')
     await page.waitForSelector('h1:has-text("Deployment & Installation")')
     await page.click('text=E-DE-ERL-C01-B001-EG-001')
@@ -79,7 +78,6 @@ test.describe('Deployment & Installation', () => {
   })
 
   test('full install: serial validation, RU and uplink deviations auto-log exceptions, checklist/DGUV/evidence update, Accept is gated to Reviewer/PM', async ({ page }, testInfo) => {
-    test.skip(testInfo.project.name === 'phone', 'Canvas device selection at phone zoom needs mouse-precision pointer interaction')
     const errors = []
     page.on('pageerror', (err) => errors.push(err.message))
     page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()) })
@@ -135,7 +133,6 @@ test.describe('Deployment & Installation', () => {
   })
 
   test('a serial already recorded against another device is rejected as a duplicate', async ({ page }, testInfo) => {
-    test.skip(testInfo.project.name === 'phone', 'Canvas device selection at phone zoom needs mouse-precision pointer interaction')
     await approveAndDeliverAll(page)
     await clientSideNavigate(page, '/b/b001/deployment')
     await page.waitForSelector('h1:has-text("Deployment & Installation")')

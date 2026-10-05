@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { ReactFlowProvider } from '@xyflow/react'
-import { Lock } from 'lucide-react'
+import { ChevronLeft, Lock } from 'lucide-react'
 import Breadcrumb from '../components/Breadcrumb.jsx'
 import HldCanvas, { buildHldFlow } from '../components/hld/HldCanvas.jsx'
 import DeploymentKpiBar from '../components/deployment/DeploymentKpiBar.jsx'
 import DeviceDeploymentPanel from '../components/deployment/DeviceDeploymentPanel.jsx'
 import RoomChecklistPanel from '../components/deployment/RoomChecklistPanel.jsx'
+import LocationTree from '../components/deployment/LocationTree.jsx'
+import { buildLocationTree } from '@rackium/shared/locationTree.js'
 import { getBuilding } from '../api/index.js'
 import {
   getDeploymentContext,
@@ -33,6 +35,8 @@ export default function Deployment() {
   const [selectedDeviceId, setSelectedDeviceId] = useState(null)
   const [detail, setDetail] = useState(null)
   const [locked, setLocked] = useState(false)
+  // Phone only: the device list is the main view and the topology map is a secondary view.
+  const [phoneView, setPhoneView] = useState('tree')
 
   const reload = useCallback(() => {
     if (!buildingId) return
@@ -91,6 +95,30 @@ export default function Deployment() {
     context.connections
   )
 
+  const tree = buildLocationTree({
+    building,
+    floors: context.floors,
+    rooms: context.rooms,
+    racks: context.racks,
+    devices: context.devices,
+  })
+
+  const devicePanel = detail ? (
+    <DeviceDeploymentPanel
+      detail={detail}
+      locked={locked}
+      onRecordSerialMac={handleRecordSerialMac}
+      onConfirmInstallation={handleConfirmInstallation}
+      onConfirmUplinking={handleConfirmUplinking}
+      onRecordLinkTest={handleRecordLinkTest}
+      onRecordDguv={handleRecordDguv}
+      onAddEvidence={handleAddEvidence}
+      onAccept={handleAccept}
+    />
+  ) : (
+    <div className="rounded-xl border border-dashed border-border bg-surface p-4 text-xs text-text-secondary">Select a device in the list to record its installation.</div>
+  )
+
   return (
     <div className="mx-auto max-w-[1700px] space-y-4 p-4 sm:p-6">
       <Breadcrumb items={[...building.breadcrumb, { label: 'Deployment & Installation' }]} />
@@ -109,30 +137,63 @@ export default function Deployment() {
 
       <DeploymentKpiBar kpis={context.kpis} />
 
+      {isPhone && selectedDeviceId && (
+        // Phone: a device opens its full checklist on its own screen, with a clear way back.
+        // Starts below the 64px top bar, so the menu and role switch stay usable.
+        <div className="fixed inset-x-0 bottom-0 top-16 z-30 space-y-4 overflow-y-auto bg-surface-muted p-4">
+          <button
+            type="button"
+            onClick={() => setSelectedDeviceId(null)}
+            className="flex h-touch items-center gap-1 rounded-lg px-2 text-sm font-medium text-brand"
+          >
+            <ChevronLeft size={18} strokeWidth={2} />
+            Back to devices
+          </button>
+          {devicePanel}
+        </div>
+      )}
+
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
-        <div className="h-[560px] min-w-0 flex-1 overflow-hidden rounded-xl border border-border bg-surface">
-          <ReactFlowProvider>
-            <HldCanvas flow={flow} onInit={() => {}} viewOnly={isPhone} />
-          </ReactFlowProvider>
+        <div className="min-w-0 flex-1 space-y-4">
+          {isPhone && (
+            <div role="tablist" aria-label="Deployment view" className="flex gap-1 rounded-xl border border-border bg-surface p-1">
+              {[
+                { id: 'tree', label: 'Devices' },
+                { id: 'map', label: 'Map' },
+              ].map((view) => (
+                <button
+                  key={view.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={phoneView === view.id}
+                  onClick={() => setPhoneView(view.id)}
+                  className={`h-touch flex-1 rounded-lg text-sm font-medium ${
+                    phoneView === view.id ? 'bg-brand/10 text-brand' : 'text-text-secondary'
+                  }`}
+                >
+                  {view.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="flex flex-col gap-4 md:flex-row md:items-start">
+            {(!isPhone || phoneView === 'tree') && (
+              <div className="rounded-xl border border-border bg-surface p-3 md:h-[560px] md:w-72 md:shrink-0 md:overflow-y-auto">
+                <LocationTree tree={tree} selectedDeviceId={selectedDeviceId} onSelectDevice={setSelectedDeviceId} />
+              </div>
+            )}
+            {(!isPhone || phoneView === 'map') && (
+              <div className="h-[560px] min-w-0 flex-1 overflow-hidden rounded-xl border border-border bg-surface">
+                <ReactFlowProvider>
+                  <HldCanvas flow={flow} onInit={() => {}} viewOnly={isPhone} />
+                </ReactFlowProvider>
+              </div>
+            )}
+          </div>
         </div>
 
-        <div className="w-full min-w-0 shrink-0 space-y-4 xl:w-96">
-          {detail ? (
-            <DeviceDeploymentPanel
-              detail={detail}
-              locked={locked}
-              onRecordSerialMac={handleRecordSerialMac}
-              onConfirmInstallation={handleConfirmInstallation}
-              onConfirmUplinking={handleConfirmUplinking}
-              onRecordLinkTest={handleRecordLinkTest}
-              onRecordDguv={handleRecordDguv}
-              onAddEvidence={handleAddEvidence}
-              onAccept={handleAccept}
-            />
-          ) : (
-            <div className="rounded-xl border border-dashed border-border bg-surface p-4 text-xs text-text-secondary">Select a device on the topology to record its installation.</div>
-          )}
-        </div>
+        {!isPhone && <div className="w-full min-w-0 shrink-0 space-y-4 xl:w-96">{devicePanel}</div>}
       </div>
 
       <RoomChecklistPanel roomChecklists={roomChecklists} />
