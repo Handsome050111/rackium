@@ -12,6 +12,11 @@ import SolutionPackage from './pages/SolutionPackage.jsx'
 import ClientApproval from './pages/ClientApproval.jsx'
 import Login from './pages/Login.jsx'
 import DemoGuide from './pages/DemoGuide.jsx'
+import SignUp from './pages/SignUp.jsx'
+import VerifyEmail from './pages/VerifyEmail.jsx'
+import { PasswordResetRequest, PasswordResetConfirm } from './pages/PasswordReset.jsx'
+import InviteAccept from './pages/InviteAccept.jsx'
+import RequireAuth from './components/RequireAuth.jsx'
 import Deployment from './pages/Deployment.jsx'
 import Cmdb from './pages/Cmdb.jsx'
 import Cmo from './pages/Cmo.jsx'
@@ -37,9 +42,14 @@ export default function App() {
     <Routes>
       <Route path="/" element={<Navigate to="/b/b001" replace />} />
       <Route path="/login" element={<Login />} />
+      <Route path="/signup" element={<SignUp />} />
+      <Route path="/verify-email" element={<VerifyEmail />} />
+      <Route path="/password-reset" element={<PasswordResetRequest />} />
+      <Route path="/password-reset/confirm" element={<PasswordResetConfirm />} />
+      <Route path="/invite" element={<InviteAccept />} />
       <Route path="/demo-guide" element={<DemoGuide />} />
       <Route path="/approve/:token" element={<ClientApproval />} />
-      <Route path="/b/:buildingId" element={<AppShell />}>
+      <Route path="/b/:buildingId" element={<RequireAuth><AppShell /></RequireAuth>}>
         <Route index element={<BuildingOverview />} />
         <Route path="cmo" element={<Cmo />} />
         <Route path="lld" element={<Lld />} />
