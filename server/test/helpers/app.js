@@ -23,6 +23,16 @@ export function tokenFrom(mailer, to) {
 
 export const PASSWORD = 'correct horse battery staple'
 
+// Invites, accepts and signs in a project member with the given role. Returns
+// a signed-in agent for them.
+export async function projectMember(ctx, admin, { email, role, projectId, scopes }) {
+  await admin.agent.post(`/api/v1/orgs/${admin.orgId}/invitations`).send({ email, role, projectId, scopes }).expect(201)
+  await ctx.agent().post('/api/v1/auth/invitations/accept').send({ organisationId: admin.orgId, token: tokenFrom(ctx.mailer, email), name: role, password: PASSWORD }).expect(201)
+  const agent = ctx.agent()
+  await agent.post('/api/v1/auth/login').send({ email, password: PASSWORD }).expect(200)
+  return agent
+}
+
 // Signs up, verifies the email and returns a signed-in agent for the new org admin.
 export async function signedInOrgAdmin(t, { email = 'owner@example.com', organisationName = 'Acme Build' } = {}) {
   await t.agent().post('/api/v1/auth/signup').send({ organisationName, name: 'Owner', email, password: PASSWORD }).expect(202)

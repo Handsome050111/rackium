@@ -1,30 +1,42 @@
 import mongoose from 'mongoose'
 import { PROJECT_ROLES } from '@rackium/shared/policy.js'
+import { computeOverallProgress } from '@rackium/shared/phaseCalculations.js'
 import { Membership } from '../models/membership.js'
 import { Invitation } from '../models/invitation.js'
 import { Project } from '../models/project.js'
 import { AuditEntry } from '../models/auditEntry.js'
 import { User } from '../models/user.js'
+import { Country } from '../models/country.js'
+import { Sal } from '../models/sal.js'
+import { Building } from '../models/building.js'
+import { PhaseStatus } from '../models/phaseStatus.js'
+import { Blocker } from '../models/blocker.js'
+import { applyActivePhases } from '@rackium/shared/phaseGating.js'
 import { withTransaction } from '../db/transaction.js'
 import { runWithScope } from '../tenancy/scopeContext.js'
 import { recordAudit, diffChanges, userActor } from '../audit/audit.js'
 import { badRequest, conflict, notFound } from '../http/errors.js'
 import { randomToken, hashToken } from '../auth/tokens.js'
 import { membershipsForUser } from '../auth/service.js'
+import { applyHierarchyPlan } from '../hierarchy/service.js'
 
 const { ObjectId } = mongoose.Types
 const INVITE_TTL_MS = 7 * 24 * 3600 * 1000
+const HIERARCHY_MODEL_BY_SCOPE_TYPE = { country: Country, sal: Sal, building: Building }
 
-// A scope must name a country, SAL or building that exists in this organisation.
-// Those records are created in M2, so until then no scope can be valid and any
-// non-empty list is refused. M2 replaces this with a lookup in the organisation's
-// tenant scope. Clearing scopes (an empty list) is always allowed.
-function assertScopesExist(scopes) {
-  if (scopes?.length) {
-    throw badRequest('Scopes must name a country, SAL or building that exists in this organisation', {
-      scopes: scopes.map((s) => s.type),
-    })
-  }
+// A scope must name a country, SAL or building that exists in this project
+// (DATA-MODEL §1.6). Clearing scopes (an empty list) is always allowed.
+async function assertScopesExist(organisationId, projectId, scopes) {
+  if (!scopes?.length) return
+  if (!projectId) throw badRequest('Scopes apply to project memberships only')
+  await runWithScope({ organisationId, projectId }, async () => {
+    for (const scope of scopes) {
+      const Model = HIERARCHY_MODEL_BY_SCOPE_TYPE[scope.type]
+      if (!(await Model.exists({ _id: scope.refId }))) {
+        throw badRequest(`Scope refers to a ${scope.type} that does not exist in this project`, { type: scope.type, refId: String(scope.refId) })
+      }
+    }
+  })
 }
 
 const scopeOf = (m) => (m.scopes ?? []).map((s) => ({ type: s.type, refId: String(s.refId) }))
@@ -84,7 +96,7 @@ export function createOrganisationService({ mailer, auth }) {
       const pending = await Invitation.exists({ email: body.email, level, projectId, status: 'pending' })
       if (pending) throw conflict('invitation_pending', 'An invitation to this address is already waiting')
 
-      assertScopesExist(body.scopes)
+      await assertScopesExist(organisationId, projectId, body.scopes)
       const token = randomToken()
       const invitation = await Invitation.create({
         email: body.email,
@@ -133,7 +145,7 @@ export function createOrganisationService({ mailer, auth }) {
       }
       if (body.scopes !== undefined) {
         if (membership.level !== 'project') throw badRequest('Scopes apply to project memberships only')
-        assertScopesExist(body.scopes)
+        await assertScopesExist(organisationId, membership.projectId, body.scopes)
         membership.scopes = body.scopes
       }
       await membership.save()
@@ -185,29 +197,67 @@ export function createOrganisationService({ mailer, auth }) {
       return { id: String(membership._id), revoked: true }
     },
 
-    // The creator becomes the project's PM, in the same transaction as the project.
+    // The wizard's three steps (Identity+Scope, Structure, Team) all land in
+    // one transaction: the project, its hierarchy, the creator's PM
+    // membership, and the team's invitation rows. Invitation emails are
+    // side effects that must not repeat on a transaction retry (db/transaction.js),
+    // so they are sent only after this resolves, never inside it — a
+    // transaction that does not commit sends nothing.
     async createProject({ organisationId, actor, body }) {
-      return withTransaction(async (session) => {
+      const activePhases = body.activePhaseKeys.map((phaseKey, position) => ({ phaseKey, position }))
+      // body.hierarchy is already the grouped plan shape (manual entry builds it
+      // directly; CSV import validates with shared's buildHierarchyImportPlan
+      // client-side and sends its output) — applyHierarchyPlan checks that every
+      // reference inside it resolves before creating anything.
+
+      const { project, pendingInvites } = await withTransaction(async (session) => {
         const [project] = await runWithScope({ organisationId }, () =>
-          Project.create([{ name: body.name, code: body.code, createdBy: actor.userId }], { session })
+          Project.create(
+            [{ name: body.name, code: body.code, clientName: body.clientName ?? null, description: body.description ?? null, workTypes: body.workTypes, activePhases, createdBy: actor.userId }],
+            { session }
+          )
         )
-        await runWithScope({ organisationId, projectId: project._id }, () =>
-          Membership.create([{ userId: actor.userId, level: 'project', projectId: project._id, role: 'pm', invitedBy: null }], { session })
-        )
-        await recordAudit({
-          organisationId,
-          projectId: project._id,
-          actor: userActor(actor.userId, actor.role),
-          action: 'project.created',
-          objectType: 'Project',
-          objectId: project._id,
-          changeType: 'design_intent',
-          source: 'ui',
-          changes: [{ objectType: 'Project', objectId: String(project._id), field: 'name', before: null, after: body.name }],
-          session,
+        return runWithScope({ organisationId, projectId: project._id }, async () => {
+          await Membership.create([{ userId: actor.userId, level: 'project', projectId: project._id, role: 'pm', invitedBy: null }], { session })
+          await applyHierarchyPlan(body.hierarchy, session)
+
+          const pendingInvites = []
+          for (const member of body.team) {
+            const token = randomToken()
+            await Invitation.create(
+              [{ email: member.email, level: 'project', role: member.role, scopes: member.scopes, invitedBy: actor.userId, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + INVITE_TTL_MS), projectId: project._id }],
+              { session }
+            )
+            pendingInvites.push({ email: member.email, role: member.role, token })
+          }
+
+          await recordAudit({
+            organisationId,
+            projectId: project._id,
+            actor: userActor(actor.userId, actor.role),
+            action: 'project.created',
+            objectType: 'Project',
+            objectId: project._id,
+            changeType: 'design_intent',
+            source: 'ui',
+            changes: [{ objectType: 'Project', objectId: String(project._id), field: 'name', before: null, after: body.name }],
+            session,
+          })
+          return { project, pendingInvites }
         })
-        return { id: String(project._id), name: project.name, code: project.code ?? null }
       })
+
+      for (const invite of pendingInvites) {
+        await mailer
+          .send({
+            to: invite.email,
+            subject: 'You have been invited to Rackium',
+            text: `You have been invited to join a Rackium project as ${invite.role}.\n\nAccept the invitation:\n\n${auth.inviteLink(organisationId, invite.token)}\n\nThis invitation expires in seven days.`,
+          })
+          .catch(() => {}) // best effort — the project and the invitation row are already committed
+      }
+
+      return { id: String(project._id), name: project.name, code: project.code ?? null }
     },
 
     // Pending invitations the caller may act on: an Org Admin sees all of them; a
@@ -276,7 +326,112 @@ export function createOrganisationService({ mailer, auth }) {
         filter._id = { $in: ids }
       }
       const rows = await Project.find(filter).sort({ createdAt: 1 }).lean()
-      return rows.map((p) => ({ id: String(p._id), name: p.name, code: p.code ?? null, status: p.status, organisationId: String(organisationId) }))
+
+      // Each project's buildings and their progress, for the list screen and
+      // the org-level summary (item 2). Progress uses only the project's own
+      // active phases, same math as the real dashboard.
+      const result = []
+      for (const p of rows) {
+        const activePhases = p.activePhases ?? []
+        const buildings = await runWithScope({ organisationId, projectId: p._id }, async () => {
+          const [buildingRows, statusRows] = await Promise.all([Building.find().lean(), PhaseStatus.find().lean()])
+          const statusByBuilding = new Map()
+          for (const s of statusRows) {
+            const key = String(s.buildingId)
+            if (!statusByBuilding.has(key)) statusByBuilding.set(key, new Map())
+            statusByBuilding.get(key).set(s.phaseKey, s.status)
+          }
+          return buildingRows.map((b) => {
+            const byPhase = statusByBuilding.get(String(b._id)) ?? new Map()
+            const phaseEntries = activePhases.map((ap) => ({ status: byPhase.get(ap.phaseKey) ?? 'not_started' }))
+            return { id: String(b._id), code: b.code, name: b.name, progress: computeOverallProgress(phaseEntries) }
+          })
+        })
+        result.push({
+          id: String(p._id),
+          name: p.name,
+          code: p.code ?? null,
+          clientName: p.clientName ?? null,
+          status: p.status,
+          workTypes: p.workTypes ?? [],
+          activePhases: activePhases.map((ap) => ap.phaseKey),
+          organisationId: String(organisationId),
+          buildings,
+        })
+      }
+      return result
+    },
+
+    async getProject({ organisationId, projectId }) {
+      const p = await Project.findById(projectId).lean()
+      if (!p) throw notFound('Project not found')
+      const buildings = await Building.find().lean()
+      return {
+        id: String(p._id),
+        name: p.name,
+        code: p.code ?? null,
+        clientName: p.clientName ?? null,
+        description: p.description ?? null,
+        status: p.status,
+        workTypes: p.workTypes ?? [],
+        activePhases: p.activePhases ?? [],
+        organisationId: String(organisationId),
+        buildings: buildings.map((b) => ({ id: String(b._id), code: b.code, name: b.name })),
+      }
+    },
+
+    // General, work types, active phases (gated by shared/src/phaseGating.js)
+    // and status (Danger zone: archive). Hierarchy and members have their own endpoints.
+    async updateProject({ organisationId, actor, projectId, body }) {
+      const project = await Project.findById(projectId)
+      if (!project) throw notFound('Project not found')
+      const before = { name: project.name, clientName: project.clientName, description: project.description, status: project.status, activePhases: project.activePhases.map((a) => a.phaseKey) }
+
+      if (body.name !== undefined) project.name = body.name
+      if (body.clientName !== undefined) project.clientName = body.clientName
+      if (body.description !== undefined) project.description = body.description
+      if (body.workTypes !== undefined) project.workTypes = body.workTypes
+      if (body.status !== undefined) project.status = body.status
+
+      if (body.activePhaseKeys !== undefined) {
+        // PhaseStatus and Blocker are project-scoped by the tenant plugin, so this
+        // already reads only this project's rows — no need to join via buildings.
+        const [statusRows, blockerRows] = await Promise.all([
+          PhaseStatus.find({ status: { $ne: 'not_started' } }).select('phaseKey').lean(),
+          Blocker.find({}).select('phaseKey').lean(),
+        ])
+        const phasesWithData = new Set([...statusRows.map((r) => r.phaseKey), ...blockerRows.map((r) => r.phaseKey)])
+        const result = applyActivePhases({
+          currentActivePhases: project.activePhases.map((a) => a.phaseKey),
+          nextPhaseKeys: body.activePhaseKeys,
+          phaseHasData: (phaseKey) => phasesWithData.has(phaseKey),
+        })
+        if (!result.ok) throw badRequest(result.error)
+        project.activePhases = result.activePhases
+      }
+
+      await project.save()
+      const changes = diffChanges({
+        objectType: 'Project',
+        objectId: project._id,
+        before,
+        after: { name: project.name, clientName: project.clientName, description: project.description, status: project.status, activePhases: project.activePhases.map((a) => a.phaseKey) },
+        fields: ['name', 'clientName', 'description', 'status', 'activePhases'],
+      })
+      if (changes.length) {
+        await recordAudit({
+          organisationId,
+          projectId: project._id,
+          actor: userActor(actor.userId, actor.role),
+          action: 'project.updated',
+          objectType: 'Project',
+          objectId: project._id,
+          changeType: 'design_intent',
+          source: 'ui',
+          changes,
+        })
+      }
+      return this.getProject({ organisationId, projectId: project._id })
     },
 
     async listAudit({ organisationId, projectId, limit }) {

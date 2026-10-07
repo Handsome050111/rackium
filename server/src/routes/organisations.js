@@ -1,9 +1,9 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import { ACTIONS } from '@rackium/shared/policy.js'
-import { inviteCreateBody, membershipUpdateBody, projectCreateBody, auditQuery } from '@rackium/shared/contracts.js'
+import { inviteCreateBody, membershipUpdateBody, projectCreateBody, projectUpdateBody, auditQuery } from '@rackium/shared/contracts.js'
 import { validate } from '../http/validate.js'
-import { requireUser, requireOrg, requireAction, actorOf } from '../http/middleware.js'
+import { requireUser, requireOrg, requireProject, requireAction, applyViewAs, actorOf } from '../http/middleware.js'
 import { rolesIn } from '../organisations/service.js'
 import { Invitation } from '../models/invitation.js'
 import { authLimiter } from '../http/rateLimits.js'
@@ -116,6 +116,26 @@ export function organisationRoutes({ config, org, rateLimits }) {
     async (req, res) => {
       const project = await org.createProject({ organisationId: req.org.id, actor: actorOf(req), body: req.input.body })
       res.status(201).json({ project })
+    }
+  )
+
+  // Single-project read/update, used by Project Settings and the project home
+  // page. applyViewAs so a write attempted during a View As session 403s even
+  // for the real Org Admin.
+  const projectBase = [...base, requireProject(), applyViewAs()]
+
+  r.get('/projects/:projectId', ...projectBase, async (req, res) => {
+    res.json({ project: await org.getProject({ organisationId: req.org.id, projectId: req.project.id }) })
+  })
+
+  r.patch(
+    '/projects/:projectId',
+    ...projectBase,
+    requireAction(ACTIONS.MANAGE_PROJECT_SETTINGS),
+    validate({ body: projectUpdateBody }),
+    async (req, res) => {
+      const project = await org.updateProject({ organisationId: req.org.id, actor: actorOf(req), projectId: req.project.id, body: req.input.body })
+      res.json({ project })
     }
   )
 

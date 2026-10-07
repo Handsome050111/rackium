@@ -1,6 +1,8 @@
 // Thin fetch wrapper for the real API. Cookies are sent on every request (the
 // session lives in httpOnly cookies), and every error arrives in the one
 // format the server uses: { error: { code, message, details } }.
+import { getViewAsSession } from '../lib/viewAsSession.js'
+
 export const API_BASE = import.meta.env.VITE_API_BASE || '/api/v1'
 
 export class ApiError extends Error {
@@ -15,6 +17,8 @@ export class ApiError extends Error {
 
 export async function apiRequest(path, { method = 'GET', body } = {}) {
   const init = { method, credentials: 'include', headers: {} }
+  const viewAs = getViewAsSession()
+  if (viewAs) init.headers['X-View-As-Session'] = viewAs.id
   if (body !== undefined) {
     init.headers['Content-Type'] = 'application/json'
     init.body = JSON.stringify(body)

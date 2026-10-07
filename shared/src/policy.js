@@ -32,6 +32,15 @@ export const ACTIONS = {
   SEE_PRICES_MARGINS: 'see_prices_margins',
   DOWNLOAD_PORT_CABLE_SCHEDULES: 'download_port_cable_schedules',
   VIEW_AUDIT_LOG: 'view_audit_log',
+  // M2: hierarchy is split by depth (brief v2.3 §4.1 pre-create vs. the
+  // survey-time creation Field Engineers get in M3). Country/SAL/Campus/
+  // Building/Wing are planning-level, created by whoever creates buildings.
+  // Floor/Room/Rack may also be adjusted by the Architect doing the design.
+  MANAGE_PROJECT_SETTINGS: 'manage_project_settings',
+  MANAGE_HIERARCHY_TOP: 'manage_hierarchy_top',
+  MANAGE_HIERARCHY_DETAIL: 'manage_hierarchy_detail',
+  RAISE_BLOCKER: 'raise_blocker',
+  VIEW_AS: 'view_as',
 }
 
 // Who may perform each action. An Org Admin's organisation-level role grants
@@ -55,6 +64,11 @@ const MATRIX = {
   [ACTIONS.SEE_PRICES_MARGINS]: ['org_admin', 'pm', 'reviewer'],
   [ACTIONS.DOWNLOAD_PORT_CABLE_SCHEDULES]: ['org_admin', 'pm', 'architect', 'reviewer', 'field_engineer', 'viewer'],
   [ACTIONS.VIEW_AUDIT_LOG]: ['org_admin', 'pm', 'architect', 'reviewer'],
+  [ACTIONS.MANAGE_PROJECT_SETTINGS]: ['org_admin', 'pm'],
+  [ACTIONS.MANAGE_HIERARCHY_TOP]: ['org_admin', 'pm'],
+  [ACTIONS.MANAGE_HIERARCHY_DETAIL]: ['org_admin', 'pm', 'architect'],
+  [ACTIONS.RAISE_BLOCKER]: ['pm', 'architect', 'reviewer', 'field_engineer', 'viewer'],
+  [ACTIONS.VIEW_AS]: ['org_admin'],
 }
 
 // Roles a user may hold at each level. Invitations and memberships are

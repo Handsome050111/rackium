@@ -1,5 +1,13 @@
 import { Routes, Route, Navigate, Link } from 'react-router-dom'
+import { useAuth } from './lib/AuthContext.jsx'
 import AppShell from './components/AppShell.jsx'
+import RealAppShell from './components/RealAppShell.jsx'
+import ProjectsList from './pages/ProjectsList.jsx'
+import ProjectWizard from './pages/ProjectWizard.jsx'
+import ProjectHome from './pages/ProjectHome.jsx'
+import ProjectSettings from './pages/ProjectSettings.jsx'
+import RealBuildingDashboard from './pages/RealBuildingDashboard.jsx'
+import RealPhasePlaceholder from './pages/RealPhasePlaceholder.jsx'
 import BuildingOverview from './pages/BuildingOverview.jsx'
 import Lld from './pages/Lld.jsx'
 import RackiumEditor from './pages/RackiumEditor.jsx'
@@ -40,10 +48,21 @@ function PageNotFound() {
   )
 }
 
+// Mock mode goes straight to the prototype's one building. Real mode goes to
+// the signed-in user's projects, once memberships have loaded.
+function Home() {
+  const { mode, status, memberships } = useAuth()
+  if (mode === 'mock') return <Navigate to="/b/b001" replace />
+  if (status === 'loading') return <div className="p-6 text-sm text-text-secondary">Loading…</div>
+  if (status === 'signed_out') return <Navigate to="/login" replace />
+  const orgId = memberships[0]?.organisationId
+  return <Navigate to={orgId ? `/orgs/${orgId}/projects` : '/login'} replace />
+}
+
 export default function App() {
   return (
     <Routes>
-      <Route path="/" element={<Navigate to="/b/b001" replace />} />
+      <Route path="/" element={<Home />} />
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<SignUp />} />
       <Route path="/verify-email" element={<VerifyEmail />} />
@@ -71,6 +90,15 @@ export default function App() {
         <Route path="settings" element={<Settings />} />
         <Route path="activity" element={<Activity />} />
         <Route path="*" element={<PageNotFound />} />
+      </Route>
+
+      <Route path="/orgs/:orgId" element={<RequireAuth><RealAppShell /></RequireAuth>}>
+        <Route path="projects" element={<ProjectsList />} />
+        <Route path="projects/new" element={<ProjectWizard />} />
+        <Route path="projects/:projectId" element={<ProjectHome />} />
+        <Route path="projects/:projectId/settings" element={<ProjectSettings />} />
+        <Route path="projects/:projectId/buildings/:buildingId" element={<RealBuildingDashboard />} />
+        <Route path="projects/:projectId/buildings/:buildingId/:phaseKey" element={<RealPhasePlaceholder />} />
       </Route>
     </Routes>
   )
