@@ -73,4 +73,34 @@ describe('policy (v2.3 §4.3)', () => {
       expect(can([role], ACTIONS.INVITE_PROJECT_MEMBERS)).toBe(false)
     }
   })
+
+  it("country/SAL/campus/building/wing are Org Admin and PM only", () => {
+    expect(can(["org_admin"], ACTIONS.MANAGE_HIERARCHY_TOP)).toBe(true)
+    expect(can(["pm"], ACTIONS.MANAGE_HIERARCHY_TOP)).toBe(true)
+    for (const role of ["architect", "reviewer", "field_engineer", "viewer"]) {
+      expect(can([role], ACTIONS.MANAGE_HIERARCHY_TOP)).toBe(false)
+    }
+  })
+
+  it("floor/room/rack also allow the Architect, who pre-creates them for design", () => {
+    expect(can(["architect"], ACTIONS.MANAGE_HIERARCHY_DETAIL)).toBe(true)
+    expect(can(["architect"], ACTIONS.MANAGE_HIERARCHY_TOP)).toBe(false)
+    for (const role of ["reviewer", "field_engineer", "viewer"]) {
+      expect(can([role], ACTIONS.MANAGE_HIERARCHY_DETAIL)).toBe(false)
+    }
+  })
+
+  it("any project member may raise a blocker; Org Admin needs a project role too", () => {
+    for (const role of ["pm", "architect", "reviewer", "field_engineer", "viewer"]) {
+      expect(can([role], ACTIONS.RAISE_BLOCKER)).toBe(true)
+    }
+    expect(can(["org_admin"], ACTIONS.RAISE_BLOCKER)).toBe(false)
+  })
+
+  it("only Org Admin may View As", () => {
+    expect(can(["org_admin"], ACTIONS.VIEW_AS)).toBe(true)
+    for (const role of ["pm", "architect", "reviewer", "field_engineer", "viewer"]) {
+      expect(can([role], ACTIONS.VIEW_AS)).toBe(false)
+    }
+  })
 })

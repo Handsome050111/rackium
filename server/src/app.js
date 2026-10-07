@@ -6,6 +6,10 @@ import pinoHttp from 'pino-http'
 import crypto from 'node:crypto'
 import { createAuthService } from './auth/service.js'
 import { createOrganisationService } from './organisations/service.js'
+import { createHierarchyService } from './hierarchy/service.js'
+import { createBlockersService } from './blockers/service.js'
+import { createViewAsService } from './viewAs/service.js'
+import { createDashboardService } from './dashboard/service.js'
 import { apiRouter, API_VERSION } from './routes/index.js'
 import { requireUser } from './http/middleware.js'
 import { membershipSummary, userSummary } from './routes/summaries.js'
@@ -52,7 +56,7 @@ export function createApp({ config, logger, mailer, rateLimits = DEFAULT_RATE_LI
       origin: config.CLIENT_ORIGIN,
       credentials: true,
       methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'X-Request-Id'],
+      allowedHeaders: ['Content-Type', 'X-Request-Id', 'X-View-As-Session'],
     })
   )
   app.use(express.json({ limit: '100kb' }))
@@ -60,14 +64,23 @@ export function createApp({ config, logger, mailer, rateLimits = DEFAULT_RATE_LI
 
   const auth = createAuthService({ config, mailer, logger })
   const org = createOrganisationService({ mailer, auth })
+  const hierarchy = createHierarchyService()
+  const blockers = createBlockersService()
+  const viewAs = createViewAsService()
+  const dashboard = createDashboardService()
   const openapiDocument = () => buildOpenApiDocument({ version: VERSION })
 
-  const api = apiRouter({ config, auth, org, rateLimits, openapiDocument, version: VERSION })
+  const api = apiRouter({ config, auth, org, hierarchy, blockers, viewAs, dashboard, rateLimits, openapiDocument, version: VERSION })
   api.get('/me', requireUser(config), async (req, res) => {
     const memberships = await membershipsForUser(req.user._id)
     res.json({ user: userSummary(req.user), memberships: memberships.map(membershipSummary) })
   })
   app.use(`/api/v${API_VERSION}`, api)
+
+  // Every route actually registered, full path, OpenAPI {param} form — read
+  // by test/api.openapi-coverage.test.js so the drift check is built from
+  // the exact same registrations the app serves, not a hand-kept list.
+  app.__apiRoutes = api.__routes.map(({ method, path }) => ({ method, path: `/api/v${API_VERSION}${path === '/' ? '' : path}` }))
 
   app.use(notFoundHandler)
   app.use(errorHandler(logger))

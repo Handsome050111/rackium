@@ -8,13 +8,15 @@ import { ApiError } from '../api/httpClient.js'
 import { useAuth } from '../lib/AuthContext.jsx'
 import { API_MODE } from '../lib/apiMode.js'
 
-const safeNext = (value) => (value && value.startsWith('/') && !value.startsWith('//') ? value : '/b/b001')
+// An explicit ?next= (set by RequireAuth, redirecting back here) always wins.
+// Without one, mock mode's demo button goes to the prototype; real mode goes
+// to the signed-in user's projects, resolved from the login result itself.
+const explicitNext = (value) => (value && value.startsWith('/') && !value.startsWith('//') ? value : null)
 
-// Mock mode keeps the prototype's demo entry. Real mode signs in with the API.
 export default function Login() {
   const navigate = useNavigate()
   const [params] = useSearchParams()
-  const next = safeNext(params.get('next'))
+  const next = explicitNext(params.get('next'))
   const { signIn } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -29,7 +31,7 @@ export default function Login() {
           <FlaskConical size={12} strokeWidth={2} />
           Demo build — sign-in is not functional yet
         </div>
-        <button type="button" onClick={() => navigate(next)} className={authButton}>
+        <button type="button" onClick={() => navigate(next ?? '/b/b001')} className={authButton}>
           Continue to demo
         </button>
       </AuthShell>
@@ -43,7 +45,8 @@ export default function Login() {
     try {
       const result = await authApi.login({ email, password })
       signIn(result)
-      navigate(next, { replace: true })
+      const orgId = result.memberships?.[0]?.organisationId
+      navigate(next ?? (orgId ? `/orgs/${orgId}/projects` : '/'), { replace: true })
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong. Try again.')
       setUnverified(err instanceof ApiError && err.code === 'email_not_verified')

@@ -1,6 +1,8 @@
 // Thin fetch wrapper for the real API. Cookies are sent on every request (the
 // session lives in httpOnly cookies), and every error arrives in the one
 // format the server uses: { error: { code, message, details } }.
+import { getViewAsSession } from '../lib/viewAsSession.js'
+
 export const API_BASE = import.meta.env.VITE_API_BASE || '/api/v1'
 
 export class ApiError extends Error {
@@ -15,6 +17,12 @@ export class ApiError extends Error {
 
 export async function apiRequest(path, { method = 'GET', body } = {}) {
   const init = { method, credentials: 'include', headers: {} }
+  const viewAs = getViewAsSession()
+  // Only attach it to requests inside the viewed project — otherwise, once
+  // the viewer navigates elsewhere without clicking Exit first, every other
+  // project's reads would also 403 (the server checks the session's own
+  // project, but there's no reason to send it where it cannot apply).
+  if (viewAs && path.includes(`/projects/${viewAs.projectId}/`)) init.headers['X-View-As-Session'] = viewAs.id
   if (body !== undefined) {
     init.headers['Content-Type'] = 'application/json'
     init.body = JSON.stringify(body)

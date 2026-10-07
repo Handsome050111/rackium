@@ -131,8 +131,12 @@ function UserMenu() {
   )
 }
 
-export default function TopBar({ onMenuClick }) {
+// settingsTo overrides the mock prototype's default (/b/:buildingId/settings):
+// pass a path for real-mode screens with their own settings, or null to hide
+// the icon where there is nothing to settle (e.g. the org-level project list).
+export default function TopBar({ onMenuClick, settingsTo }) {
   const { buildingId = 'b001' } = useParams()
+  const resolvedSettingsTo = settingsTo === null ? null : settingsTo ?? `/b/${buildingId}/settings`
   return (
     <header className="flex h-16 shrink-0 items-center gap-3 border-b border-border bg-surface px-4 sm:px-6">
       <button
@@ -161,13 +165,15 @@ export default function TopBar({ onMenuClick }) {
 
       <div className="ml-auto flex items-center gap-1 sm:gap-2">
         <NotificationsPanel />
-        <Link
-          to={`/b/${buildingId}/settings`}
-          aria-label="Settings"
-          className="flex h-touch w-touch items-center justify-center rounded-lg text-brand hover:bg-surface-muted"
-        >
-          <Settings size={20} strokeWidth={2} />
-        </Link>
+        {resolvedSettingsTo && (
+          <Link
+            to={resolvedSettingsTo}
+            aria-label="Settings"
+            className="flex h-touch w-touch items-center justify-center rounded-lg text-brand hover:bg-surface-muted"
+          >
+            <Settings size={20} strokeWidth={2} />
+          </Link>
+        )}
         <UserMenu />
       </div>
     </header>

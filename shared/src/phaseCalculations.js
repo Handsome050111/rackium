@@ -1,6 +1,10 @@
 // Phase status math (brief v2.3 §4.4, §7.3). Every KPI on the dashboard is
 // derived from phase records here — nothing is hand-typed into the UI.
 
+// The nine phases, in brief order (§3). A project's activePhases is an
+// ordered, non-empty subset of these (DATA-MODEL §3.2).
+export const PHASE_KEYS = ['cmo', 'survey', 'hld', 'lld', 'solution-package', 'bom', 'deployment', 'cmdb', 'handover']
+
 const PROGRESS_WEIGHT = {
   not_started: 0,
   in_progress: 0.5,

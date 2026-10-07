@@ -7,17 +7,23 @@ import { defineConfig } from 'vite'
 // https://demo.example.com/rackium/) without any code changes — set it to
 // e.g. "/rackium/" before `npm run build`. Defaults to root, same as
 // before. See docs/DEPLOY-DEMO.md.
+// The browser always talks to this origin; Vite forwards /api server-side (the
+// browser never sees a different origin), so session cookies work with no
+// CORS or cross-origin cookie handling needed. Used by `vite dev` normally,
+// and by `vite preview` for the real-mode Playwright harness (client/e2e-real/),
+// which points VITE_API_TARGET at the test server (server/e2e/testServer.mjs).
+const apiProxy = { '/api': process.env.VITE_API_TARGET || 'http://localhost:4000' }
+
 export default defineConfig({
   base: process.env.VITE_BASE_PATH || '/',
-  // Development only: the browser talks to the same origin, which Vite forwards
-  // to the API, so session cookies work without CORS.
   server: {
-    proxy: {
-      '/api': process.env.VITE_API_TARGET || 'http://localhost:4000',
-    },
+    proxy: apiProxy,
+  },
+  preview: {
+    proxy: apiProxy,
   },
   plugins: [react(), tailwindcss()],
   test: {
-    exclude: ['**/node_modules/**', '**/e2e/**'],
+    exclude: ['**/node_modules/**', '**/e2e/**', '**/e2e-real/**'],
   },
 })
