@@ -77,6 +77,11 @@ export function createApp({ config, logger, mailer, rateLimits = DEFAULT_RATE_LI
   })
   app.use(`/api/v${API_VERSION}`, api)
 
+  // Every route actually registered, full path, OpenAPI {param} form — read
+  // by test/api.openapi-coverage.test.js so the drift check is built from
+  // the exact same registrations the app serves, not a hand-kept list.
+  app.__apiRoutes = api.__routes.map(({ method, path }) => ({ method, path: `/api/v${API_VERSION}${path === '/' ? '' : path}` }))
+
   app.use(notFoundHandler)
   app.use(errorHandler(logger))
   return app

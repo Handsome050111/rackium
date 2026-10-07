@@ -8,7 +8,7 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -34,3 +34,34 @@ jobs:
 
       - name: Build (client)
         run: npm run build
+
+      - name: Get installed Playwright version
+        id: playwright-version
+        run: echo "version=$(node -p "require('./client/node_modules/@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browser
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+
+      # Caches only the browser binary (the slow part, ~100MB+). OS packages
+      # (apt) are not meaningfully cacheable on a fresh runner image, so
+      # they're reinstalled either way — that part is quick.
+      - name: Install Playwright Chromium + OS dependencies
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        working-directory: client
+        run: npx playwright install --with-deps chromium
+
+      - name: Install Playwright OS dependencies (browser cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        working-directory: client
+        run: npx playwright install-deps chromium
+
+      # Mock-mode projects (desktop/iPad/tablet/phone) and the real-mode
+      # project (client/e2e-real/, server/e2e/testServer.mjs + an in-memory
+      # Mongo replica set) in one run — see playwright.config.js.
+      - name: Playwright (mock + real)
+        working-directory: client
+        run: npx playwright test

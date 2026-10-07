@@ -108,3 +108,79 @@ Spec: `client/e2e/sweep-round3.spec.js` (9 tests, run at all four widths).
 ### Open from round 3
 
 None. Item Q is fixed (fixed item 14, above).
+
+## Part 3: M2 review follow-ups
+
+Four items from the M2 review, on `feature/m2-projects`.
+
+### OpenAPI coverage
+
+The document was missing every M2 route (hierarchy, blockers, dashboard,
+View As, and the single-project GET/PATCH) — 32 routes, found by building a
+test that lists what the app actually serves and compares it against the
+document, rather than trusting a hand-kept list of either. All 32 are now
+registered in `openapi/document.js`.
+
+`http/routeRecorder.js` wraps each router so every route registered through
+it is recorded as it happens (`router.__routes`), with its own mount prefix
+joined in by `routes/index.js`. `app.js` exposes the combined list as
+`app.__apiRoutes`. `test/api.openapi-coverage.test.js` fails if any of them
+has no matching `registerPath()` — since the list comes from the same
+registration calls the app runs on, not a parallel manifest, it cannot itself
+drift the way the document previously did.
+
+### Real-mode Playwright harness
+
+`server/e2e/testServer.mjs` boots the real Express app against an in-memory
+Mongo replica set, rate limits off. `client/e2e-real/journey.spec.js` runs
+against it: sign-up → email verification → the wizard (CSV import) → project
+list → project home → the real dashboard (raise/assign/resolve a blocker,
+recent activity) → Settings (hierarchy add + delete-refused, phase gating's
+add/remove rules, Members) → View As (banner, writes blocked, Exit) →
+cross-project access denied for a second, unrelated organisation. Sent
+emails are read from `server/e2e/.runtime-emails.json`, written by a mailer
+in `testServer.mjs` — nothing test-only was added to `app.js` itself.
+
+The client's own `/api` proxy (already used by `vite dev`) is reused for
+`vite preview` too (`vite.config.js`'s new `preview.proxy`), so the real-mode
+build talks to the test server same-origin — no CORS or cross-origin cookie
+handling needed. Playwright's `real` project (`client/e2e-real/`) is separate
+from the mock-mode projects, which are unchanged.
+
+Two real bugs surfaced while building this:
+- **View As was lost on every page reload.** It only lived in a React
+  `useState`, which a full navigation wipes along with the rest of the page's
+  JS. A person who refreshed, or opened a link in a new tab, silently lost
+  the session with no indication — the banner just vanished. Now persisted to
+  `sessionStorage` (cleared when the tab closes) and re-hydrated on load, with
+  a guard so the header is only sent to the project it was started on.
+- **Settings' write controls ignored View As entirely.** Only the dashboard's
+  blocker form respected it; Save/Import/Delete on every Settings tab stayed
+  live. All now disable while a session is active, as the server already
+  enforced regardless.
+
+Also added while writing the journey spec: a "View as" control on the
+project home page and a Countries list with Delete on the Hierarchy tab —
+neither had any UI before this, so neither flow (View As at all; hierarchy
+delete) could be driven through the app.
+
+### Flakiness
+
+`playwright.config.js`: `workers: 2` (was effectively unbounded) and
+`retries: 1` (was 0). Across the sweep rounds, full 4-project runs on this
+machine produced a handful of timing failures — never the same test twice —
+that always passed alone; the cause looks like this machine, not the app,
+since nothing reproduced in isolation.
+
+**Flaky tests from the final clean run:** none. The combined run (mock's
+four projects + the new `real` project) passed everything on the first
+attempt — 355 passed, 28 skipped (unchanged baseline), 0 failed, no retries
+recorded.
+
+### CI
+
+`.github/workflows/ci.yml` now runs Playwright (mock and real projects)
+after the build step, with the Chromium browser cached by `actions/cache`
+(keyed on the installed `@playwright/test` version) so a cache hit skips the
+~100MB+ download and only reinstalls the OS packages, which is quick. Job
+timeout raised from 45 to 60 minutes.

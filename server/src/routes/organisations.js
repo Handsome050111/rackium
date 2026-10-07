@@ -1,4 +1,4 @@
-import { Router } from 'express'
+import { recordingRouter } from '../http/routeRecorder.js'
 import { z } from 'zod'
 import { ACTIONS } from '@rackium/shared/policy.js'
 import { inviteCreateBody, membershipUpdateBody, projectCreateBody, projectUpdateBody, auditQuery } from '@rackium/shared/contracts.js'
@@ -14,7 +14,7 @@ const idParam = z.object({ membershipId: z.string().regex(/^[a-f0-9]{24}$/) })
 // Every route here sits under /orgs/:orgId. The chain is always:
 // signed in -> member of this organisation -> policy action -> validated input.
 export function organisationRoutes({ config, org, rateLimits }) {
-  const r = Router({ mergeParams: true })
+  const r = recordingRouter({ mergeParams: true })
   const base = [requireUser(config), requireOrg()]
 
   r.get('/members', ...base, requireAction(ACTIONS.MANAGE_USERS_SETTINGS_CATALOGUE), async (req, res) => {

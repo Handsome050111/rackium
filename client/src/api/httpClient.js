@@ -18,7 +18,11 @@ export class ApiError extends Error {
 export async function apiRequest(path, { method = 'GET', body } = {}) {
   const init = { method, credentials: 'include', headers: {} }
   const viewAs = getViewAsSession()
-  if (viewAs) init.headers['X-View-As-Session'] = viewAs.id
+  // Only attach it to requests inside the viewed project — otherwise, once
+  // the viewer navigates elsewhere without clicking Exit first, every other
+  // project's reads would also 403 (the server checks the session's own
+  // project, but there's no reason to send it where it cannot apply).
+  if (viewAs && path.includes(`/projects/${viewAs.projectId}/`)) init.headers['X-View-As-Session'] = viewAs.id
   if (body !== undefined) {
     init.headers['Content-Type'] = 'application/json'
     init.body = JSON.stringify(body)

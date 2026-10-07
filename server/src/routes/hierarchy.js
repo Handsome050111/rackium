@@ -1,4 +1,4 @@
-import { Router } from 'express'
+import { recordingRouter } from '../http/routeRecorder.js'
 import { z } from 'zod'
 import { ACTIONS } from '@rackium/shared/policy.js'
 import * as C from '@rackium/shared/contracts.js'
@@ -15,7 +15,7 @@ const DETAIL = ACTIONS.MANAGE_HIERARCHY_DETAIL
 
 // Every route sits under /orgs/:orgId/projects/:projectId/hierarchy.
 export function hierarchyRoutes({ config, hierarchy }) {
-  const r = Router({ mergeParams: true })
+  const r = recordingRouter({ mergeParams: true })
   // applyViewAs runs on every route here (not just reads): a write attempted
   // while a View As session is active must 403 even if the real actor (an
   // Org Admin) would otherwise have permission — View As is view-only.

@@ -8,6 +8,7 @@ import { PREDEFINED_WORK_TYPES } from '@rackium/shared/workTypes.js'
 import { projectsApi } from '../api/projectsApi.js'
 import { hierarchyApi } from '../api/hierarchyApi.js'
 import { ApiError } from '../api/httpClient.js'
+import { useViewAs } from '../lib/ViewAsContext.jsx'
 
 const PHASE_LABELS = { cmo: 'CMO', survey: 'Survey', hld: 'HLD', lld: 'LLD', 'solution-package': 'Solution Package', bom: 'BOM', deployment: 'Deployment', cmdb: 'CMDB', handover: 'Handover' }
 const HIERARCHY_FIELDS = ['countryCode', 'countryName', 'salCode', 'campusCode', 'buildingCode', 'buildingName', 'wingCode', 'wingName']
@@ -28,6 +29,8 @@ export default function ProjectSettings() {
   const { orgId, projectId } = useParams()
   const [params, setParams] = useSearchParams()
   const tab = params.get('tab') ?? 'general'
+  const { session: viewAsSession } = useViewAs()
+  const readOnly = Boolean(viewAsSession)
   const [project, setProject] = useState(null)
   const [notice, setNotice] = useState(null)
   const [error, setError] = useState(null)
@@ -75,18 +78,18 @@ export default function ProjectSettings() {
       {error && <p className="rounded-lg border border-status-red/40 bg-status-red/5 px-3 py-2 text-sm text-status-red">{error}</p>}
       {notice && <p className="rounded-lg border border-status-green/40 bg-status-green/5 px-3 py-2 text-sm text-status-green">{notice}</p>}
 
-      {tab === 'general' && <GeneralTab project={project} onSave={save} />}
-      {tab === 'hierarchy' && <HierarchyTab orgId={orgId} projectId={projectId} project={project} onImported={load} />}
-      {tab === 'phases' && <PhasesTab project={project} onSave={save} />}
+      {tab === 'general' && <GeneralTab project={project} onSave={save} readOnly={readOnly} />}
+      {tab === 'hierarchy' && <HierarchyTab orgId={orgId} projectId={projectId} project={project} onImported={load} readOnly={readOnly} />}
+      {tab === 'phases' && <PhasesTab project={project} onSave={save} readOnly={readOnly} />}
       {tab === 'members' && <MembersTab />}
       {tab === 'naming' && <NamingTab />}
-      {tab === 'danger' && <DangerTab project={project} onSave={save} />}
+      {tab === 'danger' && <DangerTab project={project} onSave={save} readOnly={readOnly} />}
       {tab === 'more' && <MoreTab />}
     </div>
   )
 }
 
-function GeneralTab({ project, onSave }) {
+function GeneralTab({ project, onSave, readOnly }) {
   const [name, setName] = useState(project.name)
   const [clientName, setClientName] = useState(project.clientName ?? '')
   const [description, setDescription] = useState(project.description ?? '')
@@ -104,18 +107,43 @@ function GeneralTab({ project, onSave }) {
         <span className="text-xs text-text-secondary">Description</span>
         <textarea className={`${inputClass} h-24`} value={description} onChange={(e) => setDescription(e.target.value)} />
       </label>
-      <button type="button" onClick={() => onSave({ name, clientName, description })} className="h-9 rounded-lg bg-brand px-4 text-sm font-medium text-white hover:bg-brand/90">
+      <button
+        type="button"
+        disabled={readOnly}
+        onClick={() => onSave({ name, clientName, description })}
+        className="h-9 rounded-lg bg-brand px-4 text-sm font-medium text-white hover:bg-brand/90 disabled:cursor-not-allowed disabled:bg-status-grey"
+      >
         Save
       </button>
     </div>
   )
 }
 
-function HierarchyTab({ orgId, projectId, project, onImported }) {
+function HierarchyTab({ orgId, projectId, project, onImported, readOnly }) {
   const [rows, setRows] = useState([emptyRow()])
   const [busy, setBusy] = useState(false)
   const [importError, setImportError] = useState(null)
+  const [tree, setTree] = useState(null)
+  const [deleteError, setDeleteError] = useState(null)
   const fileInput = useRef(null)
+
+  const loadTree = useCallback(() => {
+    hierarchyApi.tree(orgId, projectId).then((r) => setTree(r.tree))
+  }, [orgId, projectId])
+
+  useEffect(() => {
+    loadTree()
+  }, [loadTree])
+
+  async function deleteCountry(id) {
+    setDeleteError(null)
+    try {
+      await hierarchyApi.countries.remove(orgId, projectId, id)
+      loadTree()
+    } catch (err) {
+      setDeleteError(err instanceof ApiError ? err.message : 'Could not delete. Try again.')
+    }
+  }
 
   const plan = useMemo(() => {
     const nonEmpty = rows.filter((r) => Object.values(r).some((v) => v.trim()))
@@ -142,6 +170,7 @@ function HierarchyTab({ orgId, projectId, project, onImported }) {
       await hierarchyApi.import(orgId, projectId, rows.filter((r) => Object.values(r).some((v) => v.trim())))
       setRows([emptyRow()])
       onImported()
+      loadTree()
     } catch (err) {
       setImportError(err instanceof ApiError ? err.message : 'Could not import. Try again.')
     } finally {
@@ -151,6 +180,22 @@ function HierarchyTab({ orgId, projectId, project, onImported }) {
 
   return (
     <div className="space-y-4">
+      <div>
+        <h2 className="mb-2 text-sm font-semibold text-text">Countries ({tree?.countries.length ?? 0})</h2>
+        {deleteError && <p className="mb-2 text-xs text-status-red">{deleteError}</p>}
+        <ul className="space-y-1">
+          {(tree?.countries ?? []).map((c) => (
+            <li key={c.id} className="flex items-center justify-between rounded-lg border border-border px-2.5 py-1.5 text-sm text-text">
+              {c.code} — {c.name}
+              <button type="button" disabled={readOnly} onClick={() => deleteCountry(c.id)} className="text-xs font-medium text-status-red hover:underline disabled:cursor-not-allowed disabled:opacity-40">
+                Delete
+              </button>
+            </li>
+          ))}
+          {tree && tree.countries.length === 0 && <p className="text-xs text-text-secondary">None yet.</p>}
+        </ul>
+      </div>
+
       <div>
         <h2 className="mb-2 text-sm font-semibold text-text">Existing buildings ({project.buildings.length})</h2>
         <ul className="space-y-1">
@@ -166,8 +211,13 @@ function HierarchyTab({ orgId, projectId, project, onImported }) {
         <div className="mb-2 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-text">Add country / SAL / campus / building</h2>
           <div>
-            <input ref={fileInput} type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={importFile} />
-            <button type="button" onClick={() => fileInput.current?.click()} className="flex h-8 items-center gap-1.5 rounded-lg border border-border px-2.5 text-xs font-medium text-text hover:border-brand">
+            <input ref={fileInput} type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={importFile} disabled={readOnly} />
+            <button
+              type="button"
+              disabled={readOnly}
+              onClick={() => fileInput.current?.click()}
+              className="flex h-8 items-center gap-1.5 rounded-lg border border-border px-2.5 text-xs font-medium text-text hover:border-brand disabled:cursor-not-allowed disabled:opacity-40"
+            >
               <Upload size={13} strokeWidth={2} />
               Import file
             </button>
@@ -197,7 +247,12 @@ function HierarchyTab({ orgId, projectId, project, onImported }) {
             </tbody>
           </table>
         </div>
-        <button type="button" onClick={() => setRows((r) => [...r, emptyRow()])} className="mt-2 flex h-8 items-center gap-1 rounded-lg border border-border px-2 text-xs font-medium text-text hover:border-brand">
+        <button
+          type="button"
+          disabled={readOnly}
+          onClick={() => setRows((r) => [...r, emptyRow()])}
+          className="mt-2 flex h-8 items-center gap-1 rounded-lg border border-border px-2 text-xs font-medium text-text hover:border-brand disabled:cursor-not-allowed disabled:opacity-40"
+        >
           <Plus size={12} strokeWidth={2} />
           Add row
         </button>
@@ -205,7 +260,7 @@ function HierarchyTab({ orgId, projectId, project, onImported }) {
         {importError && <p className="mt-2 text-xs text-status-red">{importError}</p>}
         <button
           type="button"
-          disabled={busy || !plan.ok || plan.buildings.length === 0}
+          disabled={readOnly || busy || !plan.ok || plan.buildings.length === 0}
           onClick={submitImport}
           className="mt-3 h-9 rounded-lg bg-brand px-4 text-sm font-medium text-white hover:bg-brand/90 disabled:bg-status-grey"
         >
@@ -216,7 +271,7 @@ function HierarchyTab({ orgId, projectId, project, onImported }) {
   )
 }
 
-function PhasesTab({ project, onSave }) {
+function PhasesTab({ project, onSave, readOnly }) {
   const [workTypeKeys, setWorkTypeKeys] = useState(project.workTypes.filter((w) => w.isPredefined).map((w) => w.key))
   const [activePhaseKeys, setActivePhaseKeys] = useState(project.activePhases.map((p) => p.phaseKey))
 
@@ -254,8 +309,9 @@ function PhasesTab({ project, onSave }) {
       </div>
       <button
         type="button"
+        disabled={readOnly}
         onClick={() => onSave({ workTypes: [...PREDEFINED_WORK_TYPES.filter((w) => workTypeKeys.includes(w.key)).map((w) => ({ ...w, isPredefined: true }))], activePhaseKeys })}
-        className="h-9 rounded-lg bg-brand px-4 text-sm font-medium text-white hover:bg-brand/90"
+        className="h-9 rounded-lg bg-brand px-4 text-sm font-medium text-white hover:bg-brand/90 disabled:cursor-not-allowed disabled:bg-status-grey"
       >
         Save
       </button>
@@ -291,15 +347,16 @@ function NamingTab() {
   )
 }
 
-function DangerTab({ project, onSave }) {
+function DangerTab({ project, onSave, readOnly }) {
   const archived = project.status === 'archived'
   return (
     <div className="space-y-2 rounded-xl border border-status-red/40 bg-status-red/5 p-4">
       <p className="text-sm text-text">{archived ? 'This project is archived.' : 'Archiving hides this project from active lists. It can be reversed.'}</p>
       <button
         type="button"
+        disabled={readOnly}
         onClick={() => onSave({ status: archived ? 'active' : 'archived' })}
-        className="flex h-9 items-center gap-1.5 rounded-lg border border-status-red px-3 text-sm font-medium text-status-red hover:bg-status-red/10"
+        className="flex h-9 items-center gap-1.5 rounded-lg border border-status-red px-3 text-sm font-medium text-status-red hover:bg-status-red/10 disabled:cursor-not-allowed disabled:opacity-40"
       >
         <Trash2 size={14} strokeWidth={2} />
         {archived ? 'Unarchive project' : 'Archive project'}

@@ -1,4 +1,4 @@
-import { Router } from 'express'
+import { recordingRouter } from '../http/routeRecorder.js'
 import {
   signUpBody,
   verifyEmailBody,
@@ -24,7 +24,7 @@ async function sessionResponse(res, config, user, tokens, status = 200) {
 }
 
 export function authRoutes({ config, auth, rateLimits }) {
-  const r = Router()
+  const r = recordingRouter()
 
   r.post(
     '/signup',

@@ -1,4 +1,4 @@
-import { Router } from 'express'
+import { recordingRouter } from '../http/routeRecorder.js'
 import { z } from 'zod'
 import { ACTIONS } from '@rackium/shared/policy.js'
 import { viewAsStartBody } from '@rackium/shared/contracts.js'
@@ -11,7 +11,7 @@ const sessionIdParam = z.object({ sessionId: z.string().regex(/^[a-f0-9]{24}$/) 
 // applyViewAs — these two routes validate the session themselves (start has
 // none yet to check; end must find one even past its TTL, to close it out).
 export function viewAsRoutes({ config, viewAs }) {
-  const r = Router({ mergeParams: true })
+  const r = recordingRouter({ mergeParams: true })
   const base = [requireUser(config), requireOrg(), requireProject()]
 
   r.post('/', ...base, requireAction(ACTIONS.VIEW_AS), validate({ body: viewAsStartBody }), async (req, res) => {

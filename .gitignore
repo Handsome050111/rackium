@@ -17,3 +17,7 @@ desktop.ini
 
 # Dependencies are installed once at the repo root (npm workspaces)
 node_modules
+
+# Real-mode Playwright harness runtime output (server/e2e/testServer.mjs)
+server/e2e/.runtime-emails.json
+client/dist-real/

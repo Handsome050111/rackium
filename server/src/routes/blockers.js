@@ -1,4 +1,4 @@
-import { Router } from 'express'
+import { recordingRouter } from '../http/routeRecorder.js'
 import { z } from 'zod'
 import { ACTIONS } from '@rackium/shared/policy.js'
 import { blockerCreateBody, blockerUpdateBody } from '@rackium/shared/contracts.js'
@@ -11,7 +11,7 @@ const buildingQuery = z.object({ buildingId: z.string().regex(/^[a-f0-9]{24}$/) 
 // /orgs/:orgId/projects/:projectId/blockers. Raising is open to any project
 // role; assign/resolve/reopen rules are checked in the service (DATA-MODEL §5.10).
 export function blockersRoutes({ config, blockers }) {
-  const r = Router({ mergeParams: true })
+  const r = recordingRouter({ mergeParams: true })
   const base = [requireUser(config), requireOrg(), requireProject(), applyViewAs()]
 
   r.get('/', ...base, validate({ query: buildingQuery }), async (req, res) => {

@@ -1,6 +1,6 @@
-import { Router } from 'express'
 import { healthResponse } from '@rackium/shared/contracts.js'
 import { databaseIsUp } from '../db/connect.js'
+import { recordingRouter, joinRoutePath } from '../http/routeRecorder.js'
 import { authRoutes } from './auth.js'
 import { organisationRoutes } from './organisations.js'
 import { hierarchyRoutes } from './hierarchy.js'
@@ -11,7 +11,7 @@ import { viewAsRoutes } from './viewAs.js'
 export const API_VERSION = '1'
 
 export function apiRouter({ config, auth, org, hierarchy, blockers, viewAs, dashboard, rateLimits, openapiDocument, version }) {
-  const r = Router()
+  const r = recordingRouter()
 
   r.get('/health', (req, res) => {
     const database = databaseIsUp() ? 'up' : 'down'
@@ -23,12 +23,23 @@ export function apiRouter({ config, auth, org, hierarchy, blockers, viewAs, dash
     res.json(openapiDocument())
   })
 
-  r.use('/auth', authRoutes({ config, auth, rateLimits }))
-  r.use('/orgs/:orgId', organisationRoutes({ config, org, rateLimits }))
-  r.use('/orgs/:orgId/projects/:projectId/hierarchy', hierarchyRoutes({ config, hierarchy }))
-  r.use('/orgs/:orgId/projects/:projectId/blockers', blockersRoutes({ config, blockers }))
-  r.use('/orgs/:orgId/projects/:projectId/dashboard', dashboardRoutes({ config, dashboard }))
-  r.use('/orgs/:orgId/projects/:projectId/view-as', viewAsRoutes({ config, viewAs }))
+  // Each mount below is paired with its own prefix here, so r.__routes (read
+  // by app.js into app.__apiRoutes for the OpenAPI drift check) always
+  // reflects exactly what app.use() wires up — nothing is duplicated by hand.
+  const mounts = [
+    ['/auth', authRoutes({ config, auth, rateLimits })],
+    ['/orgs/:orgId', organisationRoutes({ config, org, rateLimits })],
+    ['/orgs/:orgId/projects/:projectId/hierarchy', hierarchyRoutes({ config, hierarchy })],
+    ['/orgs/:orgId/projects/:projectId/blockers', blockersRoutes({ config, blockers })],
+    ['/orgs/:orgId/projects/:projectId/dashboard', dashboardRoutes({ config, dashboard })],
+    ['/orgs/:orgId/projects/:projectId/view-as', viewAsRoutes({ config, viewAs })],
+  ]
+  for (const [prefix, subRouter] of mounts) {
+    r.use(prefix, subRouter)
+    for (const { method, path } of subRouter.__routes) {
+      r.__routes.push({ method, path: joinRoutePath(prefix, path) })
+    }
+  }
 
   return r
 }
