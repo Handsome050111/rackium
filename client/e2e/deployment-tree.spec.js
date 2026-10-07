@@ -40,6 +40,9 @@ test.describe('deployment location tree', () => {
     if ((await widthOf(page)) >= 768) return
     await page.goto('/b/b001/deployment')
     const row = page.getByRole('button', { name: new RegExp(DEVICE) })
+    // boundingBox() does not auto-wait, unlike expect(...).toBeVisible() — the
+    // tree depends on a dashboard fetch, so this can otherwise race the render.
+    await expect(row).toBeVisible()
     const rowBox = await row.boundingBox()
     expect(rowBox.height, 'device row height').toBeGreaterThanOrEqual(44)
     await row.click()

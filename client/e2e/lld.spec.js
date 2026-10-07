@@ -54,9 +54,12 @@ test.describe('LLD — Low-Level Design', () => {
     await page.goto('/b/b001/lld')
     await page.getByRole('button', { name: 'Port schedule' }).click()
     await page.getByLabel('Device').selectOption({ label: 'Fusion' })
+    // Wait for the table to actually render before counting its rows — .count()
+    // does not auto-wait, so reading it right after selectOption() can race
+    // the re-render and see 0 rows, which would pass trivially for the wrong reason.
+    await expect(page.getByText('Te1/1/1').first()).toBeVisible()
     const rowCount = await page.locator('tbody tr').count()
     expect(rowCount).toBeLessThanOrEqual(20) // page size, and Fusion only has 24 core ports total
-    await expect(page.getByText('Te1/1/1').first()).toBeVisible()
   })
 
   test('Cable schedule flags an Estimated pathway, distinct from a Surveyed one', async ({ page }) => {
@@ -73,8 +76,11 @@ test.describe('LLD — Low-Level Design', () => {
   test('Cable schedule never shows "Installed length" as a number — always the deployment placeholder', async ({ page }) => {
     await page.goto('/b/b001/lld')
     await page.getByRole('button', { name: 'Cable schedule' }).click()
+    // .first() being visible already proves at least one exists — and unlike
+    // .count(), toBeVisible() auto-waits for the table to render, rather than
+    // reading a possibly-still-zero count immediately after the click.
     const installedCells = page.locator('td', { hasText: 'To be populated at deployment' })
-    expect(await installedCells.count()).toBeGreaterThan(0)
+    await expect(installedCells.first()).toBeVisible()
   })
 
   test('Architect can edit a Cable ID inline; Viewer sees it as read-only text', async ({ page }, testInfo) => {
@@ -109,6 +115,10 @@ test.describe('LLD — Low-Level Design', () => {
 
     const apItem = page.getByText('AP', { exact: true })
     const room = page.locator('.react-flow__node-room', { hasText: 'TR-1OG-01' }).first()
+    // boundingBox() does not auto-wait, unlike expect(...).toBeVisible() — the
+    // canvas lays its nodes out asynchronously, so this can otherwise race it.
+    await expect(apItem).toBeVisible()
+    await expect(room).toBeVisible()
     const src = await apItem.boundingBox()
     const dst = await room.boundingBox()
     await page.mouse.move(src.x + src.width / 2, src.y + src.height / 2)
@@ -154,6 +164,10 @@ test.describe('LLD — Low-Level Design', () => {
 
     const edgeItem = page.getByText('Edge', { exact: true })
     const room = page.locator('.react-flow__node-room', { hasText: 'TR-1OG-02' }).first()
+    // boundingBox() does not auto-wait, unlike expect(...).toBeVisible() — the
+    // canvas lays its nodes out asynchronously, so this can otherwise race it.
+    await expect(edgeItem).toBeVisible()
+    await expect(room).toBeVisible()
     const src = await edgeItem.boundingBox()
     const dst = await room.boundingBox()
     await page.mouse.move(src.x + src.width / 2, src.y + src.height / 2)

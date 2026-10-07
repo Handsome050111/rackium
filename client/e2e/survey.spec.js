@@ -46,6 +46,10 @@ test.describe('Physical Site Survey — Rack Layout', () => {
     const frontPanel = page.locator('text=FRONT').locator('..')
     const targetRow = frontPanel.locator('span', { hasText: /^20$/ }).first()
 
+    // boundingBox() does not auto-wait, unlike expect(...).toBeVisible() —
+    // this can otherwise race the rack layout's render.
+    await expect(libraryItem).toBeVisible()
+    await expect(targetRow).toBeVisible()
     const src = await libraryItem.boundingBox()
     const dst = await targetRow.boundingBox()
     await page.mouse.move(src.x + src.width / 2, src.y + src.height / 2)
