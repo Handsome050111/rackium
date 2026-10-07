@@ -119,6 +119,10 @@ test.describe('Physical Site Survey — Site Structure', () => {
     await page.goto('/b/b001/survey')
     const rackTool = page.locator('div', { hasText: 'Rack' }).filter({ hasText: /^Rack$/ }).last()
     const targetRoom = roomBox(page, 'TR-1OG-02')
+    // boundingBox() does not auto-wait, unlike expect(...).toBeVisible() —
+    // this can otherwise race the structure's render.
+    await expect(rackTool).toBeVisible()
+    await expect(targetRoom).toBeVisible()
 
     const src = await rackTool.boundingBox()
     const dst = await targetRoom.boundingBox()

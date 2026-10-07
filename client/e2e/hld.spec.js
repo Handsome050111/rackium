@@ -92,9 +92,17 @@ test.describe('HLD — High-Level Design', () => {
     await page.goto('/b/b001/hld')
     await setRole(page, 'Architect')
 
-    const before = await page.locator('.react-flow__node-device').count()
+    // React Flow lays nodes out asynchronously after the data is ready; on a
+    // slower runner, reading a count or a boundingBox() (neither of which
+    // auto-wait, unlike expect(...).toBeVisible()) right after goto() can
+    // race it and see 0 nodes / a null box instead of the rendered canvas.
+    const deviceNodes = page.locator('.react-flow__node-device')
+    await expect(deviceNodes.first()).toBeVisible()
+    const before = await deviceNodes.count()
     const apItem = page.getByText('AP', { exact: true })
     const room = page.locator('.react-flow__node-room', { hasText: 'TR-EG-01' }).first()
+    await expect(apItem).toBeVisible()
+    await expect(room).toBeVisible()
 
     const src = await apItem.boundingBox()
     const dst = await room.boundingBox()
