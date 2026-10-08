@@ -246,6 +246,76 @@ export function buildRegistry() {
     responses: { 200: ok('Updated', z.object({ blocker: z.any() })), 400: err('Not a valid transition'), 403: err('Forbidden') },
   })
 
+  // --- M3a: catalogue (organisation level) ---
+  const orgParams = z.object({ orgId: z.string() })
+  const catalogueItemParams = orgParams.extend({ id: z.string() })
+  const catalogueListResponse = z.object({ items: z.array(z.any()), vendors: z.array(z.string()), total: z.number(), pricesVisible: z.boolean() })
+  registry.registerPath({
+    method: 'get',
+    path: '/api/v1/orgs/{orgId}/catalogue',
+    summary: 'Browse the effective catalogue (seeded, SERVON, organisation, and project layer when projectId is given); prices only for roles that may see them',
+    request: { params: orgParams, query: C.catalogueQuery },
+    responses: { 200: ok('Items', catalogueListResponse), 404: err('Not found') },
+  })
+  registry.registerPath({
+    method: 'get',
+    path: '/api/v1/orgs/{orgId}/catalogue/{id}',
+    summary: 'One catalogue item with its expanded port list and the layers that define it',
+    request: { params: catalogueItemParams, query: C.catalogueItemQuery },
+    responses: { 200: ok('Item', z.object({ item: z.any(), ports: z.array(z.any()), layers: z.array(z.any()), effectiveId: z.string(), pricesVisible: z.boolean() })), 404: err('Not found') },
+  })
+  registry.registerPath({
+    method: 'post',
+    path: '/api/v1/orgs/{orgId}/catalogue',
+    summary: 'Add an organisation catalogue item (Org Admin)',
+    request: { params: orgParams, body: { content: json(C.catalogueItemBody) } },
+    responses: { 201: ok('Created', z.object({ item: z.any() })), 403: err('Forbidden'), 409: err('Already in the organisation catalogue') },
+  })
+  registry.registerPath({
+    method: 'patch',
+    path: '/api/v1/orgs/{orgId}/catalogue/{id}',
+    summary: 'Replace an organisation catalogue item (Org Admin); seeded items are read-only',
+    request: { params: catalogueItemParams, body: { content: json(C.catalogueItemBody) } },
+    responses: { 200: ok('Updated', z.object({ item: z.any() })), 403: err('Forbidden or read-only'), 404: err('Not found') },
+  })
+  registry.registerPath({
+    method: 'post',
+    path: '/api/v1/orgs/{orgId}/catalogue/import',
+    summary: 'CSV import into the organisation layer (Org Admin): re-validated server-side, all rows or none',
+    request: { params: orgParams, body: { content: json(C.catalogueImportBody) } },
+    responses: { 201: ok('Imported', z.object({ imported: z.object({ created: z.number(), updated: z.number() }) })), 400: err('Rows did not validate'), 403: err('Forbidden') },
+  })
+
+  // --- M3a: CMO import (project level) ---
+  registry.registerPath({
+    method: 'get',
+    path: '/api/v1/orgs/{orgId}/projects/{projectId}/cmo',
+    summary: 'CMO inventory: imported devices, Unassigned devices, KPIs, and CMO status per building',
+    request: { params: projectParams },
+    responses: { 200: ok('CMO context', z.object({ sals: z.any(), buildings: z.any(), devices: z.any(), kpis: z.any(), lastImportAt: z.any() })) },
+  })
+  registry.registerPath({
+    method: 'post',
+    path: '/api/v1/orgs/{orgId}/projects/{projectId}/cmo/preview',
+    summary: 'Validate mapped CMO rows against the project (serial registry, MACs, hostnames, buildings); writes nothing',
+    request: { params: projectParams, body: { content: json(C.cmoImportBody) } },
+    responses: { 200: ok('Validated rows', z.object({ salId: z.string(), rows: z.array(z.any()), summary: z.any() })), 403: err('Forbidden') },
+  })
+  registry.registerPath({
+    method: 'post',
+    path: '/api/v1/orgs/{orgId}/projects/{projectId}/cmo/import',
+    summary: 'Commit a CMO import (Org Admin, PM): batch, devices, serial registry and Unassigned blockers in one transaction',
+    request: { params: projectParams, body: { content: json(C.cmoImportBody) } },
+    responses: { 201: ok('Committed', z.object({ batchId: z.string(), salId: z.string(), summary: z.any() })), 400: err('Nothing importable'), 403: err('Forbidden'), 409: err('Conflict') },
+  })
+  registry.registerPath({
+    method: 'patch',
+    path: '/api/v1/orgs/{orgId}/projects/{projectId}/cmo/devices/{deviceId}/assignment',
+    summary: 'Assign an Unassigned device to a building in its SAL (PM); resolves its blocker',
+    request: { params: projectParams.extend({ deviceId: z.string() }), body: { content: json(C.cmoAssignBody) } },
+    responses: { 200: ok('Assigned', z.object({ device: z.any() })), 400: err('Wrong SAL'), 403: err('Forbidden'), 404: err('Not found'), 409: err('Already assigned') },
+  })
+
   registry.registerPath({
     method: 'get',
     path: '/api/v1/orgs/{orgId}/projects/{projectId}/dashboard/buildings/{buildingId}',

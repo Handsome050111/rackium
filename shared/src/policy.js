@@ -41,6 +41,10 @@ export const ACTIONS = {
   MANAGE_HIERARCHY_DETAIL: 'manage_hierarchy_detail',
   RAISE_BLOCKER: 'raise_blocker',
   VIEW_AS: 'view_as',
+  // M3a, brief v2.3 §5.1: CMO is imported per project; "The PM assigns"
+  // the devices that land Unassigned at SAL level.
+  IMPORT_CMO: 'import_cmo',
+  ASSIGN_CMO_DEVICE: 'assign_cmo_device',
 }
 
 // Who may perform each action. An Org Admin's organisation-level role grants
@@ -69,6 +73,8 @@ const MATRIX = {
   [ACTIONS.MANAGE_HIERARCHY_DETAIL]: ['org_admin', 'pm', 'architect'],
   [ACTIONS.RAISE_BLOCKER]: ['pm', 'architect', 'reviewer', 'field_engineer', 'viewer'],
   [ACTIONS.VIEW_AS]: ['org_admin'],
+  [ACTIONS.IMPORT_CMO]: ['org_admin', 'pm'],
+  [ACTIONS.ASSIGN_CMO_DEVICE]: ['pm'],
 }
 
 // Roles a user may hold at each level. Invitations and memberships are

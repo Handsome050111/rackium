@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { createApp, DEFAULT_RATE_LIMITS } from '../src/app.js'
 import { createLogger } from '../src/logger.js'
 import { startReplSet } from '../test/helpers/memoryDb.js'
+import { seedPlatformCatalogue } from '../src/catalogue/seed.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 export const EMAILS_FILE = path.join(here, '.runtime-emails.json')
@@ -45,6 +46,8 @@ const config = {
 
 async function main() {
   await startReplSet()
+  // Same boot step as src/index.js: the placeholder global catalogue.
+  await seedPlatformCatalogue()
   const app = createApp({ config, logger: createLogger({ level: 'silent' }), mailer, rateLimits: { ...DEFAULT_RATE_LIMITS, enabled: false } })
   app.listen(PORT, () => {
     // eslint-disable-next-line no-console

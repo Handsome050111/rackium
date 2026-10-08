@@ -7,10 +7,12 @@ import { hierarchyRoutes } from './hierarchy.js'
 import { blockersRoutes } from './blockers.js'
 import { dashboardRoutes } from './dashboard.js'
 import { viewAsRoutes } from './viewAs.js'
+import { catalogueRoutes } from './catalogue.js'
+import { cmoRoutes } from './cmo.js'
 
 export const API_VERSION = '1'
 
-export function apiRouter({ config, auth, org, hierarchy, blockers, viewAs, dashboard, rateLimits, openapiDocument, version }) {
+export function apiRouter({ config, auth, org, hierarchy, blockers, viewAs, dashboard, catalogue, cmo, rateLimits, openapiDocument, version }) {
   const r = recordingRouter()
 
   r.get('/health', (req, res) => {
@@ -33,6 +35,8 @@ export function apiRouter({ config, auth, org, hierarchy, blockers, viewAs, dash
     ['/orgs/:orgId/projects/:projectId/blockers', blockersRoutes({ config, blockers })],
     ['/orgs/:orgId/projects/:projectId/dashboard', dashboardRoutes({ config, dashboard })],
     ['/orgs/:orgId/projects/:projectId/view-as', viewAsRoutes({ config, viewAs })],
+    ['/orgs/:orgId/catalogue', catalogueRoutes({ config, catalogue })],
+    ['/orgs/:orgId/projects/:projectId/cmo', cmoRoutes({ config, cmo })],
   ]
   for (const [prefix, subRouter] of mounts) {
     r.use(prefix, subRouter)

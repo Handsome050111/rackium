@@ -10,6 +10,8 @@ import { createHierarchyService } from './hierarchy/service.js'
 import { createBlockersService } from './blockers/service.js'
 import { createViewAsService } from './viewAs/service.js'
 import { createDashboardService } from './dashboard/service.js'
+import { createCatalogueService } from './catalogue/service.js'
+import { createCmoService } from './cmo/service.js'
 import { apiRouter, API_VERSION } from './routes/index.js'
 import { requireUser } from './http/middleware.js'
 import { membershipSummary, userSummary } from './routes/summaries.js'
@@ -18,6 +20,8 @@ import { notFoundHandler, errorHandler } from './http/errorHandler.js'
 import { buildOpenApiDocument } from './openapi/document.js'
 
 export const VERSION = '0.1.0'
+
+const IMPORT_ROUTE = /^\/api\/v1\/orgs\/[^/]+\/(catalogue\/import|projects\/[^/]+\/cmo\/(preview|import))\/?$/
 
 // Per-route limits. Enabled in production and development; tests may disable
 // them, and the auth service never checks them itself.
@@ -59,7 +63,11 @@ export function createApp({ config, logger, mailer, rateLimits = DEFAULT_RATE_LI
       allowedHeaders: ['Content-Type', 'X-Request-Id', 'X-View-As-Session'],
     })
   )
-  app.use(express.json({ limit: '100kb' }))
+  // Imports post their parsed rows as JSON (the file is read in the browser),
+  // so only those routes get a larger body limit; everything else stays small.
+  const smallJson = express.json({ limit: '100kb' })
+  const importJson = express.json({ limit: '6mb' })
+  app.use((req, res, next) => (IMPORT_ROUTE.test(req.path) ? importJson : smallJson)(req, res, next))
   app.use(cookieParser())
 
   const auth = createAuthService({ config, mailer, logger })
@@ -68,9 +76,11 @@ export function createApp({ config, logger, mailer, rateLimits = DEFAULT_RATE_LI
   const blockers = createBlockersService()
   const viewAs = createViewAsService()
   const dashboard = createDashboardService()
+  const catalogue = createCatalogueService()
+  const cmo = createCmoService()
   const openapiDocument = () => buildOpenApiDocument({ version: VERSION })
 
-  const api = apiRouter({ config, auth, org, hierarchy, blockers, viewAs, dashboard, rateLimits, openapiDocument, version: VERSION })
+  const api = apiRouter({ config, auth, org, hierarchy, blockers, viewAs, dashboard, catalogue, cmo, rateLimits, openapiDocument, version: VERSION })
   api.get('/me', requireUser(config), async (req, res) => {
     const memberships = await membershipsForUser(req.user._id)
     res.json({ user: userSummary(req.user), memberships: memberships.map(membershipSummary) })

@@ -1,22 +1,35 @@
 import { Blocker } from '../models/blocker.js'
 import { recordAudit, userActor, diffChanges } from '../audit/audit.js'
-import { notFound, forbidden, badRequest } from '../http/errors.js'
+import { notFound, forbidden, badRequest, conflict } from '../http/errors.js'
+import { salIdForBuilding } from '../hierarchy/lookup.js'
 
-const toBlocker = (b) => ({
+const optionalId = (v) => (v ? String(v) : null)
+
+export const toBlocker = (b) => ({
   id: String(b._id),
-  buildingId: String(b.buildingId),
+  buildingId: optionalId(b.buildingId),
+  salId: optionalId(b.salId),
   phaseKey: b.phaseKey,
   description: b.description,
   relatedObjectType: b.relatedObjectType ?? null,
-  relatedObjectId: b.relatedObjectId ? String(b.relatedObjectId) : null,
+  relatedObjectId: optionalId(b.relatedObjectId),
+  source: b.source ?? 'user',
   raisedAt: b.raisedAt,
   raisedBy: String(b.raisedBy),
-  ownerId: b.ownerId ? String(b.ownerId) : null,
+  ownerId: optionalId(b.ownerId),
   priority: b.priority,
   status: b.status,
   resolvedAt: b.resolvedAt ?? null,
-  resolvedBy: b.resolvedBy ? String(b.resolvedBy) : null,
+  resolvedBy: optionalId(b.resolvedBy),
 })
+
+// A building's blockers plus the SAL-level ones that hold it up (Unassigned
+// CMO devices sit at SAL level until a PM assigns them; brief v2.3 §5.1).
+export async function blockersForBuilding(buildingId) {
+  const salId = await salIdForBuilding(buildingId)
+  const filter = salId ? { $or: [{ buildingId }, { buildingId: null, salId }] } : { buildingId }
+  return Blocker.find(filter).sort({ raisedAt: -1 }).lean()
+}
 
 export function createBlockersService() {
   return {
@@ -50,8 +63,7 @@ export function createBlockersService() {
     },
 
     async listForBuilding({ buildingId }) {
-      const rows = await Blocker.find({ buildingId }).sort({ raisedAt: -1 }).lean()
-      return rows.map(toBlocker)
+      return (await blockersForBuilding(buildingId)).map(toBlocker)
     },
 
     // Transitions follow DATA-MODEL §5.10: open/in_progress -> resolved and
@@ -69,6 +81,9 @@ export function createBlockersService() {
         blocker.ownerId = body.ownerId
       }
       if (body.status !== undefined) {
+        if (blocker.source === 'system') {
+          throw conflict('system_blocker', 'This blocker clears automatically — assign the device to a building to resolve it')
+        }
         if (body.status === 'resolved' || (blocker.status === 'open' && body.status === 'in_progress')) {
           if (!isPm && !isOwner) throw forbidden('Only the owner or a PM may do that')
         } else if (blocker.status === 'resolved' && body.status === 'open') {

@@ -8,6 +8,10 @@ import ProjectHome from './pages/ProjectHome.jsx'
 import ProjectSettings from './pages/ProjectSettings.jsx'
 import RealBuildingDashboard from './pages/RealBuildingDashboard.jsx'
 import RealPhasePlaceholder from './pages/RealPhasePlaceholder.jsx'
+import RealCmo from './pages/RealCmo.jsx'
+import Catalogue from './pages/Catalogue.jsx'
+import CatalogueItem from './pages/CatalogueItem.jsx'
+import CatalogueItemForm from './pages/CatalogueItemForm.jsx'
 import BuildingOverview from './pages/BuildingOverview.jsx'
 import Lld from './pages/Lld.jsx'
 import RackiumEditor from './pages/RackiumEditor.jsx'
@@ -98,7 +102,12 @@ export default function App() {
         <Route path="projects/:projectId" element={<ProjectHome />} />
         <Route path="projects/:projectId/settings" element={<ProjectSettings />} />
         <Route path="projects/:projectId/buildings/:buildingId" element={<RealBuildingDashboard />} />
+        <Route path="projects/:projectId/buildings/:buildingId/cmo" element={<RealCmo />} />
         <Route path="projects/:projectId/buildings/:buildingId/:phaseKey" element={<RealPhasePlaceholder />} />
+        <Route path="catalogue" element={<Catalogue />} />
+        <Route path="catalogue/new" element={<CatalogueItemForm />} />
+        <Route path="catalogue/:itemId" element={<CatalogueItem />} />
+        <Route path="catalogue/:itemId/edit" element={<CatalogueItemForm key="edit" />} />
       </Route>
     </Routes>
   )

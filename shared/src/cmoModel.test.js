@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isValidMac, applyColumnMapping, validateCmoRows, computeCmoKpis, computeBuildingCmoStatus, guessColumnMapping } from './cmoModel.js'
+import { isValidMac, applyColumnMapping, validateCmoRows, computeCmoKpis, computeBuildingCmoStatus, guessColumnMapping, normaliseMac, computeCmoPhaseStatus } from './cmoModel.js'
 
 describe('isValidMac', () => {
   it('accepts colon and hyphen separated hex pairs', () => {
@@ -116,5 +116,76 @@ describe('computeBuildingCmoStatus', () => {
 
   it('is completed once at least one device is imported for this building, independent of other buildings', () => {
     expect(computeBuildingCmoStatus([{ id: 'd1' }])).toBe('completed')
+  })
+})
+
+describe('normaliseMac', () => {
+  it('stores MACs lower case and colon-separated', () => {
+    expect(normaliseMac('00-1A-2B-3C-4D-5E')).toBe('00:1a:2b:3c:4d:5e')
+    expect(normaliseMac(' 00:1a:2b:3c:4d:5e ')).toBe('00:1a:2b:3c:4d:5e')
+  })
+  it('returns null for an empty or malformed MAC', () => {
+    expect(normaliseMac(null)).toBeNull()
+    expect(normaliseMac('nope')).toBeNull()
+  })
+})
+
+describe('validateCmoRows — real-backend checks (opt-in)', () => {
+  const row = (fields) => ({ rowIndex: 0, hostname: null, model: null, serial: 'S1', mac: null, building: null, floor: null, room: null, rack: null, ru: null, ...fields })
+  const base = { projectSerials: new Set(), resolveBuilding: (t) => (t === 'B001' ? 'b1' : null) }
+
+  it('without the new options, the result for each row is unchanged (mock mode)', () => {
+    const [r] = validateCmoRows([row({ mac: '00:1a:2b:3c:4d:5e', hostname: 'SW-1', building: 'B001', room: 'TR-1', ru: 'abc' })], base)
+    expect(r.errors).toEqual([])
+    expect(r.valid).toBe(true)
+    expect(r.ru).toBe('abc')
+    expect(r.roomId).toBeNull()
+  })
+
+  it('flags MAC duplicates in the file and in the project, matching across separators and case', () => {
+    const rows = validateCmoRows(
+      [row({ serial: 'A', mac: '00:1A:2B:3C:4D:5E' }), row({ serial: 'B', mac: '00-1a-2b-3c-4d-5e' }), row({ serial: 'C', mac: 'aa:bb:cc:dd:ee:ff' })],
+      { ...base, projectMacs: new Set(['aa:bb:cc:dd:ee:ff']), projectHostnames: new Set() }
+    )
+    expect(rows[0].errors).toEqual(['duplicate_mac_in_file'])
+    expect(rows[1].errors).toEqual(['duplicate_mac_in_file'])
+    expect(rows[2].errors).toEqual(['duplicate_mac_in_project'])
+    expect(rows.every((r) => !r.valid)).toBe(true)
+  })
+
+  it('flags hostname duplicates in the file and in the project, case-insensitively', () => {
+    const rows = validateCmoRows([row({ serial: 'A', hostname: 'sw-1' }), row({ serial: 'B', hostname: 'SW-1' }), row({ serial: 'C', hostname: 'SW-9' })], {
+      ...base,
+      projectMacs: new Set(),
+      projectHostnames: new Set(['sw-9']),
+    })
+    expect(rows.map((r) => r.errors)).toEqual([['duplicate_hostname_in_file'], ['duplicate_hostname_in_file'], ['duplicate_hostname_in_project']])
+  })
+
+  it('places a device in a room and rack when they resolve; unknown room, rack or RU are warnings, not errors', () => {
+    const resolveRoom = (buildingId, code) => (buildingId === 'b1' && code === 'TR-1' ? 'room1' : null)
+    const resolveRack = (roomId, code) => (roomId === 'room1' && code === 'R01' ? 'rack1' : null)
+    const opts = { ...base, resolveRoom, resolveRack }
+    const [placed] = validateCmoRows([row({ building: 'B001', room: 'TR-1', rack: 'R01', ru: '40' })], opts)
+    expect(placed).toMatchObject({ buildingId: 'b1', roomId: 'room1', rackId: 'rack1', ruPosition: 40, warnings: [], valid: true })
+
+    const [lost] = validateCmoRows([row({ building: 'B001', room: 'TR-X', rack: 'R01', ru: '0' })], opts)
+    expect(lost.warnings).toEqual(['unknown_room', 'invalid_ru'])
+    expect(lost.valid).toBe(true)
+    expect(lost.ruPosition).toBeNull()
+
+    const [noRack] = validateCmoRows([row({ building: 'B001', room: 'TR-1', rack: 'R99' })], opts)
+    expect(noRack.warnings).toEqual(['unknown_rack'])
+  })
+})
+
+describe('computeCmoPhaseStatus (real backend, M3a)', () => {
+  it('is Not started until the building has imported devices', () => {
+    expect(computeCmoPhaseStatus({ buildingDeviceCount: 0, salUnassignedCount: 0 })).toBe('not_started')
+    expect(computeCmoPhaseStatus({ buildingDeviceCount: 0, salUnassignedCount: 3 })).toBe('not_started')
+  })
+  it('is Blocked while its SAL still has Unassigned devices, Completed once none remain', () => {
+    expect(computeCmoPhaseStatus({ buildingDeviceCount: 5, salUnassignedCount: 1 })).toBe('blocked')
+    expect(computeCmoPhaseStatus({ buildingDeviceCount: 5, salUnassignedCount: 0 })).toBe('completed')
   })
 })

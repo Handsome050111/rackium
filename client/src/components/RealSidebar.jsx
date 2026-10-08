@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
-import { Plus, X, Building2 } from 'lucide-react'
+import { Plus, X, Building2, Boxes } from 'lucide-react'
 import { PHASE_ICONS } from '../lib/phaseIcons.js'
 import { PHASES } from '../mock/phases.js'
 import StatusDot from './StatusDot.jsx'
@@ -12,9 +12,10 @@ import { dashboardApi } from '../api/dashboardApi.js'
 // heading with "+ New project" sits above the signed-in user's projects;
 // inside one, its buildings, and inside a building, its active phases.
 function useRealRouteIds() {
-  const { pathname } = useLocation()
+  const { pathname, search } = useLocation()
   const orgId = pathname.match(/^\/orgs\/([^/]+)/)?.[1] ?? null
-  const projectId = pathname.match(/^\/orgs\/[^/]+\/projects\/([^/]+)/)?.[1] ?? null
+  // The catalogue lives at org level and carries the project as ?projectId.
+  const projectId = pathname.match(/^\/orgs\/[^/]+\/projects\/([^/]+)/)?.[1] ?? new URLSearchParams(search).get('projectId')
   const buildingId = pathname.match(/\/buildings\/([^/]+)/)?.[1] ?? null
   return { orgId, projectId, buildingId }
 }
@@ -70,6 +71,15 @@ function SidebarContent({ showLabels, orgId, projectId, buildingId, onNavigate }
             <span className="truncate">{showLabels ? p.name : (p.code ?? p.name.slice(0, 2)).slice(0, 3)}</span>
           </NavLink>
         ))}
+      </nav>
+
+      {/* Organisation-wide; opened from inside a project it also shows that
+          project's own items and prices for the user's role there. */}
+      <nav aria-label="Organisation" className="mt-1 px-2">
+        <NavLink to={`/orgs/${orgId}/catalogue${projectId ? `?projectId=${projectId}` : ''}`} onClick={onNavigate} className={navLinkClass} title="Equipment catalogue">
+          <Boxes size={16} strokeWidth={2} className="shrink-0" />
+          {showLabels && <span className="truncate">Equipment catalogue</span>}
+        </NavLink>
       </nav>
 
       {currentProject && (

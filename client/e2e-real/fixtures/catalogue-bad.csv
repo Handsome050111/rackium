@@ -1,0 +1,3 @@
+kind,category,vendor,model,heightU,rackMounted,mounting,accessPortCount,accessPortType,accessPortPattern,price
+device_model,router,Juniper,MX204,1,yes,front,8,QSFP28,et-0/0/{n},12000
+device_model,ups,APC,SMT3000RMI2U,one,yes,front,,,,

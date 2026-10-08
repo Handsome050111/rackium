@@ -103,4 +103,15 @@ describe('policy (v2.3 §4.3)', () => {
       expect(can([role], ACTIONS.VIEW_AS)).toBe(false)
     }
   })
+
+  it("CMO: Org Admin and PM import; only the PM assigns Unassigned devices (brief v2.3 §5.1)", () => {
+    expect(can(["org_admin"], ACTIONS.IMPORT_CMO)).toBe(true)
+    expect(can(["pm"], ACTIONS.IMPORT_CMO)).toBe(true)
+    expect(can(["pm"], ACTIONS.ASSIGN_CMO_DEVICE)).toBe(true)
+    expect(can(["org_admin"], ACTIONS.ASSIGN_CMO_DEVICE)).toBe(false)
+    for (const role of ["architect", "reviewer", "field_engineer", "viewer"]) {
+      expect(can([role], ACTIONS.IMPORT_CMO)).toBe(false)
+      expect(can([role], ACTIONS.ASSIGN_CMO_DEVICE)).toBe(false)
+    }
+  })
 })

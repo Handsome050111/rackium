@@ -11,6 +11,8 @@ import { Sal } from '../models/sal.js'
 import { Building } from '../models/building.js'
 import { PhaseStatus } from '../models/phaseStatus.js'
 import { Blocker } from '../models/blocker.js'
+import { Device } from '../models/device.js'
+import { cmoStatusByBuilding } from '../cmo/service.js'
 import { applyActivePhases } from '@rackium/shared/phaseGating.js'
 import { withTransaction } from '../db/transaction.js'
 import { runWithScope } from '../tenancy/scopeContext.js'
@@ -334,12 +336,17 @@ export function createOrganisationService({ mailer, auth }) {
       for (const p of rows) {
         const activePhases = p.activePhases ?? []
         const buildings = await runWithScope({ organisationId, projectId: p._id }, async () => {
-          const [buildingRows, statusRows] = await Promise.all([Building.find().lean(), PhaseStatus.find().lean()])
+          const [buildingRows, statusRows, cmoStatuses] = await Promise.all([Building.find().lean(), PhaseStatus.find().lean(), cmoStatusByBuilding()])
           const statusByBuilding = new Map()
           for (const s of statusRows) {
             const key = String(s.buildingId)
             if (!statusByBuilding.has(key)) statusByBuilding.set(key, new Map())
             statusByBuilding.get(key).set(s.phaseKey, s.status)
+          }
+          // CMO is computed from imported devices, not stored (same as the dashboard).
+          for (const [buildingId, status] of cmoStatuses) {
+            if (!statusByBuilding.has(buildingId)) statusByBuilding.set(buildingId, new Map())
+            statusByBuilding.get(buildingId).set('cmo', status)
           }
           return buildingRows.map((b) => {
             const byPhase = statusByBuilding.get(String(b._id)) ?? new Map()
@@ -396,11 +403,14 @@ export function createOrganisationService({ mailer, auth }) {
       if (body.activePhaseKeys !== undefined) {
         // PhaseStatus and Blocker are project-scoped by the tenant plugin, so this
         // already reads only this project's rows — no need to join via buildings.
-        const [statusRows, blockerRows] = await Promise.all([
+        const [statusRows, blockerRows, hasCmoDevices] = await Promise.all([
           PhaseStatus.find({ status: { $ne: 'not_started' } }).select('phaseKey').lean(),
           Blocker.find({}).select('phaseKey').lean(),
+          Device.exists({ origin: 'existing' }),
         ])
         const phasesWithData = new Set([...statusRows.map((r) => r.phaseKey), ...blockerRows.map((r) => r.phaseKey)])
+        // Imported CMO devices are the CMO phase's data (its status is computed from them).
+        if (hasCmoDevices) phasesWithData.add('cmo')
         const result = applyActivePhases({
           currentActivePhases: project.activePhases.map((a) => a.phaseKey),
           nextPhaseKeys: body.activePhaseKeys,

@@ -185,3 +185,40 @@ describe('audit entries are append-only and organisation-scoped', () => {
     expect(rows.reduce((n, r) => n + r.changes.length, 0)).toBe(205)
   })
 })
+
+// M3a models (DATA-MODEL §1.5 items 1 and 3, one test per model).
+describe('tenantScope: M3a models', () => {
+  const projectScoped = {
+    Device: () => import('../src/models/device.js').then((m) => m.Device),
+    SerialRegistry: () => import('../src/models/serialRegistry.js').then((m) => m.SerialRegistry),
+    ImportBatch: () => import('../src/models/importBatch.js').then((m) => m.ImportBatch),
+    Blocker: () => import('../src/models/blocker.js').then((m) => m.Blocker),
+  }
+
+  for (const [name, load] of Object.entries(projectScoped)) {
+    it(`${name}: a query without scope throws, and an organisation-only scope is not enough`, async () => {
+      const Model = await load()
+      await expect(Model.find({})).rejects.toThrow(TenantScopeError)
+      await expect(inOrg(orgA, () => Model.find({}))).rejects.toThrow(TenantScopeError)
+    })
+  }
+
+  it('CatalogueItem: a query without scope throws; another organisation cannot read an item by id', async () => {
+    const { CatalogueItem } = await import('../src/models/catalogueItem.js')
+    await expect(CatalogueItem.find({})).rejects.toThrow(TenantScopeError)
+    const item = await inOrg(orgA, () =>
+      CatalogueItem.create({ layer: 'organisation', kind: 'device_model', key: 'X Y', category: 'switch', vendor: 'X', model: 'Y', heightU: 1 })
+    )
+    expect(await inOrg(orgB, () => CatalogueItem.findById(item._id))).toBeNull()
+    expect((await inOrg(orgA, () => CatalogueItem.findById(item._id)))?.key).toBe('X Y')
+  })
+
+  it('Device: findById from another project in the same organisation returns nothing', async () => {
+    const { Device } = await import('../src/models/device.js')
+    const inProject = (projectId, fn) => runWithScope({ organisationId: orgA, projectId }, fn)
+    const otherProject = new ObjectId()
+    const device = await inProject(projectA._id, () => Device.create({ origin: 'existing', status: 'in_service', salId: new ObjectId() }))
+    expect(await inProject(otherProject, () => Device.findById(device._id))).toBeNull()
+    expect(await inProject(projectA._id, () => Device.findById(device._id))).not.toBeNull()
+  })
+})
