@@ -3,7 +3,7 @@ import { AlertTriangle } from 'lucide-react'
 // SAL-level list (brief D39: "Devices with no building go to Unassigned at
 // SAL level"). Shown regardless of which building the PM is currently
 // looking at, since these devices don't belong to one yet.
-export default function UnassignedList({ devices, buildings, editable, onAssign }) {
+export default function UnassignedList({ devices, buildings, editable, onAssign, title = 'Unassigned at SAL ERL', disabled = false }) {
   if (devices.length === 0) {
     return (
       <div className="rounded-xl border border-status-green/30 bg-status-green/5 p-4 text-xs text-status-green">No unassigned devices — every imported device has a building.</div>
@@ -14,7 +14,7 @@ export default function UnassignedList({ devices, buildings, editable, onAssign 
     <div className="space-y-2 rounded-xl border border-status-amber/40 bg-status-amber/5 p-4">
       <div className="flex items-center gap-2 text-sm font-semibold text-status-amber">
         <AlertTriangle size={16} strokeWidth={2} />
-        Unassigned at SAL ERL ({devices.length})
+        {title} ({devices.length})
       </div>
       <p className="text-xs text-text-secondary">These devices have no building and count as an open blocker until the PM assigns them.</p>
       <div className="space-y-1.5">
@@ -29,6 +29,8 @@ export default function UnassignedList({ devices, buildings, editable, onAssign 
             {editable ? (
               <select
                 defaultValue=""
+                disabled={disabled}
+                aria-label={`Assign ${d.hostname ?? d.serial} to a building`}
                 onChange={(e) => e.target.value && onAssign(d.id, e.target.value)}
                 className="h-8 rounded-lg border border-border bg-surface px-2 text-xs text-text focus:border-brand focus:outline-none"
               >

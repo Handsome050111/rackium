@@ -3,6 +3,8 @@ import { Link, useParams } from 'react-router-dom'
 import { Plus } from 'lucide-react'
 import { API_MODE } from '../lib/apiMode.js'
 import { projectsApi } from '../api/projectsApi.js'
+import { useAuth } from '../lib/AuthContext.jsx'
+import { canCreateProjectsIn } from '../lib/realRoles.js'
 import KpiStrip from '../components/KpiStrip.jsx'
 
 const STATUS_CLASS = { active: 'bg-status-green/10 text-status-green', archived: 'bg-status-grey/10 text-status-grey' }
@@ -12,6 +14,8 @@ const STATUS_CLASS = { active: 'bg-status-green/10 text-status-green', archived:
 // actually in, not whichever membership happened to load first.
 export default function ProjectsList() {
   const { orgId } = useParams()
+  const { memberships } = useAuth()
+  const canCreate = canCreateProjectsIn(memberships, orgId)
   const [projects, setProjects] = useState(null)
 
   useEffect(() => {
@@ -39,10 +43,12 @@ export default function ProjectsList() {
     <div className="mx-auto max-w-5xl space-y-5 p-4 sm:p-6">
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-lg font-semibold text-text">Projects</h1>
-        <Link to={`/orgs/${orgId}/projects/new`} className="flex h-9 items-center gap-1.5 rounded-lg bg-brand px-3 text-sm font-medium text-white hover:bg-brand/90">
-          <Plus size={16} strokeWidth={2} />
-          New project
-        </Link>
+        {canCreate && (
+          <Link to={`/orgs/${orgId}/projects/new`} className="flex h-9 items-center gap-1.5 rounded-lg bg-brand px-3 text-sm font-medium text-white hover:bg-brand/90">
+            <Plus size={16} strokeWidth={2} />
+            New project
+          </Link>
+        )}
       </div>
 
       <KpiStrip

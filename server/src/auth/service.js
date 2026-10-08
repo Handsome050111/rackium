@@ -1,5 +1,5 @@
 import mongoose from 'mongoose'
-import { ORG_ROLE } from '@rackium/shared/policy.js'
+import { ORG_ROLE, ORG_MEMBER_ROLE } from '@rackium/shared/policy.js'
 import { User } from '../models/user.js'
 import { Organisation } from '../models/organisation.js'
 import { Membership } from '../models/membership.js'
@@ -285,9 +285,15 @@ export function createAuthService({ config, mailer, logger }) {
         }
       }
 
-      const isDuplicate = user && (await membershipsForUser(user._id)).some(
-        (m) => String(m.organisationId) === String(organisationId) && m.level === invitation.level && String(m.projectId ?? '') === String(invitation.projectId ?? '') && m.active
-      )
+      // A 'member' organisation row (from joining through a project) is not a
+      // duplicate of an Org Admin invitation: accepting it upgrades the row.
+      const sameSlot = user
+        ? (await membershipsForUser(user._id)).find(
+            (m) => String(m.organisationId) === String(organisationId) && m.level === invitation.level && String(m.projectId ?? '') === String(invitation.projectId ?? '') && m.active
+          )
+        : null
+      const upgradeOrgMember = sameSlot?.level === 'organisation' && sameSlot.role === ORG_MEMBER_ROLE && invitation.role === ORG_ROLE
+      const isDuplicate = Boolean(sameSlot) && !upgradeOrgMember
       if (isDuplicate) throw conflict('already_member', 'You already have access to this')
 
       await withTransaction(async (session) => {
@@ -296,9 +302,39 @@ export function createAuthService({ config, mailer, logger }) {
           const [created] = await User.create([{ email: invitation.email, name, passwordHash, status: 'active', emailVerifiedAt: new Date() }], { session })
           user = created
         }
-        await runWithScope({ organisationId, projectId: invitation.projectId }, () =>
-          Membership.create([{ userId: user._id, level: invitation.level, projectId: invitation.projectId ?? null, role: invitation.role, scopes: invitation.scopes, invitedBy: invitation.invitedBy }], { session })
-        )
+        if (upgradeOrgMember) {
+          await runWithScope({ organisationId }, () => Membership.updateOne({ _id: sameSlot._id }, { $set: { role: ORG_ROLE } }, { session }))
+        } else {
+          await runWithScope({ organisationId, projectId: invitation.projectId }, () =>
+            Membership.create([{ userId: user._id, level: invitation.level, projectId: invitation.projectId ?? null, role: invitation.role, scopes: invitation.scopes, invitedBy: invitation.invitedBy }], { session })
+          )
+        }
+        // Joining through a project also makes the user an organisation member
+        // (role 'member'), which is where organisation-level permissions live.
+        // A PM gets project creation by default — but only when the row is
+        // first created, so a later PM invitation can't undo an Org Admin's revoke.
+        if (invitation.level === 'project') {
+          await runWithScope({ organisationId }, async () => {
+            const existing = await Membership.findOne({ userId: user._id, level: 'organisation', active: true }).session(session)
+            if (existing) return
+            const canCreate = invitation.role === 'pm'
+            const [orgRow] = await Membership.create([{ userId: user._id, level: 'organisation', role: ORG_MEMBER_ROLE, canCreateProjects: canCreate, invitedBy: invitation.invitedBy }], { session })
+            if (canCreate) {
+              await recordAudit({
+                organisationId,
+                actor: systemActor(),
+                action: 'membership.project_creation.granted',
+                objectType: 'Membership',
+                objectId: orgRow._id,
+                changeType: 'system',
+                source: 'system',
+                comment: 'default for a user who joins as PM',
+                changes: [{ objectType: 'Membership', objectId: String(orgRow._id), field: 'canCreateProjects', before: false, after: true }],
+                session,
+              })
+            }
+          })
+        }
         await runWithScope({ organisationId }, () =>
           Invitation.updateOne({ _id: invitation._id }, { $set: { status: 'accepted', acceptedAt: new Date() } }, { session })
         )

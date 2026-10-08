@@ -1,7 +1,5 @@
-import path from 'node:path'
-import fs from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import { test, expect } from '@playwright/test'
+import { PASSWORD, fixture, lastEmailTo, tokenFrom } from './helpers.js'
 
 // Real-mode end-to-end journey, against server/e2e/testServer.mjs (an actual
 // Express app + in-memory Mongo replica set). One serial sequence, sharing a
@@ -14,32 +12,8 @@ import { test, expect } from '@playwright/test'
 // writes blocked, exit), and cross-project access denied. Mock-mode specs
 // (client/e2e/) are untouched.
 
-const here = path.dirname(fileURLToPath(import.meta.url))
-const EMAILS_FILE = path.join(here, '../../server/e2e/.runtime-emails.json')
-const CSV_FIXTURE = path.join(here, 'fixtures/hierarchy.csv')
-const PASSWORD = 'correct horse battery staple'
+const CSV_FIXTURE = fixture('hierarchy.csv')
 const RUN_ID = Date.now()
-
-function readEmails() {
-  return JSON.parse(fs.readFileSync(EMAILS_FILE, 'utf8'))
-}
-
-// The route awaits mailer.send() before responding, so the file is already
-// written by the time the HTTP call returns — this just adds a short,
-// cheap retry in case of filesystem write-visibility lag.
-async function lastEmailTo(to, attempts = 10) {
-  for (let i = 0; i < attempts; i++) {
-    const match = [...readEmails()].reverse().find((m) => m.to === to)
-    if (match) return match
-    await new Promise((r) => setTimeout(r, 200))
-  }
-  throw new Error(`No email arrived for ${to}`)
-}
-
-function tokenFrom(message) {
-  const link = message.text.match(/https?:\/\/\S+/)[0]
-  return new URL(link).searchParams.get('token')
-}
 
 test.describe.configure({ mode: 'serial' })
 test.setTimeout(120_000)
@@ -103,7 +77,9 @@ test('the wizard creates a project, with its hierarchy imported from CSV', async
 
 test('the project appears in the list, and its building opens the real dashboard', async () => {
   await page.goto(`/orgs/${orgId}/projects`)
-  await expect(page.getByText('LANspire')).toBeVisible()
+  // Scoped to the page body: the sidebar also lists the project, and whether
+  // it has loaded yet is a race (strict-mode violation when it has).
+  await expect(page.getByRole('main').getByText('LANspire')).toBeVisible()
   await expect(page.getByText('1 building')).toBeVisible()
 
   await page.goto(`/orgs/${orgId}/projects/${projectId}`)

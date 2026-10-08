@@ -1,8 +1,9 @@
 // API contracts (M1). Zod schemas shared by the server (request validation and
 // OpenAPI generation) and the client. Field rules here are the only definition.
 import { z } from 'zod'
-import { ALL_ROLES, PROJECT_ROLES } from './policy.js'
+import { ALL_ROLES, PROJECT_ROLES, ORG_MEMBER_ROLE } from './policy.js'
 import { PHASE_KEYS } from './phaseCalculations.js'
+import { catalogueItemSchema, CATEGORY_GROUPS, CATALOGUE_CATEGORIES } from './catalogue.js'
 
 export const PASSWORD_MIN = 12
 export const PASSWORD_MAX = 128
@@ -205,6 +206,53 @@ export const blockerUpdateBody = z
 
 export const viewAsStartBody = z.object({ projectId: objectId, role: z.enum(PROJECT_ROLES) })
 
+// --- Organisation-level permissions and settings (M3a review) -------------
+export const projectCreationBody = z.object({ allowed: z.boolean() })
+export const organisationSettingsBody = z.object({ architectsSeePrices: z.boolean() })
+
+// --- M3a: catalogue -------------------------------------------------------
+// Create and replace take the whole item (shared/src/catalogue.js is the one
+// definition of an item's fields and rules).
+export const catalogueItemBody = catalogueItemSchema
+export const catalogueQuery = z.object({
+  projectId: objectId.optional(),
+  q: z.string().trim().max(120).optional(),
+  group: z.enum(CATEGORY_GROUPS.map((g) => g.key)).optional(),
+  category: z.enum(CATALOGUE_CATEGORIES).optional(),
+  vendor: z.string().trim().max(80).optional(),
+  minPorts: z.coerce.number().int().min(1).max(1024).optional(),
+  poe: z
+    .enum(['true', 'false'])
+    .transform((v) => v === 'true')
+    .optional(),
+  speed: z.string().trim().max(20).optional(),
+})
+export const catalogueItemQuery = z.object({ projectId: objectId.optional() })
+export const catalogueImportBody = z.object({ rows: z.array(z.record(z.string(), z.string())).min(1).max(2000) })
+
+// --- M3a: CMO import ------------------------------------------------------
+const cmoCell = z.string().trim().max(200).nullable().default(null)
+export const cmoRow = z.object({
+  rowIndex: z.number().int().min(0),
+  hostname: cmoCell,
+  model: cmoCell,
+  serial: cmoCell,
+  mac: cmoCell,
+  building: cmoCell,
+  floor: cmoCell,
+  room: cmoCell,
+  rack: cmoCell,
+  ru: cmoCell,
+})
+export const cmoImportBody = z.object({
+  // The SAL that rows without a known building land in (Unassigned).
+  // Optional only when the project has exactly one SAL.
+  salId: objectId.optional(),
+  fileName: z.string().trim().max(255).optional(),
+  rows: z.array(cmoRow).min(1).max(5000),
+})
+export const cmoAssignBody = z.object({ buildingId: objectId })
+
 export const auditQuery = z.object({
   projectId: objectId.optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
@@ -231,8 +279,9 @@ export const membershipSummary = z.object({
   organisationId: objectId,
   projectId: objectId.nullable(),
   level: z.enum(['organisation', 'project']),
-  role: z.enum(ALL_ROLES),
+  role: z.enum([...ALL_ROLES, ORG_MEMBER_ROLE]),
   scopes: z.array(scopeSchema),
+  canCreateProjects: z.boolean().nullable(),
 })
 
 export const meResponse = z.object({

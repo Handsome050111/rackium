@@ -14,6 +14,8 @@ const organisationSchema = new mongoose.Schema({
     },
     standardHeightsU: { type: [Number], default: [12, 24, 42, 45, 48] },
     customHeightsU: { type: [Number], default: [] },
+    // Brief v2.3 §4.3: "Architects can see prices only if the Org Admin grants it".
+    architectsSeePrices: { type: Boolean, default: false },
   },
   createdAt: { type: Date, default: () => new Date() },
   deletedAt: { type: Date, default: null },

@@ -6,6 +6,7 @@ import { createLogger } from './logger.js'
 import { connectDatabase, disconnectDatabase } from './db/connect.js'
 import { createApp, VERSION } from './app.js'
 import { createEmailSender } from './email/index.js'
+import { seedPlatformCatalogue } from './catalogue/seed.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 dotenv.config({ path: path.join(here, '..', '.env'), quiet: true })
@@ -25,6 +26,8 @@ async function main() {
   const logger = createLogger({ level: config.LOG_LEVEL, pretty: config.NODE_ENV === 'development' })
   await connectDatabase(config.MONGODB_URI)
   logger.info({ version: VERSION, env: config.NODE_ENV }, 'database connected (replica set)')
+  const seeded = await seedPlatformCatalogue()
+  logger.info(seeded, 'platform catalogue seeded (placeholder data; existing rows untouched)')
 
   const mailer = createEmailSender({ provider: config.EMAIL_PROVIDER, from: config.EMAIL_FROM, apiKey: config.RESEND_API_KEY, logger })
   const app = createApp({ config, logger, mailer })

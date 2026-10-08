@@ -1,16 +1,19 @@
 import mongoose from 'mongoose'
-import { PROJECT_ROLES } from '@rackium/shared/policy.js'
+import { PROJECT_ROLES, ORG_ROLE, ORG_MEMBER_ROLE, canCreateProjects } from '@rackium/shared/policy.js'
 import { computeOverallProgress } from '@rackium/shared/phaseCalculations.js'
 import { Membership } from '../models/membership.js'
 import { Invitation } from '../models/invitation.js'
 import { Project } from '../models/project.js'
 import { AuditEntry } from '../models/auditEntry.js'
 import { User } from '../models/user.js'
+import { Organisation } from '../models/organisation.js'
 import { Country } from '../models/country.js'
 import { Sal } from '../models/sal.js'
 import { Building } from '../models/building.js'
 import { PhaseStatus } from '../models/phaseStatus.js'
 import { Blocker } from '../models/blocker.js'
+import { Device } from '../models/device.js'
+import { cmoStatusByBuilding } from '../cmo/service.js'
 import { applyActivePhases } from '@rackium/shared/phaseGating.js'
 import { withTransaction } from '../db/transaction.js'
 import { runWithScope } from '../tenancy/scopeContext.js'
@@ -54,7 +57,9 @@ export async function rolesIn(userId, organisationId, projectId = null) {
   return {
     hasAnyInOrg: inOrg,
     organisationMembership: org ?? null,
-    roles: [org?.role, project?.role].filter(Boolean),
+    // A 'member' organisation membership carries permissions, not a policy
+    // role, so only an Org Admin's organisation role is listed here.
+    roles: [org?.role === ORG_ROLE ? org.role : null, project?.role].filter(Boolean),
   }
 }
 
@@ -73,6 +78,8 @@ export function createOrganisationService({ mailer, auth }) {
           level: m.level,
           role: m.role,
           scopes: scopeOf(m),
+          // Organisation rows only: the effective permission (always true for an Org Admin).
+          canCreateProjects: m.level === 'organisation' ? canCreateProjects(m) : null,
           user: u ? { id: String(u._id), email: u.email, name: u.name, emailVerified: Boolean(u.emailVerifiedAt) } : null,
         }
       })
@@ -88,8 +95,14 @@ export function createOrganisationService({ mailer, auth }) {
       const existing = await User.findOne({ email: body.email }).lean()
       if (existing) {
         const memberships = await membershipsForUser(existing._id)
+        // A 'member' organisation row may still be invited to become Org Admin
+        // (accepting upgrades the row; auth/service.js acceptInvitation).
         const already = memberships.some(
-          (m) => m.level === level && String(m.projectId ?? '') === String(projectId ?? '') && String(m.organisationId) === String(organisationId)
+          (m) =>
+            m.level === level &&
+            String(m.projectId ?? '') === String(projectId ?? '') &&
+            String(m.organisationId) === String(organisationId) &&
+            !(m.level === 'organisation' && m.role === ORG_MEMBER_ROLE)
         )
         if (already) throw conflict('already_member', 'That person already has access here')
       }
@@ -176,8 +189,8 @@ export function createOrganisationService({ mailer, auth }) {
     async revokeMembership({ organisationId, membershipId, actor }) {
       const membership = await Membership.findById(membershipId)
       if (!membership || !membership.active) throw notFound('Membership not found')
-      if (membership.level === 'organisation') {
-        const admins = await Membership.countDocuments({ level: 'organisation', active: true })
+      if (membership.level === 'organisation' && membership.role === ORG_ROLE) {
+        const admins = await Membership.countDocuments({ level: 'organisation', role: ORG_ROLE, active: true })
         if (admins <= 1) throw conflict('last_org_admin', 'An organisation must keep at least one Org Admin')
       }
       membership.active = false
@@ -195,6 +208,70 @@ export function createOrganisationService({ mailer, auth }) {
         changes: [{ objectType: 'Membership', objectId: String(membership._id), field: 'active', before: true, after: false }],
       })
       return { id: String(membership._id), revoked: true }
+    },
+
+    // Grant or revoke project creation for a member of this organisation
+    // (Org Admin only, checked at the route). The permission lives on the
+    // organisation membership; a member who only has project memberships so
+    // far gets an organisation 'member' row here. Org Admins always have it.
+    async setProjectCreation({ organisationId, userId, allowed, actor }) {
+      if (!mongoose.isValidObjectId(userId)) throw notFound('Member not found')
+      const rows = await Membership.find({ userId, active: true })
+      if (rows.length === 0) throw notFound('Member not found')
+      let orgRow = rows.find((m) => m.level === 'organisation')
+      if (orgRow?.role === ORG_ROLE) throw conflict('org_admin', 'An Org Admin can always create projects')
+
+      const before = Boolean(orgRow?.canCreateProjects)
+      if (before === allowed) return { userId: String(userId), canCreateProjects: allowed }
+      await withTransaction(async (session) => {
+        if (orgRow) {
+          orgRow.canCreateProjects = allowed
+          await orgRow.save({ session })
+        } else {
+          ;[orgRow] = await Membership.create([{ userId, level: 'organisation', role: ORG_MEMBER_ROLE, canCreateProjects: allowed, invitedBy: actor.userId }], { session })
+        }
+        await recordAudit({
+          organisationId,
+          actor: userActor(actor.userId, actor.role),
+          action: allowed ? 'membership.project_creation.granted' : 'membership.project_creation.revoked',
+          objectType: 'Membership',
+          objectId: orgRow._id,
+          changeType: 'design_intent',
+          source: 'ui',
+          changes: [{ objectType: 'Membership', objectId: String(orgRow._id), field: 'canCreateProjects', before, after: allowed }],
+          session,
+        })
+      })
+      return { userId: String(userId), canCreateProjects: allowed }
+    },
+
+    async getSettings({ organisationId }) {
+      const org = await Organisation.findById(organisationId).lean()
+      if (!org) throw notFound()
+      return { architectsSeePrices: Boolean(org.settings?.architectsSeePrices) }
+    },
+
+    async updateSettings({ organisationId, actor, body }) {
+      const org = await Organisation.findById(organisationId)
+      if (!org) throw notFound()
+      const before = { architectsSeePrices: Boolean(org.settings?.architectsSeePrices) }
+      org.set('settings.architectsSeePrices', body.architectsSeePrices)
+      await org.save()
+      const after = { architectsSeePrices: body.architectsSeePrices }
+      const changes = diffChanges({ objectType: 'Organisation', objectId: org._id, before, after, fields: ['architectsSeePrices'] })
+      if (changes.length) {
+        await recordAudit({
+          organisationId,
+          actor: userActor(actor.userId, actor.role),
+          action: 'organisation.settings.updated',
+          objectType: 'Organisation',
+          objectId: org._id,
+          changeType: 'design_intent',
+          source: 'ui',
+          changes,
+        })
+      }
+      return after
     },
 
     // The wizard's three steps (Identity+Scope, Structure, Team) all land in
@@ -334,12 +411,17 @@ export function createOrganisationService({ mailer, auth }) {
       for (const p of rows) {
         const activePhases = p.activePhases ?? []
         const buildings = await runWithScope({ organisationId, projectId: p._id }, async () => {
-          const [buildingRows, statusRows] = await Promise.all([Building.find().lean(), PhaseStatus.find().lean()])
+          const [buildingRows, statusRows, cmoStatuses] = await Promise.all([Building.find().lean(), PhaseStatus.find().lean(), cmoStatusByBuilding()])
           const statusByBuilding = new Map()
           for (const s of statusRows) {
             const key = String(s.buildingId)
             if (!statusByBuilding.has(key)) statusByBuilding.set(key, new Map())
             statusByBuilding.get(key).set(s.phaseKey, s.status)
+          }
+          // CMO is computed from imported devices, not stored (same as the dashboard).
+          for (const [buildingId, status] of cmoStatuses) {
+            if (!statusByBuilding.has(buildingId)) statusByBuilding.set(buildingId, new Map())
+            statusByBuilding.get(buildingId).set('cmo', status)
           }
           return buildingRows.map((b) => {
             const byPhase = statusByBuilding.get(String(b._id)) ?? new Map()
@@ -396,11 +478,14 @@ export function createOrganisationService({ mailer, auth }) {
       if (body.activePhaseKeys !== undefined) {
         // PhaseStatus and Blocker are project-scoped by the tenant plugin, so this
         // already reads only this project's rows — no need to join via buildings.
-        const [statusRows, blockerRows] = await Promise.all([
+        const [statusRows, blockerRows, hasCmoDevices] = await Promise.all([
           PhaseStatus.find({ status: { $ne: 'not_started' } }).select('phaseKey').lean(),
           Blocker.find({}).select('phaseKey').lean(),
+          Device.exists({ origin: 'existing' }),
         ])
         const phasesWithData = new Set([...statusRows.map((r) => r.phaseKey), ...blockerRows.map((r) => r.phaseKey)])
+        // Imported CMO devices are the CMO phase's data (its status is computed from them).
+        if (hasCmoDevices) phasesWithData.add('cmo')
         const result = applyActivePhases({
           currentActivePhases: project.activePhases.map((a) => a.phaseKey),
           nextPhaseKeys: body.activePhaseKeys,

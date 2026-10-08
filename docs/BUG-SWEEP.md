@@ -183,6 +183,7 @@ recorded.
 |---|---|---|---|
 | 2026-10-07 | `fix/hld-drag-test` | `sweep-round3.spec.js` › persistence across reload › "Reset demo data" discards the edit and restores the seed value (`desktop`) | flaky; a second full run was clean |
 | 2026-10-08 | `feature/topology-icons` | same test (`tablet-portrait`) | flaky; passed on retry — root cause found and fixed, below |
+| 2026-10-08 | `feature/m3a-catalogue-cmo` | `journey.spec.js` › the project appears in the list, and its building opens the real dashboard (`real`) | flaky; locator race, fixed. `getByText('LANspire')` also matched the sidebar's project link once the sidebar had loaded (strict-mode violation). Now scoped to `main`. The real project then passed 60/60 with `--repeat-each=4`, no retries |
 
 **"Reset demo data" — fixed (real bug, not a test problem).**
 `resetDemoData()` (`client/src/lib/persistentStore.js`) cleared the

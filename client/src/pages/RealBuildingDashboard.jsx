@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import { Plus } from 'lucide-react'
 import { useAuth } from '../lib/AuthContext.jsx'
 import { useViewAs } from '../lib/ViewAsContext.jsx'
@@ -140,6 +140,7 @@ export default function RealBuildingDashboard() {
                 <li key={b.id} className="flex items-center justify-between gap-2 rounded-lg border border-border px-3 py-2 text-sm">
                   <span className="min-w-0 flex-1">
                     <span className={`mr-1.5 text-xs font-semibold uppercase ${PRIORITY_CLASS[b.priority]}`}>{b.priority}</span>
+                    {!b.buildingId && <span className="mr-1.5 rounded bg-surface-muted px-1.5 py-0.5 text-[10px] font-medium text-text-secondary">SAL</span>}
                     <span className="text-text">{b.description}</span>
                   </span>
                   {b.status !== 'resolved' && !readOnly && (
@@ -149,9 +150,16 @@ export default function RealBuildingDashboard() {
                           Assign to me
                         </button>
                       )}
-                      <button type="button" disabled={busy} onClick={() => resolveBlocker(b.id)} className="font-medium text-status-green hover:underline">
-                        Resolve
-                      </button>
+                      {b.source === 'system' ? (
+                        // Raised for an Unassigned CMO device; it clears when the PM assigns the device.
+                        <Link to={`/orgs/${orgId}/projects/${projectId}/buildings/${buildingId}/cmo`} className="font-medium text-brand hover:underline">
+                          Assign in CMO
+                        </Link>
+                      ) : (
+                        <button type="button" disabled={busy} onClick={() => resolveBlocker(b.id)} className="font-medium text-status-green hover:underline">
+                          Resolve
+                        </button>
+                      )}
                     </span>
                   )}
                   {b.status === 'resolved' && <span className="shrink-0 text-xs text-status-green">Resolved</span>}

@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { Upload, ArrowLeft, AlertTriangle, CheckCircle2, X } from 'lucide-react'
-import { CMO_FIELDS, ROW_ERROR_LABEL, guessColumnMapping } from '@rackium/shared/cmoModel.js'
+import { CMO_FIELDS, ROW_ERROR_LABEL, ROW_WARNING_LABEL, guessColumnMapping } from '@rackium/shared/cmoModel.js'
 import { parseCmoFile, previewCmoImport, commitCmoImport } from '../../api/cmoDesign.js'
 
 const STEPS = ['upload', 'map', 'preview']
@@ -9,7 +9,21 @@ const STEPS = ['upload', 'map', 'preview']
 // as CMDB's Port Connectivity view swap-in) — this is a multi-step wizard,
 // too much for an inline panel, and the app has no modal/dialog pattern to
 // borrow instead.
-export default function CmoImportWizard({ onCancel, onImported }) {
+//
+// The data steps are injectable so real mode can run preview and commit on
+// the backend (pages/RealCmo.jsx); the defaults are the mock store's, so the
+// prototype's CMO page is unchanged. `mapControls` adds controls to the map
+// step (real mode: the SAL for Unassigned rows); `showWarnings` lists the
+// backend's non-blocking warnings (unknown room or rack, bad RU).
+export default function CmoImportWizard({
+  onCancel,
+  onImported,
+  parseFile = parseCmoFile,
+  preview: runPreview = previewCmoImport,
+  commit: runCommit = commitCmoImport,
+  mapControls = null,
+  showWarnings = false,
+}) {
   const [step, setStep] = useState('upload')
   const [fileName, setFileName] = useState(null)
   const [parsed, setParsed] = useState(null) // { headers, rows }
@@ -24,7 +38,7 @@ export default function CmoImportWizard({ onCancel, onImported }) {
     if (!file) return
     setError(null)
     try {
-      const result = await parseCmoFile(file)
+      const result = await parseFile(file)
       if (result.rows.length === 0) throw new Error('No data rows found in this file.')
       setFileName(file.name)
       setParsed(result)
@@ -42,16 +56,25 @@ export default function CmoImportWizard({ onCancel, onImported }) {
       return
     }
     setError(null)
-    const rows = await previewCmoImport(parsed.rows, mapping)
-    setPreview(rows)
-    setStep('preview')
+    try {
+      const rows = await runPreview(parsed.rows, mapping)
+      setPreview(rows)
+      setStep('preview')
+    } catch (err) {
+      setError(err.message)
+    }
   }
 
   async function handleCommit() {
     setCommitting(true)
-    const result = await commitCmoImport(preview)
-    setCommitting(false)
-    onImported(result)
+    try {
+      const result = await runCommit(preview, { fileName })
+      setCommitting(false)
+      onImported(result)
+    } catch (err) {
+      setCommitting(false)
+      setError(err.message)
+    }
   }
 
   const validCount = preview?.filter((r) => r.valid).length ?? 0
@@ -96,6 +119,7 @@ export default function CmoImportWizard({ onCancel, onImported }) {
           <p className="text-xs text-text-secondary">
             {fileName} · {parsed.rows.length} row(s). Map each Rackium field to a column from your file.
           </p>
+          {mapControls}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {CMO_FIELDS.map((field) => (
               <label key={field.key} className="block space-y-1">
@@ -166,10 +190,12 @@ export default function CmoImportWizard({ onCancel, onImported }) {
                     <td className="whitespace-nowrap px-2 py-1 text-text-secondary">{r.building ?? '—'}</td>
                     <td className="whitespace-nowrap px-2 py-1 text-text-secondary">{r.room ?? '—'}</td>
                     <td className="whitespace-nowrap px-2 py-1">
-                      {r.errors.length === 0 ? (
+                      {r.errors.length === 0 && !(showWarnings && r.warnings?.length) ? (
                         <span className="text-status-green">OK</span>
                       ) : (
-                        <span className={r.valid ? 'text-status-amber' : 'text-status-red'}>{r.errors.map((e) => ROW_ERROR_LABEL[e]).join(', ')}</span>
+                        <span className={r.valid ? 'text-status-amber' : 'text-status-red'}>
+                          {[...r.errors.map((e) => ROW_ERROR_LABEL[e]), ...(showWarnings ? (r.warnings ?? []).map((w) => ROW_WARNING_LABEL[w]) : [])].join(', ')}
+                        </span>
                       )}
                     </td>
                   </tr>

@@ -87,7 +87,14 @@ Run in CI against a replica set, with two organisations of two projects each.
 
 **`memberships`** [C; D5, F2] — two levels.
 
-- `organisationId` (R) · `projectId` (O; **null for organisation level**) · `userId` (R) · `level` (`organisation` / `project`, R) · `role` (R; organisation level: `org_admin`; project level: `pm`, `architect`, `reviewer`, `field_engineer`, `viewer`) · `invitedBy` (O) · `createdAt` (R) · `revokedAt` (O).
+- `organisationId` (R) · `projectId` (O; **null for organisation level**) · `userId` (R) · `level` (`organisation` / `project`, R) · `role` (R; organisation level: `org_admin` or `member`; project level: `pm`, `architect`, `reviewer`, `field_engineer`, `viewer`) · `canCreateProjects` (Boolean, organisation level only, default false) · `invitedBy` (O) · `createdAt` (R) · `revokedAt` (O).
+- **Organisation `member`** (M3a review): a non-admin organisation membership. It grants no policy action by itself and is never a policy role. It carries organisation-level permissions. Accepting a project invitation creates it when the user has no organisation membership yet. An Org Admin invitation accepted by a `member` upgrades that row to `org_admin`. The last-Org-Admin guard counts `org_admin` rows only.
+- **Project creation** (M3a review, brief §4.3): an organisation-level permission, not a project role (`shared/policy.js` `canCreateProjects`).
+  - An Org Admin always has it.
+  - Anyone else needs `canCreateProjects = true` on their organisation membership.
+  - A user who first joins the organisation as PM gets it by default, set only when the `member` row is created, so a later PM invitation cannot undo an Org Admin's revoke.
+  - An Org Admin grants or revokes it for any member, audited as `membership.project_creation.granted` / `.revoked`.
+  - The creator becomes the project's PM in the same transaction as the project (§10).
 - **Organisation level** [F2]: Org Admin manages users, organisation settings and the catalogue, and has **read access to every project in the organisation**. An Org Admin has **no design approval rights** unless also given a project role.
 - **Project level** [F2, D5]: PM, Architect, Reviewer, Field Engineer and Viewer. Memberships are per project. The embedded `scopes[]` (`{ type: 'country' | 'sal' | 'building', refId }`) limit the membership. **An empty `scopes` array means the whole project** [D5]. Scopes are additive.
 - **Project creator** [F2]: the user who creates a project becomes its PM. The PM membership is created in the same transaction as the project (§10).
@@ -176,9 +183,10 @@ Run in CI against a replica set, with two organisations of two projects each.
 | `settings.powerCordStandardDefault` | `{ label, connectorPair }` | O | [D16] | null | §6.7 | M shape |
 | `settings.uploadLimitsMb` | `{ photo, pdf, sheet }` | R | [D12] configurable | `{ 15, 25, 10 }` | §5.2 | C |
 | `settings.standardHeightsU` · `settings.customHeightsU` | `[Number]` | R / O | [§3.8] | `[12,24,42,45,48]` / `[]` | §4.1 | B |
+| `settings.architectsSeePrices` | Boolean | R | Org Admin only; audited (`organisation.settings.updated`). When true, Architects also see catalogue prices and margins. The server strips prices for everyone else (`shared/policy.js` `canSeePrices`). | `false` | §4.3 | B (M3a review) |
 | `deletedAt` · `gdprDeletionRequestedAt` | Date | O | soft delete, purge within 30 days | null | §6.11 | B |
 
-### 3.2 Project [M `hierarchy.js` `project`] (brief §4.3: Org Admin or PM creates projects)
+### 3.2 Project [M `hierarchy.js` `project`] (brief §4.3: Org Admin, or a member holding `canCreateProjects` (§1.6), creates projects)
 
 | Field | Type | Req | Allowed / format | Default | Src |
 |---|---|---|---|---|---|
@@ -438,6 +446,13 @@ Renamed from "building connection". Device links keep the name *connection*.
 - Each unassigned CMO device counts as an open blocker. This is calculated (§6).
 - Lifecycle imports [D14] use the same batch model, with `type = lifecycle`, and write `devices.lifecycle`.
 
+**As built in M3a (client instruction, supersedes the two points above where they differ):**
+
+- Imported CMO devices are rows in `devices` with `origin = existing` and `status = in_service` [F5], not a separate `cmoDevices` collection. `devices.salId` is required. `devices.buildingId` is null while a device is Unassigned. `role`, `category`, `model` and placement are optional for existing devices. `catalogueKey` is set when the CMO model text matches a catalogue item.
+- Each Unassigned device raises one `blockers` row (`source = system`, `relatedObjectType = device`, `salId` set, `buildingId` null), written in the import transaction. Assigning the device resolves that row in the same transaction, and these rows cannot be resolved by hand. This replaces the "calculated, not rows" rule in §5.10 for CMO only.
+- The CMO phase status is computed and never stored. It is Not started until the building has imported devices, Blocked while its SAL still has Unassigned devices, and Completed after that.
+- The file is parsed in the browser and posted as mapped rows, and `importBatches.sourceFileId` waits for the `files` collection (§9). The batch keeps `fileName`.
+
 ### 4.7 Device catalogue, optics and stock cable [M `deviceCatalogue.js`, `sfpCatalog.js`] (brief §6.3–§6.5, D19, D27, D35, D36)
 
 `catalogueItems`, layered (§4.8):
@@ -461,6 +476,16 @@ Renamed from "building connection". Device links keep the name *connection*.
 
 - **Serialised vs consumable** [F6]: serialised = `switch`, `router`, `firewall`, `ap`, `wlc`, `server`, `ups`, `pdu`, `probe` (§4.10). Everything else in §4.10's consumable list is a consumable.
 - The mock's three device models and two optics seed the `seeded` layer until Technonex supplies the full 20–30 model list (brief §6.5).
+
+**As built in M3a:**
+
+- **Storage.** The `seeded` and `servon` layers live in `platformCatalogueItems`, which is global and has no tenant plugin. The `organisation` and `project` layers live in `catalogueItems`, which is organisation-scoped through the tenant plugin. Customer data therefore never sits outside the plugin.
+- **Fields added.** `fullDepth`, `mounting` (`front` / `rear` / `0U`), `weightKg`, `powerDrawW`, `poeBudgetW`, `compatibleSfps`, `compatiblePsus`, `compatibleModules` and `artworkFront` / `artworkRear` (a reference only). `key` is `vendor + ' ' + model`.
+- **Port map.** `portMap` is `{ groups: [{ role: access|uplink|module, type, speed, poe, count, start, pattern }] }`. The pattern uses `{n}`, or `{n:2}` to zero-pad. Groups expand to exact sequential IDs, and duplicates are rejected.
+- **Price.** `unitPriceMinor` is optional. Null means not priced.
+- **Seed.** The seed is placeholder data (`placeholder = true`) and is inserted only where missing.
+- **Price visibility.** Prices are removed server-side unless the caller holds a role that may see them (§4.3).
+- **Not built yet.** Nothing writes the `servon` layer (Rackium Team tooling), and nothing writes the `project` layer (no UI or route). Both are read and resolved already.
 
 ### 4.8 Catalogue layers and categories [C]
 

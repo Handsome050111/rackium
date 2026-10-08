@@ -1,3 +1,4 @@
+import { canCreateProjects } from '@rackium/shared/policy.js'
 // Response shapes for identities and memberships. The contract lives in
 // shared/src/contracts.js; these functions build values that satisfy it.
 export const userSummary = (user) => ({
@@ -14,4 +15,6 @@ export const membershipSummary = (m) => ({
   level: m.level,
   role: m.role,
   scopes: (m.scopes ?? []).map((s) => ({ type: s.type, refId: String(s.refId) })),
+  // Organisation rows only; effective (an Org Admin always can).
+  canCreateProjects: m.level === 'organisation' ? canCreateProjects(m) : null,
 })
