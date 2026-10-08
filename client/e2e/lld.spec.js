@@ -20,6 +20,22 @@ test.describe('LLD — Low-Level Design', () => {
     expect(errors, `Console errors: ${errors.join('\n')}`).toHaveLength(0)
   })
 
+  test('device selector and upstream path draw role-specific topology icons', async ({ page }) => {
+    await page.goto('/b/b001/lld')
+    const selector = page.getByText('Select a device', { exact: true }).locator('xpath=..')
+    const iconIn = (row) => row.locator('span[aria-hidden="true"] svg').innerHTML()
+    const borderIcon = await iconIn(selector.getByRole('button', { name: /^B-/ }).first())
+    const edgeIcon = await iconIn(selector.getByRole('button', { name: /^E-/ }).first())
+    expect(borderIcon).not.toBe(edgeIcon)
+
+    // Border is selected by default; its path runs Border → Fusion → SD-WAN CPE, each with its own icon.
+    const path = page.getByText('Upstream design path', { exact: true }).locator('xpath=../..')
+    const steps = path.locator('ol > li')
+    await expect(steps).toHaveCount(3)
+    const pathIcons = await Promise.all([0, 1, 2].map((i) => iconIn(steps.nth(i))))
+    expect(new Set(pathIcons).size).toBe(3)
+  })
+
   test('Distribution shows "Not required — S site", never a fabricated placeholder device', async ({ page }) => {
     await page.goto('/b/b001/lld')
     await expect(page.getByText('Distribution layer not required — S site')).toBeVisible()

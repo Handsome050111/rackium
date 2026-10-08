@@ -182,14 +182,35 @@ recorded.
 | Date | Branch | Test | Notes |
 |---|---|---|---|
 | 2026-10-07 | `fix/hld-drag-test` | `sweep-round3.spec.js` › persistence across reload › "Reset demo data" discards the edit and restores the seed value (`desktop`) | flaky; a second full run was clean |
-| 2026-10-08 | `feature/topology-icons` | same test (`tablet-portrait`) | flaky; passed on retry. Second time this test has flaked, so it's the leading candidate if it ever starts failing outright |
+| 2026-10-08 | `feature/topology-icons` | same test (`tablet-portrait`) | flaky; passed on retry — root cause found and fixed, below |
 
-Not a flake, recorded so it isn't misread as one: if a `vite preview` from an
-earlier run is still listening on port 5173, `reuseExistingServer` makes
-Playwright test that stale build instead of the current one. On 2026-10-08
-this caused 9 deterministic survey-form failures that disappeared once the
-stale process was killed. Before a full run, check that ports 5173, 5174 and
-4100 are free.
+**"Reset demo data" — fixed (real bug, not a test problem).**
+`resetDemoData()` (`client/src/lib/persistentStore.js`) cleared the
+IndexedDB snapshot and then reloaded, but autosave stayed live in between.
+The reload fires `pagehide` and `visibilitychange`, and both flush the
+in-memory state, which still held the edit, back into the store that was
+just cleared; an autosave tick in that window did the same. When one of
+those writes committed before the page was torn down, the reloaded page
+hydrated the edit instead of the seed. That meant Reset sometimes didn't
+reset. Reproduced at 2 failures in 80 runs (`--repeat-each=40`, desktop +
+tablet-portrait, no retries). Fix: once a reset starts, the autosave
+interval is cleared and every flush path is a no-op (also checked after the
+flush's database open, for one already in flight). After the fix: 80/80.
+Test: `client/src/lib/persistentStore.test.js` reproduces the race
+deterministically (a fake IndexedDB, with `reload` firing `pagehide` and
+`visibilitychange` the way a real reload does) and fails with the guard
+removed. The full combined run after the fix: 366 passed, 29 skipped, 0
+failed, no retries.
+
+**Stale test servers — now prevented.** On 2026-10-08 a `vite preview` left
+over from an earlier run was still listening on 5173, and
+`reuseExistingServer` made Playwright test that stale build: 9 deterministic
+survey-form failures that disappeared once the process was killed. All
+three webServers now have `reuseExistingServer: false`, and
+`playwright.config.js` checks ports 5173, 4100 and 5174 before starting
+(`client/playwright-support/assertPortsFree.mjs`, unit-tested). A busy port
+stops the run in seconds with a message naming the port and how to find
+and kill the process.
 
 ### CI
 

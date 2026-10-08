@@ -98,13 +98,20 @@ export async function hydrateAll() {
   }
 }
 
+// Set once a reset starts and never cleared — the reset ends in a reload,
+// which starts this module fresh.
+let resetting = false
+
 async function persistAll() {
+  if (resetting) return
   let db
   try {
     db = await openDb()
   } catch {
     return
   }
+  // A reset may have started while this flush was opening the database.
+  if (resetting) return
   try {
     const tx = db.transaction(STORE_NAME, 'readwrite')
     const store = tx.objectStore(STORE_NAME)
@@ -135,15 +142,24 @@ export function startAutosave() {
 // fresh load with nothing in IndexedDB naturally re-seeds every module
 // from its own static mock data, exactly like the very first visit, so no
 // module needs its own separate "reset to seed" logic.
-export async function resetDemoData() {
+//
+// Autosave must be off before the clear: the reload below fires pagehide
+// and visibilitychange, whose flushes (and any interval tick in between)
+// would otherwise write the edited in-memory state back into the store
+// just cleared — and the reloaded page would hydrate the edit, not the seed.
+// A flush whose transaction was created before the clear is harmless:
+// IndexedDB runs readwrite transactions on the same store in creation
+// order, so the clear still lands after it.
+export async function resetDemoData(reload = () => window.location.reload()) {
+  resetting = true
+  clearInterval(autosaveTimer)
   try {
     const db = await openDb()
     const tx = db.transaction(STORE_NAME, 'readwrite')
     tx.objectStore(STORE_NAME).clear()
     await txDone(tx)
   } catch {
-    // Fall through to reload regardless — worst case the old snapshot
-    // (if any) just gets overwritten by the next autosave tick.
+    // Fall through to reload regardless.
   }
-  window.location.reload()
+  reload()
 }
