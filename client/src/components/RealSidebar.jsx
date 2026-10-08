@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
-import { Plus, X, Building2, Boxes } from 'lucide-react'
+import { Plus, X, Building2, Boxes, Settings2 } from 'lucide-react'
+import { ACTIONS } from '@rackium/shared/policy.js'
+import { useAuth } from '../lib/AuthContext.jsx'
+import { canIn, canCreateProjectsIn } from '../lib/realRoles.js'
 import { PHASE_ICONS } from '../lib/phaseIcons.js'
 import { PHASES } from '../mock/phases.js'
 import StatusDot from './StatusDot.jsx'
@@ -27,6 +30,9 @@ function navLinkClass({ isActive }) {
 }
 
 function SidebarContent({ showLabels, orgId, projectId, buildingId, onNavigate }) {
+  const { memberships } = useAuth()
+  const canCreate = canCreateProjectsIn(memberships, orgId)
+  const isOrgAdmin = canIn(memberships, orgId, null, ACTIONS.MANAGE_USERS_SETTINGS_CATALOGUE)
   const [projects, setProjects] = useState(null)
   const [phases, setPhases] = useState(null)
 
@@ -55,6 +61,7 @@ function SidebarContent({ showLabels, orgId, projectId, buildingId, onNavigate }
     <div className="flex h-full flex-col overflow-y-auto">
       <div className="flex items-center justify-between px-3 py-3">
         {showLabels && <span className="text-xs font-semibold uppercase tracking-wide text-text-secondary">Projects</span>}
+        {canCreate && (
         <Link
           to={`/orgs/${orgId}/projects/new`}
           onClick={onNavigate}
@@ -64,6 +71,7 @@ function SidebarContent({ showLabels, orgId, projectId, buildingId, onNavigate }
         >
           <Plus size={18} strokeWidth={2} />
         </Link>
+        )}
       </div>
       <nav aria-label="Projects" className="px-2">
         {(projects ?? []).map((p) => (
@@ -80,6 +88,12 @@ function SidebarContent({ showLabels, orgId, projectId, buildingId, onNavigate }
           <Boxes size={16} strokeWidth={2} className="shrink-0" />
           {showLabels && <span className="truncate">Equipment catalogue</span>}
         </NavLink>
+        {isOrgAdmin && (
+          <NavLink to={`/orgs/${orgId}/settings`} onClick={onNavigate} className={navLinkClass} title="Organisation settings">
+            <Settings2 size={16} strokeWidth={2} className="shrink-0" />
+            {showLabels && <span className="truncate">Organisation settings</span>}
+          </NavLink>
+        )}
       </nav>
 
       {currentProject && (

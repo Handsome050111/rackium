@@ -3,6 +3,10 @@
 // not by screen, so the same rule governs every route that performs it.
 
 export const ORG_ROLE = 'org_admin'
+// A non-admin organisation membership: it grants nothing by itself and is
+// never a policy role. It carries organisation-level permissions such as
+// canCreateProjects (canCreateProjects() below).
+export const ORG_MEMBER_ROLE = 'member'
 export const PROJECT_ROLES = ['pm', 'architect', 'reviewer', 'field_engineer', 'viewer']
 export const ALL_ROLES = [ORG_ROLE, ...PROJECT_ROLES]
 
@@ -17,7 +21,6 @@ export const ROLE_LABELS = {
 
 export const ACTIONS = {
   MANAGE_USERS_SETTINGS_CATALOGUE: 'manage_users_settings_catalogue',
-  CREATE_PROJECTS: 'create_projects',
   INVITE_PROJECT_MEMBERS: 'invite_project_members',
   CREATE_BUILDINGS_SET_TARGETS: 'create_buildings_set_targets',
   FILL_SURVEY_UPLOAD_PHOTOS: 'fill_survey_upload_photos',
@@ -51,7 +54,6 @@ export const ACTIONS = {
 // only the actions listed here; design approvals need a project role.
 const MATRIX = {
   [ACTIONS.MANAGE_USERS_SETTINGS_CATALOGUE]: ['org_admin'],
-  [ACTIONS.CREATE_PROJECTS]: ['org_admin', 'pm'],
   // A PM invites into a project only where they hold the PM role; the caller's
   // roles are checked for that project, so a PM elsewhere has no rights here.
   [ACTIONS.INVITE_PROJECT_MEMBERS]: ['org_admin', 'pm'],
@@ -99,6 +101,23 @@ export function can(roles, action) {
 
 export function allowedActions(roles) {
   return Object.keys(MATRIX).filter((action) => can(roles, action))
+}
+
+// Project creation (brief v2.3 §4.3, M3a review): an organisation-level
+// permission, not a project role. Org Admin always has it; anyone else needs
+// `canCreateProjects` on their organisation membership (granted by an Org
+// Admin, or by default when they first join the organisation as a PM).
+export function canCreateProjects(organisationMembership) {
+  if (!organisationMembership) return false
+  return organisationMembership.role === ORG_ROLE || Boolean(organisationMembership.canCreateProjects)
+}
+
+// Prices and margins (brief v2.3 §4.3): Org Admin, PM and Reviewer always;
+// Architects only when the organisation setting allows it ("Architects can
+// see prices only if the Org Admin grants it").
+export function canSeePrices(roles, { architectsSeePrices = false } = {}) {
+  if (can(roles, ACTIONS.SEE_PRICES_MARGINS)) return true
+  return Boolean(architectsSeePrices) && (roles ?? []).includes('architect')
 }
 
 // Brief §4.3: Architect cannot approve their own work. Applies to internal

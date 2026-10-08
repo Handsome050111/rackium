@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { rolesFor, canIn } from '../lib/realRoles.js'
+import { rolesFor, canIn, canCreateProjectsIn } from '../lib/realRoles.js'
 import { ACTIONS } from '@rackium/shared/policy.js'
 
 async function loadRealApis() {
@@ -51,6 +51,19 @@ describe('M3a API modules in real mode', () => {
     })
   })
 
+  it('organisationApi grants project creation and updates settings', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(ok({})))
+    vi.stubEnv('VITE_API_MODE', 'real')
+    vi.resetModules()
+    const { organisationApi } = await import('./organisationApi.js')
+    await organisationApi.setProjectCreation('org1', 'u1', true)
+    expect(fetch.mock.calls[0][0]).toBe('/api/v1/orgs/org1/members/u1/project-creation')
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ allowed: true })
+    await organisationApi.updateSettings('org1', { architectsSeePrices: true })
+    expect(fetch.mock.calls[1][0]).toBe('/api/v1/orgs/org1/settings')
+    expect(fetch.mock.calls[1][1].method).toBe('PATCH')
+  })
+
   it('cmoApi.assign patches the device assignment', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(ok({ device: {} })))
     const { cmoApi } = await loadRealApis()
@@ -88,6 +101,22 @@ describe('rolesFor (mirrors the server rolesIn)', () => {
     expect(rolesFor(memberships, 'o1', 'p9')).toEqual(['org_admin'])
     expect(rolesFor(memberships, 'o2', 'p9')).toEqual(['pm'])
   })
+  it("a 'member' organisation row is not a role", () => {
+    const rows = [
+      { level: 'organisation', role: 'member', organisationId: 'o1', projectId: null, canCreateProjects: true },
+      { level: 'project', role: 'viewer', organisationId: 'o1', projectId: 'p1' },
+    ]
+    expect(rolesFor(rows, 'o1', 'p1')).toEqual(['viewer'])
+  })
+
+  it('project creation comes from the organisation membership of that organisation only', () => {
+    expect(canCreateProjectsIn(memberships, 'o1')).toBe(true) // Org Admin
+    expect(canCreateProjectsIn([{ level: 'organisation', role: 'member', organisationId: 'o1', canCreateProjects: true }], 'o1')).toBe(true)
+    expect(canCreateProjectsIn([{ level: 'organisation', role: 'member', organisationId: 'o1', canCreateProjects: false }], 'o1')).toBe(false)
+    expect(canCreateProjectsIn([{ level: 'organisation', role: 'member', organisationId: 'o1', canCreateProjects: true }], 'o2')).toBe(false)
+    expect(canCreateProjectsIn([{ level: 'project', role: 'pm', organisationId: 'o1', projectId: 'p1' }], 'o1')).toBe(false)
+  })
+
   it('feeds can(): an architect cannot import CMO, a PM can and assigns', () => {
     expect(canIn([{ level: 'project', role: 'architect', organisationId: 'o1', projectId: 'p1' }], 'o1', 'p1', ACTIONS.IMPORT_CMO)).toBe(false)
     expect(canIn(memberships, 'o2', 'p9', ACTIONS.ASSIGN_CMO_DEVICE)).toBe(true)

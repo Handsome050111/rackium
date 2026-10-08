@@ -1,17 +1,18 @@
 import mongoose from 'mongoose'
 import { z } from 'zod'
 import { recordingRouter } from '../http/routeRecorder.js'
-import { ACTIONS, can } from '@rackium/shared/policy.js'
+import { ACTIONS, canSeePrices } from '@rackium/shared/policy.js'
 import { catalogueItemBody, catalogueQuery, catalogueItemQuery, catalogueImportBody } from '@rackium/shared/contracts.js'
 import { validate } from '../http/validate.js'
 import { requireUser, requireOrg, requireAction, actorOf } from '../http/middleware.js'
 import { rolesIn } from '../organisations/service.js'
 import { Project } from '../models/project.js'
+import { Organisation } from '../models/organisation.js'
 import { notFound } from '../http/errors.js'
 
 const idParam = z.object({ id: z.string().regex(/^[a-f0-9]{24}$/) })
 
-// Who sees prices (brief v2.3 §4.3, ACTIONS.SEE_PRICES_MARGINS): decided from
+// Who sees prices (brief v2.3 §4.3, shared/policy.js canSeePrices): decided from
 // the organisation role plus, when browsing from a project, the role in that
 // project. A projectId the caller cannot open is a 404, like everywhere else.
 async function viewContext(req, projectId) {
@@ -21,7 +22,8 @@ async function viewContext(req, projectId) {
   const { roles } = await rolesIn(req.user._id, req.org.id, projectId ?? null)
   const hasProjectAccess = !projectId || roles.length > 0
   if (!hasProjectAccess) throw notFound()
-  return { projectId: projectId ?? null, showPrices: can(roles, ACTIONS.SEE_PRICES_MARGINS) }
+  const org = await Organisation.findById(req.org.id, { 'settings.architectsSeePrices': 1 }).lean()
+  return { projectId: projectId ?? null, showPrices: canSeePrices(roles, { architectsSeePrices: org?.settings?.architectsSeePrices }) }
 }
 
 // /orgs/:orgId/catalogue. Any member of the organisation may browse;

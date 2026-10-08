@@ -87,7 +87,14 @@ Run in CI against a replica set, with two organisations of two projects each.
 
 **`memberships`** [C; D5, F2] — two levels.
 
-- `organisationId` (R) · `projectId` (O; **null for organisation level**) · `userId` (R) · `level` (`organisation` / `project`, R) · `role` (R; organisation level: `org_admin`; project level: `pm`, `architect`, `reviewer`, `field_engineer`, `viewer`) · `invitedBy` (O) · `createdAt` (R) · `revokedAt` (O).
+- `organisationId` (R) · `projectId` (O; **null for organisation level**) · `userId` (R) · `level` (`organisation` / `project`, R) · `role` (R; organisation level: `org_admin` or `member`; project level: `pm`, `architect`, `reviewer`, `field_engineer`, `viewer`) · `canCreateProjects` (Boolean, organisation level only, default false) · `invitedBy` (O) · `createdAt` (R) · `revokedAt` (O).
+- **Organisation `member`** (M3a review): a non-admin organisation membership. It grants no policy action by itself and is never a policy role. It carries organisation-level permissions. Accepting a project invitation creates it when the user has no organisation membership yet. An Org Admin invitation accepted by a `member` upgrades that row to `org_admin`. The last-Org-Admin guard counts `org_admin` rows only.
+- **Project creation** (M3a review, brief §4.3): an organisation-level permission, not a project role (`shared/policy.js` `canCreateProjects`).
+  - An Org Admin always has it.
+  - Anyone else needs `canCreateProjects = true` on their organisation membership.
+  - A user who first joins the organisation as PM gets it by default, set only when the `member` row is created, so a later PM invitation cannot undo an Org Admin's revoke.
+  - An Org Admin grants or revokes it for any member, audited as `membership.project_creation.granted` / `.revoked`.
+  - The creator becomes the project's PM in the same transaction as the project (§10).
 - **Organisation level** [F2]: Org Admin manages users, organisation settings and the catalogue, and has **read access to every project in the organisation**. An Org Admin has **no design approval rights** unless also given a project role.
 - **Project level** [F2, D5]: PM, Architect, Reviewer, Field Engineer and Viewer. Memberships are per project. The embedded `scopes[]` (`{ type: 'country' | 'sal' | 'building', refId }`) limit the membership. **An empty `scopes` array means the whole project** [D5]. Scopes are additive.
 - **Project creator** [F2]: the user who creates a project becomes its PM. The PM membership is created in the same transaction as the project (§10).
@@ -176,9 +183,10 @@ Run in CI against a replica set, with two organisations of two projects each.
 | `settings.powerCordStandardDefault` | `{ label, connectorPair }` | O | [D16] | null | §6.7 | M shape |
 | `settings.uploadLimitsMb` | `{ photo, pdf, sheet }` | R | [D12] configurable | `{ 15, 25, 10 }` | §5.2 | C |
 | `settings.standardHeightsU` · `settings.customHeightsU` | `[Number]` | R / O | [§3.8] | `[12,24,42,45,48]` / `[]` | §4.1 | B |
+| `settings.architectsSeePrices` | Boolean | R | Org Admin only; audited (`organisation.settings.updated`). When true, Architects also see catalogue prices and margins. The server strips prices for everyone else (`shared/policy.js` `canSeePrices`). | `false` | §4.3 | B (M3a review) |
 | `deletedAt` · `gdprDeletionRequestedAt` | Date | O | soft delete, purge within 30 days | null | §6.11 | B |
 
-### 3.2 Project [M `hierarchy.js` `project`] (brief §4.3: Org Admin or PM creates projects)
+### 3.2 Project [M `hierarchy.js` `project`] (brief §4.3: Org Admin, or a member holding `canCreateProjects` (§1.6), creates projects)
 
 | Field | Type | Req | Allowed / format | Default | Src |
 |---|---|---|---|---|---|

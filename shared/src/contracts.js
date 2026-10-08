@@ -1,7 +1,7 @@
 // API contracts (M1). Zod schemas shared by the server (request validation and
 // OpenAPI generation) and the client. Field rules here are the only definition.
 import { z } from 'zod'
-import { ALL_ROLES, PROJECT_ROLES } from './policy.js'
+import { ALL_ROLES, PROJECT_ROLES, ORG_MEMBER_ROLE } from './policy.js'
 import { PHASE_KEYS } from './phaseCalculations.js'
 import { catalogueItemSchema, CATEGORY_GROUPS, CATALOGUE_CATEGORIES } from './catalogue.js'
 
@@ -206,6 +206,10 @@ export const blockerUpdateBody = z
 
 export const viewAsStartBody = z.object({ projectId: objectId, role: z.enum(PROJECT_ROLES) })
 
+// --- Organisation-level permissions and settings (M3a review) -------------
+export const projectCreationBody = z.object({ allowed: z.boolean() })
+export const organisationSettingsBody = z.object({ architectsSeePrices: z.boolean() })
+
 // --- M3a: catalogue -------------------------------------------------------
 // Create and replace take the whole item (shared/src/catalogue.js is the one
 // definition of an item's fields and rules).
@@ -275,8 +279,9 @@ export const membershipSummary = z.object({
   organisationId: objectId,
   projectId: objectId.nullable(),
   level: z.enum(['organisation', 'project']),
-  role: z.enum(ALL_ROLES),
+  role: z.enum([...ALL_ROLES, ORG_MEMBER_ROLE]),
   scopes: z.array(scopeSchema),
+  canCreateProjects: z.boolean().nullable(),
 })
 
 export const meResponse = z.object({

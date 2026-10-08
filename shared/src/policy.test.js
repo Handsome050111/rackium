@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { ACTIONS, can, allowedActions, rolesForLevel, canApproveSubmission } from './policy.js'
+import { ACTIONS, can, allowedActions, rolesForLevel, canApproveSubmission, canCreateProjects, canSeePrices } from './policy.js'
 
 describe('policy (v2.3 §4.3)', () => {
   it('only Org Admin manages users, settings and catalogue', () => {
@@ -102,6 +102,22 @@ describe('policy (v2.3 §4.3)', () => {
     for (const role of ["pm", "architect", "reviewer", "field_engineer", "viewer"]) {
       expect(can([role], ACTIONS.VIEW_AS)).toBe(false)
     }
+  })
+
+  it("project creation is an organisation-level permission: Org Admin always, others only when granted", () => {
+    expect(canCreateProjects({ role: "org_admin" })).toBe(true)
+    expect(canCreateProjects({ role: "org_admin", canCreateProjects: false })).toBe(true)
+    expect(canCreateProjects({ role: "member", canCreateProjects: true })).toBe(true)
+    expect(canCreateProjects({ role: "member", canCreateProjects: false })).toBe(false)
+    expect(canCreateProjects({ role: "member" })).toBe(false)
+    expect(canCreateProjects(null)).toBe(false)
+  })
+
+  it("prices: Org Admin, PM, Reviewer always; Architect only when the organisation allows it", () => {
+    for (const role of ["org_admin", "pm", "reviewer"]) expect(canSeePrices([role])).toBe(true)
+    expect(canSeePrices(["architect"])).toBe(false)
+    expect(canSeePrices(["architect"], { architectsSeePrices: true })).toBe(true)
+    for (const role of ["field_engineer", "viewer"]) expect(canSeePrices([role], { architectsSeePrices: true })).toBe(false)
   })
 
   it("CMO: Org Admin and PM import; only the PM assigns Unassigned devices (brief v2.3 §5.1)", () => {

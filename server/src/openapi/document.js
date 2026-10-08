@@ -114,6 +114,32 @@ export function buildRegistry() {
     responses: { 200: ok('Members', z.object({ members: z.array(z.any()) })), 403: err('Forbidden'), 404: err('Not found') },
   })
   registry.registerPath({
+    method: 'patch',
+    path: '/api/v1/orgs/{orgId}/members/{userId}/project-creation',
+    summary: 'Grant or revoke project creation for an organisation member (Org Admin); audited',
+    request: { params: z.object({ orgId: z.string(), userId: z.string() }), body: { content: json(C.projectCreationBody) } },
+    responses: {
+      200: ok('Updated', z.object({ userId: z.string(), canCreateProjects: z.boolean() })),
+      403: err('Forbidden'),
+      404: err('Not a member of this organisation'),
+      409: err('An Org Admin can always create projects'),
+    },
+  })
+  registry.registerPath({
+    method: 'get',
+    path: '/api/v1/orgs/{orgId}/settings',
+    summary: 'Organisation settings (any member)',
+    request: { params: z.object({ orgId: z.string() }) },
+    responses: { 200: ok('Settings', z.object({ settings: z.object({ architectsSeePrices: z.boolean() }) })), 404: err('Not found') },
+  })
+  registry.registerPath({
+    method: 'patch',
+    path: '/api/v1/orgs/{orgId}/settings',
+    summary: 'Change organisation settings (Org Admin); audited',
+    request: { params: z.object({ orgId: z.string() }), body: { content: json(C.organisationSettingsBody) } },
+    responses: { 200: ok('Updated', z.object({ settings: z.object({ architectsSeePrices: z.boolean() }) })), 403: err('Forbidden') },
+  })
+  registry.registerPath({
     method: 'post',
     path: '/api/v1/orgs/{orgId}/invitations',
     summary: 'Invite a person to the organisation or a project (Org Admin)',
@@ -144,7 +170,7 @@ export function buildRegistry() {
   registry.registerPath({
     method: 'post',
     path: '/api/v1/orgs/{orgId}/projects',
-    summary: 'Create a project; the creator becomes its PM',
+    summary: 'Create a project (Org Admin, or a member granted project creation); the creator becomes its PM in the same transaction',
     request: { params: z.object({ orgId: z.string() }), body: { content: json(C.projectCreateBody) } },
     responses: { 201: ok('Created', z.object({ project: z.any() })), 409: err('Code already in use') },
   })

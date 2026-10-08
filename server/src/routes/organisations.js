@@ -1,15 +1,16 @@
 import { recordingRouter } from '../http/routeRecorder.js'
 import { z } from 'zod'
-import { ACTIONS } from '@rackium/shared/policy.js'
-import { inviteCreateBody, membershipUpdateBody, projectCreateBody, projectUpdateBody, auditQuery } from '@rackium/shared/contracts.js'
+import { ACTIONS, canCreateProjects } from '@rackium/shared/policy.js'
+import { inviteCreateBody, membershipUpdateBody, projectCreateBody, projectUpdateBody, auditQuery, projectCreationBody, organisationSettingsBody } from '@rackium/shared/contracts.js'
 import { validate } from '../http/validate.js'
 import { requireUser, requireOrg, requireProject, requireAction, applyViewAs, actorOf } from '../http/middleware.js'
 import { rolesIn } from '../organisations/service.js'
 import { Invitation } from '../models/invitation.js'
 import { authLimiter } from '../http/rateLimits.js'
-import { notFound } from '../http/errors.js'
+import { notFound, forbidden } from '../http/errors.js'
 
 const idParam = z.object({ membershipId: z.string().regex(/^[a-f0-9]{24}$/) })
+const userIdParam = z.object({ userId: z.string().regex(/^[a-f0-9]{24}$/) })
 
 // Every route here sits under /orgs/:orgId. The chain is always:
 // signed in -> member of this organisation -> policy action -> validated input.
@@ -19,6 +20,26 @@ export function organisationRoutes({ config, org, rateLimits }) {
 
   r.get('/members', ...base, requireAction(ACTIONS.MANAGE_USERS_SETTINGS_CATALOGUE), async (req, res) => {
     res.json({ members: await org.listMembers({ organisationId: req.org.id }) })
+  })
+
+  // Org Admin grants or revokes project creation for any member (M3a review).
+  r.patch(
+    '/members/:userId/project-creation',
+    ...base,
+    requireAction(ACTIONS.MANAGE_USERS_SETTINGS_CATALOGUE),
+    validate({ params: userIdParam, body: projectCreationBody }),
+    async (req, res) => {
+      res.json(await org.setProjectCreation({ organisationId: req.org.id, userId: req.input.params.userId, allowed: req.input.body.allowed, actor: actorOf(req) }))
+    }
+  )
+
+  // Organisation settings. Readable by any member (the UI shows what applies);
+  // only an Org Admin changes them.
+  r.get('/settings', ...base, async (req, res) => {
+    res.json({ settings: await org.getSettings({ organisationId: req.org.id }) })
+  })
+  r.patch('/settings', ...base, requireAction(ACTIONS.MANAGE_USERS_SETTINGS_CATALOGUE), validate({ body: organisationSettingsBody }), async (req, res) => {
+    res.json({ settings: await org.updateSettings({ organisationId: req.org.id, actor: actorOf(req), body: req.input.body }) })
   })
 
   // Organisation invitations need Org Admin. Project invitations also allow a PM,
@@ -108,10 +129,19 @@ export function organisationRoutes({ config, org, rateLimits }) {
     res.json({ projects: await org.listProjects({ organisationId: req.org.id, userId: req.user._id, isOrgAdmin }) })
   })
 
+  // Project creation is an organisation-level permission (shared/policy.js
+  // canCreateProjects): Org Admin, or a member it has been granted to.
+  const requireProjectCreation = async (req, res, next) => {
+    const { organisationMembership, roles } = await rolesIn(req.user._id, req.org.id)
+    if (!canCreateProjects(organisationMembership)) return next(forbidden('You do not have permission to create projects in this organisation'))
+    req.roles = roles
+    return next()
+  }
+
   r.post(
     '/projects',
     ...base,
-    requireAction(ACTIONS.CREATE_PROJECTS),
+    requireProjectCreation,
     validate({ body: projectCreateBody }),
     async (req, res) => {
       const project = await org.createProject({ organisationId: req.org.id, actor: actorOf(req), body: req.input.body })

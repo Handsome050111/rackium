@@ -3,6 +3,9 @@ import { Outlet, useLocation } from 'react-router-dom'
 import TopBar from './TopBar.jsx'
 import ViewAsBanner from './ViewAsBanner.jsx'
 import RealSidebar from './RealSidebar.jsx'
+import { ACTIONS } from '@rackium/shared/policy.js'
+import { useAuth } from '../lib/AuthContext.jsx'
+import { canIn } from '../lib/realRoles.js'
 
 // The shell for real-mode (organisation/project) screens. This duplicates
 // AppShell's layout rather than extending it, because AppShell/Sidebar are
@@ -14,8 +17,13 @@ import RealSidebar from './RealSidebar.jsx'
 export default function RealAppShell() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const { pathname } = useLocation()
+  const orgId = pathname.match(/^\/orgs\/([^/]+)/)?.[1] ?? null
   const projectMatch = pathname.match(/^\/orgs\/[^/]+\/projects\/([^/]+)/)
-  const settingsTo = projectMatch ? `/orgs/${pathname.match(/^\/orgs\/([^/]+)/)[1]}/projects/${projectMatch[1]}/settings` : null
+  const { memberships } = useAuth()
+  const isOrgAdmin = orgId ? canIn(memberships, orgId, null, ACTIONS.MANAGE_USERS_SETTINGS_CATALOGUE) : false
+  // Inside a project: its settings. Elsewhere: the organisation's, for an Org Admin.
+  const inProject = projectMatch && projectMatch[1] !== 'new'
+  const settingsTo = inProject ? `/orgs/${orgId}/projects/${projectMatch[1]}/settings` : isOrgAdmin ? `/orgs/${orgId}/settings` : null
 
   return (
     <div className="flex h-screen flex-col">
