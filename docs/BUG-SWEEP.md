@@ -177,6 +177,20 @@ four projects + the new `real` project) passed everything on the first
 attempt — 355 passed, 28 skipped (unchanged baseline), 0 failed, no retries
 recorded.
 
+**Later runs (record of tests that only passed on retry):**
+
+| Date | Branch | Test | Notes |
+|---|---|---|---|
+| 2026-10-07 | `fix/hld-drag-test` | `sweep-round3.spec.js` › persistence across reload › "Reset demo data" discards the edit and restores the seed value (`desktop`) | flaky; a second full run was clean |
+| 2026-10-08 | `feature/topology-icons` | same test (`tablet-portrait`) | flaky; passed on retry. Second time this test has flaked, so it's the leading candidate if it ever starts failing outright |
+
+Not a flake, recorded so it isn't misread as one: if a `vite preview` from an
+earlier run is still listening on port 5173, `reuseExistingServer` makes
+Playwright test that stale build instead of the current one. On 2026-10-08
+this caused 9 deterministic survey-form failures that disappeared once the
+stale process was killed. Before a full run, check that ports 5173, 5174 and
+4100 are free.
+
 ### CI
 
 `.github/workflows/ci.yml` now runs Playwright (mock and real projects)

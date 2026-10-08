@@ -1,7 +1,6 @@
 import { Handle, Position } from '@xyflow/react'
-import { Server, Wifi, Cloud, Clock, CheckCircle2, BadgeCheck } from 'lucide-react'
-
-const ROLE_ICON = { fusion: Server, border: Server, distribution: Server, edge: Server, ap: Wifi, 'wan-circuit': Cloud }
+import { Clock, CheckCircle2, BadgeCheck } from 'lucide-react'
+import TopologyIcon from '../TopologyIcon.jsx'
 
 // Deployment (Step 8) overlays a Pending/Installed/Ready badge on top of
 // the same device node HLD/LLD already render — data.deploymentLabel is
@@ -13,7 +12,6 @@ const DEPLOYMENT_COLOR = { Pending: 'text-status-amber', Installed: 'text-brand'
 // A network device — the only node type with connection handles, since
 // uplinks only ever run between devices (never touch a room/floor band).
 export function DeviceNode({ data, selected }) {
-  const Icon = ROLE_ICON[data.role] ?? Server
   const DeploymentIcon = DEPLOYMENT_ICON[data.deploymentLabel]
   return (
     <div
@@ -24,7 +22,7 @@ export function DeviceNode({ data, selected }) {
     >
       <Handle type="target" position={Position.Top} className="!h-2 !w-2 !bg-brand" />
       <Handle type="source" position={Position.Bottom} className="!h-2 !w-2 !bg-brand" />
-      <Icon size={16} strokeWidth={2} className="shrink-0 text-brand" />
+      <TopologyIcon role={data.role} size={16} className="text-brand" />
       <div className="min-w-0 flex-1">
         <div className="truncate text-[11px] font-semibold text-text">{data.label}</div>
         {data.sublabel && <div className="truncate text-[10px] text-text-secondary">{data.sublabel}</div>}

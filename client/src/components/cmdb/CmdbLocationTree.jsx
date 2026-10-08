@@ -1,6 +1,5 @@
-import { Building2, Server, Wifi, Video } from 'lucide-react'
-
-const ROLE_ICON = { fusion: Server, border: Server, distribution: Server, edge: Server, ap: Wifi, probe: Video }
+import { Building2 } from 'lucide-react'
+import TopologyIcon from '../TopologyIcon.jsx'
 
 export default function CmdbLocationTree({ rows, buildingName, selectedId, onSelect }) {
   const byFloorRoom = new Map()
@@ -28,22 +27,19 @@ export default function CmdbLocationTree({ rows, buildingName, selectedId, onSel
           {rooms.map((room) => (
             <div key={room.roomCode} className="ml-3">
               <div className="py-0.5 text-text-secondary">{room.roomCode}</div>
-              {room.items.map((item) => {
-                const Icon = ROLE_ICON[item.role] ?? Server
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => onSelect(item.id)}
-                    className={`ml-3 flex w-[calc(100%-0.75rem)] items-center gap-1.5 rounded px-1.5 py-1 text-left ${
-                      selectedId === item.id ? 'bg-brand/10 text-brand' : 'text-text hover:bg-surface-muted'
-                    }`}
-                  >
-                    <Icon size={12} strokeWidth={2} className="shrink-0" />
-                    <span className="truncate">{item.hostname}</span>
-                  </button>
-                )
-              })}
+              {room.items.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => onSelect(item.id)}
+                  className={`ml-3 flex w-[calc(100%-0.75rem)] items-center gap-1.5 rounded px-1.5 py-1 text-left ${
+                    selectedId === item.id ? 'bg-brand/10 text-brand' : 'text-text hover:bg-surface-muted'
+                  }`}
+                >
+                  <TopologyIcon role={item.role} size={12} />
+                  <span className="truncate">{item.hostname}</span>
+                </button>
+              ))}
             </div>
           ))}
         </div>

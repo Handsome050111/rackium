@@ -1,29 +1,30 @@
 import { useState } from 'react'
 import { useDraggable } from '@dnd-kit/core'
-import { Server, Wifi, DoorOpen, Building2, Search } from 'lucide-react'
-import { HLD_DEVICE_LIBRARY, HLD_REFERENCE_LIBRARY } from '../../mock/hldLibrary.js'
+import { Search } from 'lucide-react'
+import { HLD_LIBRARY_CATEGORIES } from '../../mock/hldLibrary.js'
 import { mediaColors } from '../../tokens/design-tokens.js'
-
-const ICONS = { Server, Wifi, DoorOpen, Building2 }
+import TopologyIcon from '../TopologyIcon.jsx'
 
 function DraggableLibraryItem({ item, enabled }) {
+  const draggable = enabled && !item.comingSoon
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `hld-library:${item.id}`,
     data: { kind: 'hld-library-item', item },
-    disabled: !enabled,
+    disabled: !draggable,
   })
-  const Icon = ICONS[item.icon] ?? Server
+
+  const title = item.comingSoon ? 'Available in a later milestone' : enabled ? 'Drag onto the canvas' : 'View-only'
 
   return (
     <div
       ref={setNodeRef}
-      {...(enabled ? { ...listeners, ...attributes } : {})}
-      title={enabled ? 'Drag onto the canvas' : 'View-only'}
+      {...(draggable ? { ...listeners, ...attributes } : {})}
+      title={title}
       className={`flex touch-none select-none items-center gap-2 rounded-lg border border-border px-2.5 py-2 text-xs [-webkit-touch-callout:none] ${
-        enabled ? 'cursor-grab bg-surface hover:border-brand/40 active:cursor-grabbing' : 'cursor-not-allowed bg-surface-muted opacity-50'
+        draggable ? 'cursor-grab bg-surface hover:border-brand/40 active:cursor-grabbing' : 'cursor-not-allowed bg-surface-muted opacity-50'
       } ${isDragging ? 'opacity-30' : ''}`}
     >
-      <Icon size={16} strokeWidth={2} className="shrink-0 text-brand" />
+      <TopologyIcon role={item.icon} size={16} className="text-brand" />
       <span className="font-medium text-text">{item.label}</span>
     </div>
   )
@@ -38,8 +39,10 @@ const LEGEND_ITEMS = [
 
 export default function HldObjectLibrary({ enabled }) {
   const [query, setQuery] = useState('')
-  const filteredDevices = HLD_DEVICE_LIBRARY.filter((d) => d.label.toLowerCase().includes(query.toLowerCase()))
-  const filteredRefs = HLD_REFERENCE_LIBRARY.filter((d) => d.label.toLowerCase().includes(query.toLowerCase()))
+  const categories = HLD_LIBRARY_CATEGORIES.map((category) => ({
+    ...category,
+    items: category.items.filter((item) => item.label.toLowerCase().includes(query.toLowerCase())),
+  })).filter((category) => category.items.length > 0)
 
   return (
     <div className="w-full shrink-0 space-y-3 rounded-xl border border-border bg-surface p-3 sm:w-64">
@@ -56,27 +59,16 @@ export default function HldObjectLibrary({ enabled }) {
         />
       </div>
 
-      {filteredDevices.length > 0 && (
-        <div>
-          <div className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-wide text-text-secondary">Network devices</div>
+      {categories.map((category) => (
+        <div key={category.key}>
+          <div className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-wide text-text-secondary">{category.label}</div>
           <div className="space-y-1.5">
-            {filteredDevices.map((item) => (
+            {category.items.map((item) => (
               <DraggableLibraryItem key={item.id} item={item} enabled={enabled} />
             ))}
           </div>
         </div>
-      )}
-
-      {filteredRefs.length > 0 && (
-        <div>
-          <div className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-wide text-text-secondary">Reference</div>
-          <div className="space-y-1.5">
-            {filteredRefs.map((item) => (
-              <DraggableLibraryItem key={item.id} item={item} enabled={enabled} />
-            ))}
-          </div>
-        </div>
-      )}
+      ))}
 
       <div>
         <div className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-wide text-text-secondary">Connections</div>
