@@ -12,8 +12,8 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@rackium/shared": "*",
     "@dnd-kit/core": "^6.3.1",
+    "@rackium/shared": "*",
     "@xyflow/react": "^12.12.0",
     "lucide-react": "^1.49.0",
     "react": "^19.2.8",
@@ -30,6 +30,7 @@
     "@vitejs/plugin-react": "^6.1.1",
     "jsdom": "^29.1.1",
     "oxlint": "^1.81.0",
+    "svgo": "^4.1.0",
     "tailwindcss": "^4.3.3",
     "vite": "^8.3.0",
     "vitest": "^5.0.3"

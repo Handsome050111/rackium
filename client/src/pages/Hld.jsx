@@ -356,7 +356,7 @@ export default function Hld() {
       </div>
 
       <DragOverlay dropAnimation={null}>
-        <DragPreviewCard dragData={activeDragData?.kind === 'hld-library-item' ? { kind: 'library-item', item: activeDragData.item } : null} />
+        <DragPreviewCard dragData={activeDragData?.kind === 'hld-library-item' ? { kind: 'topology-library-item', item: activeDragData.item } : null} />
       </DragOverlay>
     </DndContext>
   )

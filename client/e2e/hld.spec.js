@@ -116,6 +116,37 @@ test.describe('HLD — High-Level Design', () => {
     await expect(page.locator('.react-flow__node-device')).toHaveCount(before + 1)
   })
 
+  test('object library groups items into the client-audit categories, with not-yet-supported items inert', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name === 'phone', 'The object library is hidden in phone view-only mode')
+
+    await page.goto('/b/b001/hld')
+    await setRole(page, 'Architect')
+    const library = page.getByText('HLD object library', { exact: true }).locator('xpath=..')
+    for (const heading of ['Active networking', 'Server', 'Infrastructure', 'External', 'Passive']) {
+      await expect(library.getByText(heading, { exact: true }).first()).toBeVisible()
+    }
+
+    // Supported roles are draggable; Firewall/UPS etc. render but cannot be dragged yet.
+    await expect(library.locator('[title="Drag onto the canvas"]', { hasText: 'Fusion' })).toBeVisible()
+    for (const label of ['Firewall', 'WLC', 'UPS', 'PDU', 'Sensor', 'WAN/SP connection', 'Remote site']) {
+      await expect(library.locator('[title="Available in a later milestone"]', { hasText: label })).toBeVisible()
+    }
+
+    // Each role draws its own topology icon — Fusion, Distribution and Edge no longer share one glyph.
+    const iconOf = (label) => library.locator('[title="Drag onto the canvas"]', { hasText: label }).locator('span[aria-hidden="true"]').innerHTML()
+    const [fusion, distribution, edge] = await Promise.all([iconOf('Fusion'), iconOf('Distribution'), iconOf('Edge')])
+    expect(new Set([fusion, distribution, edge]).size).toBe(3)
+  })
+
+  test('canvas device nodes draw a role-specific topology icon', async ({ page }) => {
+    await page.goto('/b/b001/hld')
+    const nodes = page.locator('.react-flow__node-device')
+    await expect(nodes.first()).toBeVisible()
+    const fusionIcon = await nodes.filter({ hasText: /^F-/ }).first().locator('span[aria-hidden="true"] svg').innerHTML()
+    const edgeIcon = await nodes.filter({ hasText: /^E-/ }).first().locator('span[aria-hidden="true"] svg').innerHTML()
+    expect(fusionIcon).not.toBe(edgeIcon)
+  })
+
   test('phone: canvas is view-only, no toolbar or object library', async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== 'phone', 'View-only behaviour is phone-specific')
 

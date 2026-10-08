@@ -1,4 +1,17 @@
 import { defineConfig, devices } from '@playwright/test'
+import { assertPortsFree } from './playwright-support/assertPortsFree.mjs'
+
+// Never test a server this run didn't start. A `vite preview` left over from
+// an earlier run once made 9 specs fail against a stale build (docs/
+// BUG-SWEEP.md), so every webServer below has reuseExistingServer: false and
+// the run stops up front, naming the busy port. Playwright's own port-in-use
+// error would suggest turning reuse back on — the wrong fix. Worker processes
+// re-import this config while our servers are running, so only the main
+// process (no TEST_WORKER_INDEX) checks.
+const TEST_SERVER_PORTS = [5173, 4100, 5174]
+if (process.env.TEST_WORKER_INDEX === undefined) {
+  await assertPortsFree(TEST_SERVER_PORTS)
+}
 
 // All projects use Chromium (already installed) with different
 // viewport/touch settings rather than Playwright's iPad/iPhone device
@@ -39,7 +52,7 @@ export default defineConfig({
     {
       command: 'npm run build && npm run preview -- --port 5173',
       url: 'http://localhost:5173',
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       timeout: 120000,
     },
     {
@@ -48,7 +61,7 @@ export default defineConfig({
       // server/e2e/.runtime-emails.json for the specs to read directly.
       command: 'node ../server/e2e/testServer.mjs',
       url: 'http://localhost:4100/api/v1/health',
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       timeout: 60000,
       env: { E2E_SERVER_PORT: '4100', E2E_CLIENT_ORIGIN: 'http://localhost:5174' },
     },
@@ -60,7 +73,7 @@ export default defineConfig({
       // (vite.config.js) at the test server.
       command: 'npm run build -- --outDir dist-real && npm run preview -- --outDir dist-real --port 5174',
       url: 'http://localhost:5174',
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       timeout: 120000,
       env: { VITE_API_MODE: 'real', VITE_API_TARGET: 'http://localhost:4100' },
     },

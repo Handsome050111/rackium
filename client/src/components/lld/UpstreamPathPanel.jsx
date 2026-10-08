@@ -1,4 +1,5 @@
-import { ArrowUp, Cloud, Server } from 'lucide-react'
+import { ArrowUp } from 'lucide-react'
+import TopologyIcon from '../TopologyIcon.jsx'
 
 // Renders the chain towards the WAN circuit (e.g. Edge -> Border -> Fusion
 // -> SD-WAN CPE) and the immediate uplink's own medium/speed/cable detail,
@@ -33,11 +34,11 @@ export default function UpstreamPathPanel({ steps }) {
                 </div>
               )}
               <div className="flex items-center gap-2 text-xs">
-                {entity.role === 'wan-circuit' ? (
-                  <Cloud size={14} strokeWidth={2} className="shrink-0 text-text-secondary" />
-                ) : (
-                  <Server size={14} strokeWidth={2} className="shrink-0 text-brand" />
-                )}
+                <TopologyIcon
+                  role={entity.role}
+                  size={14}
+                  className={entity.role === 'wan-circuit' ? 'text-text-secondary' : 'text-brand'}
+                />
                 <span className="font-medium text-text">{entity.label}</span>
               </div>
             </li>

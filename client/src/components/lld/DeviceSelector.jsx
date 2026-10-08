@@ -1,4 +1,5 @@
-import { Server, ShieldOff } from 'lucide-react'
+import { ShieldOff } from 'lucide-react'
+import TopologyIcon from '../TopologyIcon.jsx'
 
 // Border and Edge devices are the two selectable end-to-end connectivity
 // views (brief Step 6 Tab 1). Distribution never appears as a selectable
@@ -43,7 +44,7 @@ function DeviceGroup({ label, devices, selectedId, onSelect }) {
               selectedId === d.id ? 'border-brand bg-brand/5 text-brand' : 'border-border text-text hover:border-brand/40'
             }`}
           >
-            <Server size={14} strokeWidth={2} className="shrink-0" />
+            <TopologyIcon role={d.role} size={14} />
             <span className="min-w-0 flex-1 truncate">
               <span className="font-medium">{d.label}</span>
               <span className="block truncate text-[10px] text-text-secondary">{d.hostname}</span>
