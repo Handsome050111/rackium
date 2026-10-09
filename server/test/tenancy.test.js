@@ -222,3 +222,23 @@ describe('tenantScope: M3a models', () => {
     expect(await inProject(projectA._id, () => Device.findById(device._id))).not.toBeNull()
   })
 })
+
+// M3b models: every survey/file collection is tenant-scoped, so a missing
+// scope throws and another organisation's rows are invisible.
+describe('M3b models are tenant-scoped', async () => {
+  const project = ['pathway', 'ruState', 'surveyTabRecord', 'designFlag', 'file', 'upload', 'processedOp']
+  const organisation = ['surveyCustomField']
+  const load = async (name) => Object.values(await import(`../src/models/${name}.js`)).find((v) => v?.modelName)
+  for (const name of [...project, ...organisation]) {
+    it(`${name}: unscoped queries throw; other organisations' rows are invisible`, async () => {
+      const Model = await load(name)
+      await expect(Model.find({})).rejects.toThrow(TenantScopeError)
+      await Model.collection.insertOne({ organisationId: orgB, projectId: projectB._id, marker: true })
+      const scope = project.includes(name) ? { organisationId: orgA, projectId: projectA._id } : { organisationId: orgA }
+      expect(await runWithScope(scope, () => Model.countDocuments({}))).toBe(0)
+      expect(await runWithScope(scope, () => Model.find({ organisationId: orgB }).lean())).toEqual([])
+      const own = project.includes(name) ? { organisationId: orgB, projectId: projectB._id } : { organisationId: orgB }
+      expect(await runWithScope(own, () => Model.countDocuments({}))).toBe(1)
+    })
+  }
+})

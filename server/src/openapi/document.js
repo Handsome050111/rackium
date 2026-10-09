@@ -342,6 +342,54 @@ export function buildRegistry() {
     responses: { 200: ok('Assigned', z.object({ device: z.any() })), 400: err('Wrong SAL'), 403: err('Forbidden'), 404: err('Not found'), 409: err('Already assigned') },
   })
 
+  // --- M3b: Physical Site Survey and files (project level; every route checks the caller's building scope) ---
+  const S = '/api/v1/orgs/{orgId}/projects/{projectId}/survey'
+  const F = '/api/v1/orgs/{orgId}/projects/{projectId}/files'
+  const p = (extra = {}) => projectParams.extend(Object.fromEntries(Object.keys(extra).map((k) => [k, z.string()])))
+  const any = (description) => ok(description, z.any())
+  const route = (method, path, summary, { params = p(), body, query, status = 200, errors = {} } = {}) =>
+    registry.registerPath({
+      method,
+      path,
+      summary,
+      request: { params, ...(body ? { body: { content: json(body) } } : {}), ...(query ? { query } : {}) },
+      responses: { [status]: any(summary), 403: err('Forbidden'), 404: err('Not found or outside your scope'), ...errors },
+    })
+  route('get', `${S}/buildings/{buildingId}/structure`, 'Site structure of one building: floors, rooms (survey facts, photo count), racks, pathways, validation findings', { params: p({ buildingId: 1 }) })
+  route('get', `${S}/buildings/{buildingId}/campus-structure`, 'Site structure of every in-scope building of the same campus', { params: p({ buildingId: 1 }) })
+  route('post', `${S}/floors`, 'Add a floor (Field Engineer within scope, PM, Architect, Org Admin)', { body: C.floorCreateBody, status: 201 })
+  route('post', `${S}/rooms`, 'Add a room; the code is generated when omitted (TR-<floor>-NN)', { body: C.surveyRoomCreateBody, status: 201 })
+  route('post', `${S}/racks`, 'Add a rack; the code is generated when omitted (R0N); height must be an allowed rack height', { body: C.surveyRackCreateBody, status: 201 })
+  route('patch', `${S}/rooms/{roomId}/survey`, 'Room survey facts: access, power, environment', { params: p({ roomId: 1 }), body: C.roomSurveyBody })
+  route('get', `${S}/pathways`, "All the project's pathways, in the shape the shared cable-length engine reads")
+  route('post', `${S}/pathways`, 'Add a pathway between two rooms (also across buildings)', { body: C.pathwayCreateBody, status: 201, errors: { 409: err('Already connected') } })
+  route('patch', `${S}/pathways/{pathwayId}`, 'Route status (surveyed/estimated) and distance', { params: p({ pathwayId: 1 }), body: C.pathwayUpdateBody })
+  route('delete', `${S}/pathways/{pathwayId}`, 'Remove a pathway', { params: p({ pathwayId: 1 }) })
+  route('get', `${S}/racks/{rackId}`, 'Rack survey: placements, reserved/blocked RUs, facts, calculated readiness, the building’s CMO devices', { params: p({ rackId: 1 }) })
+  route('patch', `${S}/racks/{rackId}/placements`, 'Replace the rack’s existing gear (Field Engineer); validated with the shared rack rules; serials/MACs via the registry', { params: p({ rackId: 1 }), body: C.rackPlacementsBody, errors: { 400: err('Overlap, boundary or identity problem'), 409: err('Serial or MAC already used') } })
+  route('post', `${S}/racks/{rackId}/versions`, 'Save version (Field Engineer): bumps the rack revision', { params: p({ rackId: 1 }), status: 201 })
+  route('patch', `${S}/racks/{rackId}/facts`, 'Rack survey facts (depth, PDUs, cable path, accessibility)', { params: p({ rackId: 1 }), body: C.rackFactsBody })
+  route('post', `${S}/racks/{rackId}/ru-states`, 'Reserve an RU (Architect) or block it (PM, Org Admin)', { params: p({ rackId: 1 }), body: C.ruStateBody, status: 201, errors: { 409: err('RU occupied') } })
+  route('delete', `${S}/racks/{rackId}/ru-states/{stateId}`, 'Release a reservation (Architect) or a block (PM, Org Admin)', { params: p({ rackId: 1, stateId: 1 }) })
+  route('get', `${S}/records`, 'One survey tab record, with calculated values, completeness and status', { query: C.surveyRecordQuery })
+  route('post', `${S}/records/edits`, 'One edit (last save wins; a conflict is reported). Verified/Imported tabs revert to Draft', { body: C.surveyEditBody, errors: { 409: err('Tab submitted, or row gone') } })
+  route('post', `${S}/records/transitions`, 'Submit (Field Engineer), verify or reject (Architect)', { body: C.surveyTransitionBody, errors: { 409: err('Not a valid transition') } })
+  route('get', `${S}/buildings/{buildingId}/progress`, 'Every expected tab of the building with its status, and the survey phase status', { params: p({ buildingId: 1 }) })
+  route('post', `${S}/import`, 'Import the verified building survey into HLD (Architect, PM)', { body: C.surveyImportBody, errors: { 409: err('Not every tab is verified') } })
+  route('get', `${S}/serials/check`, 'Check a serial against the building CMO and the project serial registry', { query: z.object({ buildingId: z.string(), serial: z.string() }) })
+  route('get', `${S}/custom-fields`, 'Organisation custom fields of a tab', { query: z.object({ tab: z.string() }) })
+  route('post', `${S}/custom-fields`, 'Add an organisation custom field (Org Admin)', { body: C.surveyCustomFieldBody, status: 201 })
+  route('post', `${S}/sync`, 'Replay offline edits in queued order, each in its own transaction; idempotent by opId; conflicts reported', { body: C.surveySyncBody })
+  route('post', `${F}/uploads`, 'Start (or resume) a chunked upload; limits from organisation settings', { body: C.uploadStartBody, status: 201, errors: { 413: err('Too large') } })
+  route('get', `${F}/uploads/{fileId}`, 'How much of an upload has arrived (to resume)', { params: p({ fileId: 1 }) })
+  route('patch', `${F}/uploads/{fileId}`, 'Append a chunk (application/octet-stream) at ?offset=', { params: p({ fileId: 1 }), query: z.object({ offset: z.string() }), errors: { 409: err('Offset mismatch: resume from receivedBytes') } })
+  route('post', `${F}/uploads/{fileId}/complete`, 'Finish: size, SHA-256 and content type are checked; photos get a thumbnail', { params: p({ fileId: 1 }), status: 201, errors: { 415: err('Not an accepted type'), 422: err('Checksum mismatch') } })
+  route('get', F, 'Files attached to a room, rack, pathway or survey tab', { query: z.object({ type: z.string(), id: z.string().optional(), buildingId: z.string().optional(), roomId: z.string().optional(), tab: z.string().optional() }) })
+  route('get', `${F}/{fileId}`, 'File metadata', { params: p({ fileId: 1 }) })
+  route('get', `${F}/{fileId}/content`, 'Download the file (authorised; no public URL)', { params: p({ fileId: 1 }) })
+  route('get', `${F}/{fileId}/thumbnail`, 'Download the photo thumbnail', { params: p({ fileId: 1 }) })
+  route('delete', `${F}/{fileId}`, 'Remove a file (soft delete)', { params: p({ fileId: 1 }) })
+
   registry.registerPath({
     method: 'get',
     path: '/api/v1/orgs/{orgId}/projects/{projectId}/dashboard/buildings/{buildingId}',

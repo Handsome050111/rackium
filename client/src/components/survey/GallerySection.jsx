@@ -1,4 +1,6 @@
 import { Image, Plus, Minus } from 'lucide-react'
+import { useSurveyMedia } from './SurveyMediaContext.js'
+import { PhotoField } from './PhotoField.jsx'
 
 // Reference Images: a single photo_multi field, shown as a real photo
 // gallery grid rather than one generic FormField button (brief: "no
@@ -6,6 +8,20 @@ import { Image, Plus, Minus } from 'lucide-react'
 export default function GallerySection({ section, record, editable, onFieldChange }) {
   const field = section.fields[0]
   const count = record?.[field.key]?.count ?? 0
+  const media = useSurveyMedia()
+
+  // Real mode: the actual photos.
+  if (media) {
+    return (
+      <div className="rounded-xl border border-border bg-surface p-4">
+        <div className="mb-3 text-sm font-semibold text-text">{section.section}</div>
+        <div className="[&>div>div]:grid [&>div>div]:grid-cols-3 sm:[&>div>div]:grid-cols-4 lg:[&>div>div]:grid-cols-6">
+          <PhotoField label={field.label} value={record?.[field.key]} editable={editable} multi large onChange={(v) => onFieldChange(field.key, v)} />
+        </div>
+        <div className="mt-2 text-[11px] text-text-secondary">{count} image(s)</div>
+      </div>
+    )
+  }
 
   return (
     <div className="rounded-xl border border-border bg-surface p-4">

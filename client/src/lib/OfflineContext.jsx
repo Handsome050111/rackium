@@ -13,6 +13,9 @@ export function OfflineProvider({ children }) {
   const [pendingCount, setPendingCount] = useState(0)
   const [lastSyncReport, setLastSyncReport] = useState(null)
   const [syncing, setSyncing] = useState(false)
+  // Real mode's queue (lib/RealSurveySync.jsx) reports its own count here so
+  // the TopBar badge covers both; it stays 0 in mock mode.
+  const [realPending, setRealPending] = useState(0)
 
   const refreshPendingCount = useCallback(() => {
     getQueuedEdits()
@@ -69,7 +72,7 @@ export function OfflineProvider({ children }) {
   }
 
   return (
-    <OfflineContext.Provider value={{ isOffline, setOffline, pendingCount, lastSyncReport, syncing, syncNow, performEdit }}>
+    <OfflineContext.Provider value={{ isOffline, setOffline, pendingCount, lastSyncReport, syncing, syncNow, performEdit, realPending, setRealPending }}>
       {children}
     </OfflineContext.Provider>
   )

@@ -19,6 +19,18 @@ const deviceSchema = new mongoose.Schema({
   roomId: { type: ObjectId, default: null },
   rackId: { type: ObjectId, default: null },
   ru: { type: Number, default: null, min: 1 },
+  // Rack placement (M3b Rack Survey). ru is the lowest RU; null for 0U items,
+  // which sit on a rail instead (railSide).
+  heightU: { type: Number, default: null, min: 0 },
+  face: { type: String, enum: ['front', 'rear', null], default: null },
+  fullDepth: { type: Boolean, default: false },
+  mounting: { type: String, enum: ['rack', '0U', null], default: null },
+  railSide: { type: String, enum: ['left', 'right', null], default: null },
+  // What the surveyor placed: a library item ("24-port switch") or a CMO
+  // device's own hostname. Generic items need no serial.
+  category: { type: String, default: null },
+  label: { type: String, default: null },
+  sublabel: { type: String, default: null },
   hostname: { type: String, trim: true, default: null },
   model: { type: String, trim: true, default: null },
   // Set when `model` matches a catalogue item (vendor + model key).
