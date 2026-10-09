@@ -37,9 +37,10 @@ const LEGEND_ITEMS = [
   { key: 'stack', label: 'Stack cable' },
 ]
 
-export default function HldObjectLibrary({ enabled }) {
+// `categories`: real mode passes its own (every role enabled, from the backend).
+export default function HldObjectLibrary({ enabled, categories: source = HLD_LIBRARY_CATEGORIES }) {
   const [query, setQuery] = useState('')
-  const categories = HLD_LIBRARY_CATEGORIES.map((category) => ({
+  const categories = source.map((category) => ({
     ...category,
     items: category.items.filter((item) => item.label.toLowerCase().includes(query.toLowerCase())),
   })).filter((category) => category.items.length > 0)

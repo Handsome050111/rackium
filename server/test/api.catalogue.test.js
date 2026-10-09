@@ -81,7 +81,7 @@ describe('browsing', () => {
     const admin = await signedInOrgAdmin(t())
     const q = async (query) => (await admin.agent.get(`${cat(admin.orgId)}?${query}`).expect(200)).body.items.map((i) => i.model).sort()
     expect(await q('q=9300')).toEqual(['C9300-48UX', 'C9300-NM-8X'])
-    expect(await q('group=infrastructure')).toEqual(['PDU 0U', 'UPS 3U'])
+    expect(await q('group=infrastructure')).toEqual(['Environment Sensor', 'PDU 0U', 'UPS 3U'])
     expect(await q('category=patch_panel&minPorts=48')).toEqual(['Cat6A Patch Panel 48-port'])
     expect(await q('poe=true')).toEqual(['C9300-48UX'])
     expect(await q('speed=40G')).toEqual(['SFP-40G-SR4'])

@@ -296,3 +296,27 @@ the survey. Found and fixed on the way, each with a test:
   which would have refused a building-scoped PM's whole import. It now
   offers only SALs within the caller's scope (covered by the server test's
   scoped-import case).
+
+## Part 5: M4a — HLD on the backend
+
+Found and fixed while building and testing M4a, each with a test:
+
+- **`distinct` bypassed tenant scope.** The tenant plugin hooked find,
+  count, update and delete but not `distinct`, so a `distinct` query would
+  have returned values from every organisation (first used by the new HLD
+  status code). `distinct` is now scoped and refused without a scope. Test:
+  `server/test/tenancy.test.js` "distinct is scoped".
+- **A Generate with nothing to add still claimed a revision**, which would
+  have made a colleague's next save "stale" for no change. It now writes
+  nothing. Test: `api.hld.test.js` (generate twice → same revision).
+- **Edit Uplink kept a hidden stale optic.** After Change Medium the SFP
+  selects show only optics for the new medium, but the old optic stayed in
+  the draft and would have been saved invisibly. Real mode now drops optics
+  that no longer fit. Test: `client/e2e-real/hld.spec.js` (wizard flow).
+- **Test isolation gap in the new HLD isolation test**: a swallowed invite
+  error meant the cross-project check could silently never run; it now
+  runs unconditionally (`api.hld.test.js` "another project …").
+
+Expectation updates (intended changes, not regressions): the infrastructure
+catalogue group now includes the placeholder environment sensor, and the
+organisation settings response now carries the naming codes.

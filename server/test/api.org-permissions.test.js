@@ -174,7 +174,7 @@ describe('organisation setting: Architects can see prices', () => {
     const catalogue = (agent) => agent.get(`${orgPath(admin.orgId)}/catalogue?projectId=${project}&q=C9500`).expect(200)
     const price = (body) => body.items.find((i) => i.key === 'Cisco C9500').unitPriceMinor
 
-    expect((await architect.get(`${orgPath(admin.orgId)}/settings`).expect(200)).body.settings).toEqual({ architectsSeePrices: false })
+    expect((await architect.get(`${orgPath(admin.orgId)}/settings`).expect(200)).body.settings).toMatchObject({ architectsSeePrices: false })
     let body = (await catalogue(architect)).body
     expect(body.pricesVisible).toBe(false)
     expect(price(body)).toBeNull()

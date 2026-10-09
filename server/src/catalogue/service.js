@@ -76,6 +76,12 @@ async function visibleDocs(projectId) {
   return [...platform, ...customer]
 }
 
+// The project's resolved catalogue (most specific layer per key), without
+// prices — what the HLD places devices from and validates against (M4a).
+export async function projectCatalogue(projectId) {
+  return resolveCatalogueLayers((await visibleDocs(projectId)).map((d) => toItem(d, { showPrices: false })))
+}
+
 function duplicateKeyError(err, key) {
   if (err?.code === 11000) return conflict('duplicate_item', `${key} is already in your organisation's catalogue`)
   return err

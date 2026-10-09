@@ -72,6 +72,12 @@ describe('tenantScope: reads', () => {
     expect(count).toBe(1)
   })
 
+  // Regression (M4a): distinct was not hooked and returned every tenant's values.
+  it('distinct is scoped, and refused without a scope', async () => {
+    expect((await inOrg(orgA, () => Project.distinct('name'))).sort()).toEqual(['A-proj'])
+    await expect(Project.distinct('name')).rejects.toThrow(TenantScopeError)
+  })
+
   it('estimatedDocumentCount is refused on tenant models', async () => {
     await expect(inOrg(orgA, () => Project.estimatedDocumentCount())).rejects.toThrow(TenantScopeError)
   })
@@ -225,8 +231,8 @@ describe('tenantScope: M3a models', () => {
 
 // M3b models: every survey/file collection is tenant-scoped, so a missing
 // scope throws and another organisation's rows are invisible.
-describe('M3b models are tenant-scoped', async () => {
-  const project = ['pathway', 'ruState', 'surveyTabRecord', 'designFlag', 'file', 'upload', 'processedOp']
+describe('M3b and M4a models are tenant-scoped', async () => {
+  const project = ['pathway', 'ruState', 'surveyTabRecord', 'designFlag', 'file', 'upload', 'processedOp', 'connection', 'portOccupancy', 'cableIdRegistry', 'canvasPosition', 'hldDesign', 'designVersion', 'approval']
   const organisation = ['surveyCustomField']
   const load = async (name) => Object.values(await import(`../src/models/${name}.js`)).find((v) => v?.modelName)
   for (const name of [...project, ...organisation]) {

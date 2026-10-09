@@ -19,6 +19,7 @@ import { createRackService } from './survey/rackService.js'
 import { createSurveyFormService } from './survey/formService.js'
 import { createFileService } from './files/service.js'
 import { createDiskStorage } from './files/storage.js'
+import { createHldService } from './hld/service.js'
 import { apiRouter, API_VERSION } from './routes/index.js'
 import { requireUser } from './http/middleware.js'
 import { membershipSummary, userSummary } from './routes/summaries.js'
@@ -90,9 +91,10 @@ export function createApp({ config, logger, mailer, rateLimits = DEFAULT_RATE_LI
   const storage = createDiskStorage(path.resolve(SERVER_ROOT, config.FILE_STORAGE_DIR ?? 'var/files'))
   const survey = { structure: createStructureService({ hierarchy }), racks: createRackService(), forms: createSurveyFormService() }
   const files = createFileService({ storage })
+  const hld = createHldService({ storage })
   const openapiDocument = () => buildOpenApiDocument({ version: VERSION })
 
-  const api = apiRouter({ config, auth, org, hierarchy, blockers, viewAs, dashboard, catalogue, cmo, survey, files, rateLimits, openapiDocument, version: VERSION })
+  const api = apiRouter({ config, auth, org, hierarchy, blockers, viewAs, dashboard, catalogue, cmo, survey, files, hld, rateLimits, openapiDocument, version: VERSION })
   api.get('/me', requireUser(config), async (req, res) => {
     const memberships = await membershipsForUser(req.user._id)
     res.json({ user: userSummary(req.user), memberships: memberships.map(membershipSummary) })

@@ -10,7 +10,8 @@ export class TenantScopeError extends Error {
   }
 }
 
-const READ_HOOKS = ['find', 'findOne', 'findOneAndUpdate', 'findOneAndDelete', 'findOneAndReplace', 'updateOne', 'updateMany', 'replaceOne', 'deleteOne', 'deleteMany', 'countDocuments']
+// distinct included: it is a query too, and unhooked it read across tenants.
+const READ_HOOKS = ['find', 'findOne', 'findOneAndUpdate', 'findOneAndDelete', 'findOneAndReplace', 'updateOne', 'updateMany', 'replaceOne', 'deleteOne', 'deleteMany', 'countDocuments', 'distinct']
 const UPDATE_HOOKS = ['updateOne', 'updateMany', 'findOneAndUpdate', 'findOneAndReplace', 'replaceOne']
 const SCOPE_FIELDS = ['organisationId', 'projectId']
 

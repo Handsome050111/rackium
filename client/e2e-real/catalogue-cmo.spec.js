@@ -46,7 +46,7 @@ test('catalogue: the seeded placeholder catalogue can be searched and filtered',
   await page.getByLabel('Search the catalogue').fill('')
 
   await page.getByLabel('Category group').selectOption('infrastructure')
-  await expect(rows).toHaveCount(2)
+  await expect(rows).toHaveCount(3) // PDU, UPS and (M4a) the environment sensor
   await expect(page.getByRole('link', { name: 'Generic UPS 3U' })).toBeVisible()
   await page.getByLabel('Category group').selectOption('')
 

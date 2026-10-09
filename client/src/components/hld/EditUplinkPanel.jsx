@@ -72,10 +72,15 @@ export default function EditUplinkPanel({
   onApply,
   onCancel,
   disabled,
+  // Real mode: optics from the catalogue and each device's port IDs.
+  sfpOptionsFor = (media, speed) => getCompatibleSfps(media, speed).map((s) => s.code),
+  portOptionsFor = null,
+  applyLabel = 'Apply & Validate Uplink',
 }) {
   const sourceDevice = devices.find((d) => d.id === draft.sourceDeviceId)
   const destDevice = devices.find((d) => d.id === draft.destDeviceId)
-  const sfpOptions = getCompatibleSfps(draft.media, draft.speed).map((s) => s.code)
+  const sfpOptions = sfpOptionsFor(draft.media, draft.speed)
+  const nameOf = (d) => d?.hostname ?? d?.label ?? '—'
 
   return (
     <div className="space-y-4 rounded-xl border border-border bg-surface p-4">
@@ -94,7 +99,7 @@ export default function EditUplinkPanel({
               <option value="">Select…</option>
               {devices.map((d) => (
                 <option key={d.id} value={d.id}>
-                  {d.role} · {d.hostname}
+                  {d.role} · {nameOf(d)}
                 </option>
               ))}
             </select>
@@ -111,7 +116,7 @@ export default function EditUplinkPanel({
                 .filter((d) => d.id !== draft.sourceDeviceId)
                 .map((d) => (
                   <option key={d.id} value={d.id}>
-                    {d.role} · {d.hostname}
+                    {d.role} · {nameOf(d)}
                   </option>
                 ))}
             </select>
@@ -122,26 +127,34 @@ export default function EditUplinkPanel({
       {step === 2 && (
         <div className="space-y-3">
           <p className="text-xs text-text-secondary">Port selection is optional in HLD — it becomes mandatory in LLD (brief v2.3 §5.3).</p>
-          <Field label={`Source port (${sourceDevice?.hostname ?? '—'})`}>
+          <Field label={`Source port (${nameOf(sourceDevice)})`}>
             <input
               type="text"
               value={draft.sourcePort ?? ''}
               onChange={(e) => onDraftChange({ sourcePort: e.target.value || null })}
               disabled={disabled}
               placeholder="Optional, e.g. Te1/1/4"
+              list={portOptionsFor ? 'hld-source-ports' : undefined}
               className={inputClass}
             />
           </Field>
-          <Field label={`Destination port (${destDevice?.hostname ?? '—'})`}>
+          <Field label={`Destination port (${nameOf(destDevice)})`}>
             <input
               type="text"
               value={draft.destPort ?? ''}
               onChange={(e) => onDraftChange({ destPort: e.target.value || null })}
               disabled={disabled}
               placeholder="Optional, e.g. Gi1/0/1"
+              list={portOptionsFor ? 'hld-dest-ports' : undefined}
               className={inputClass}
             />
           </Field>
+          {portOptionsFor && (
+            <>
+              <datalist id="hld-source-ports">{portOptionsFor(draft.sourceDeviceId).map((p) => <option key={p} value={p} />)}</datalist>
+              <datalist id="hld-dest-ports">{portOptionsFor(draft.destDeviceId).map((p) => <option key={p} value={p} />)}</datalist>
+            </>
+          )}
           <label className="flex items-center gap-2 text-xs text-text">
             <input
               type="checkbox"
@@ -278,7 +291,7 @@ export default function EditUplinkPanel({
               disabled={disabled || !validation || validation.blocked}
               className="h-touch rounded-lg bg-brand px-4 text-xs font-medium text-white hover:bg-brand/90 disabled:cursor-not-allowed disabled:bg-status-grey sm:h-9"
             >
-              Apply &amp; Validate Uplink
+              {applyLabel}
             </button>
           )}
         </div>

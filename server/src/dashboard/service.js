@@ -5,6 +5,7 @@ import { Device } from '../models/device.js'
 import { blockersForBuilding } from '../blockers/service.js'
 import { cmoStatusByBuilding } from '../cmo/service.js'
 import { surveyStatusByBuilding } from '../survey/formService.js'
+import { hldStatusByBuilding } from '../hld/service.js'
 import { AuditEntry } from '../models/auditEntry.js'
 import { notFound } from '../http/errors.js'
 
@@ -26,9 +27,11 @@ export function createDashboardService() {
       const statusByPhase = new Map(statusRows.map((r) => [r.phaseKey, r]))
       const cmoStatus = (await cmoStatusByBuilding()).get(String(building._id)) ?? 'not_started'
       const surveyStatus = (await surveyStatusByBuilding()).get(String(building._id)) ?? 'not_started'
+      const hldStatus = (await hldStatusByBuilding()).get(String(building._id)) ?? 'not_started'
       const phases = activePhases.map(({ phaseKey, position }) => {
         if (phaseKey === 'cmo') return { phaseKey, position, status: cmoStatus, subLabel: null }
         if (phaseKey === 'survey') return { phaseKey, position, status: surveyStatus, subLabel: null }
+        if (phaseKey === 'hld') return { phaseKey, position, status: hldStatus, subLabel: null }
         const row = statusByPhase.get(phaseKey)
         return { phaseKey, position, status: row?.status ?? 'not_started', subLabel: row?.subLabel ?? null }
       })
