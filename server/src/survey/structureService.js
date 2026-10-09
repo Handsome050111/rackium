@@ -10,7 +10,7 @@ import { File } from '../models/file.js'
 import { registerDeleteGuard } from '../hierarchy/service.js'
 import { recordAudit, userActor, diffChanges } from '../audit/audit.js'
 import { badRequest, notFound, conflict } from '../http/errors.js'
-import { requireBuilding, requireFloor, requireRoom, buildingsInScope } from './access.js'
+import { requireBuilding, requireFloor, requireRoom, buildingsInScope } from '../access/scope.js'
 
 // A room that a pathway names cannot be deleted while the route exists.
 registerDeleteGuard('room', { model: Pathway, field: 'roomLowId' })

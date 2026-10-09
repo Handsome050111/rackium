@@ -84,14 +84,31 @@ async function loadContext(session) {
   }
 }
 
-function chooseSal(sals, salId) {
+function chooseSal(sals, salId, scope) {
+  if (sals.length === 0) throw badRequest('Add a SAL to the project hierarchy before importing CMO inventory')
+  const inScope = scope ? sals.filter((s) => scope.coversSal(s.id)) : sals
   if (salId) {
     if (!sals.some((s) => s.id === salId)) throw badRequest('That SAL is not in this project')
+    if (!inScope.some((s) => s.id === salId)) throw badRequest('That SAL is outside your scope')
     return salId
   }
-  if (sals.length === 1) return sals[0].id
-  if (sals.length === 0) throw badRequest('Add a SAL to the project hierarchy before importing CMO inventory')
+  if (inScope.length === 1) return inScope[0].id
+  // A building-scoped importer has no SAL: rows without a building are refused per row.
+  if (inScope.length === 0) return null
   throw badRequest('Choose the SAL that devices without a building belong to')
+}
+
+// Rows outside the caller's membership scope are blocked, like any invalid row.
+function applyScope(validated, scope, chosenSalId, buildings) {
+  if (!scope) return validated
+  const codeOf = new Map(buildings.map((b) => [b.id, b.code]))
+  return validated.map((r) => {
+    if (!r.valid) return r
+    let error = null
+    if (r.buildingId && !scope.coversBuilding(r.buildingId)) error = `Building ${codeOf.get(r.buildingId) ?? ''} is outside your scope`.replace('  ', ' ')
+    else if (!r.buildingId && !chosenSalId) error = 'Devices without a building need a SAL within your scope'
+    return error ? { ...r, valid: false, errors: [...r.errors, error] } : r
+  })
 }
 
 function validate(rows, ctx) {
@@ -143,8 +160,11 @@ function toDevice(d, lookups) {
 
 export function createCmoService() {
   return {
-    async context() {
-      const { buildings, sals } = await buildingsWithSal()
+    // `scope` (access/scope.js): only the caller's buildings, SALs and their devices.
+    async context({ scope = null } = {}) {
+      const all = await buildingsWithSal()
+      const buildings = scope ? scope.buildings : all.buildings
+      const sals = scope ? scope.sals : all.sals
       const [devices, rooms, racks, lastBatch, statuses] = await Promise.all([
         Device.find({ origin: 'existing' }).sort({ createdAt: 1 }).lean(),
         Room.find({}, { code: 1 }).lean(),
@@ -153,12 +173,13 @@ export function createCmoService() {
         cmoStatusByBuilding(),
       ])
       const lookups = {
-        salCode: new Map(sals.map((s) => [s.id, s.code])),
-        buildingCode: new Map(buildings.map((b) => [b.id, b.code])),
+        salCode: new Map(all.sals.map((s) => [s.id, s.code])),
+        buildingCode: new Map(all.buildings.map((b) => [b.id, b.code])),
         roomCode: new Map(rooms.map((r) => [String(r._id), r.code])),
         rackCode: new Map(racks.map((r) => [String(r._id), r.code])),
       }
-      const mapped = devices.map((d) => toDevice(d, lookups))
+      const visible = scope ? devices.filter((d) => scope.coversItem({ buildingId: d.buildingId, salId: d.salId })) : devices
+      const mapped = visible.map((d) => toDevice(d, lookups))
       return {
         sals,
         buildings: buildings.map((b) => ({ ...b, cmoStatus: statuses.get(b.id) ?? 'not_started' })),
@@ -168,10 +189,10 @@ export function createCmoService() {
       }
     },
 
-    async preview({ rows, salId }) {
+    async preview({ rows, salId, scope = null }) {
       const ctx = await loadContext(null)
-      const chosenSalId = chooseSal(ctx.sals, salId)
-      const validated = validate(rows, ctx)
+      const chosenSalId = chooseSal(ctx.sals, salId, scope)
+      const validated = applyScope(validate(rows, ctx), scope, chosenSalId, ctx.buildings)
       return { salId: chosenSalId, rows: validated, summary: summarise(validated) }
     },
 
@@ -180,12 +201,12 @@ export function createCmoService() {
     // Unassigned device — all in one transaction, or nothing. Rows are
     // re-validated here against the transaction's own snapshot; a serial or
     // MAC that slipped in concurrently hits a unique index and aborts it all.
-    async commit({ rows, salId, fileName, actor }) {
+    async commit({ rows, salId, fileName, actor, scope: callerScope = null }) {
       const { organisationId, projectId } = currentScope()
       const result = await withTransaction(async (session) => {
         const ctx = await loadContext(session)
-        const chosenSalId = chooseSal(ctx.sals, salId)
-        const validated = validate(rows, ctx)
+        const chosenSalId = chooseSal(ctx.sals, salId, callerScope)
+        const validated = applyScope(validate(rows, ctx), callerScope, chosenSalId, ctx.buildings)
         const importable = validated.filter((r) => r.valid)
         if (importable.length === 0) throw badRequest('No row can be imported — fix the blocked rows and try again')
 
@@ -275,15 +296,16 @@ export function createCmoService() {
     // Brief v2.3 §5.1: "The PM assigns them." Only an Unassigned device, only
     // to a building in its own SAL. Its blocker is resolved in the same
     // transaction.
-    async assign({ deviceId, buildingId, actor }) {
+    async assign({ deviceId, buildingId, actor, scope = null }) {
       const { organisationId, projectId } = currentScope()
       return withTransaction(async (session) => {
         const device = mongoose.isValidObjectId(deviceId) ? await Device.findById(deviceId).session(session) : null
         if (!device || device.origin !== 'existing') throw notFound('Device not found')
+        if (scope && !scope.coversItem({ buildingId: device.buildingId, salId: device.salId })) throw notFound('Device not found')
         if (device.buildingId) throw conflict('already_assigned', 'This device is already assigned to a building')
         const { buildings } = await buildingsWithSal(session)
         const building = buildings.find((b) => b.id === buildingId)
-        if (!building) throw notFound('Building not found')
+        if (!building || (scope && !scope.coversBuilding(building.id))) throw notFound('Building not found')
         if (building.salId !== String(device.salId)) throw badRequest('Assign the device to a building in its own SAL')
 
         const now = new Date()

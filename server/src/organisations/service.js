@@ -24,6 +24,8 @@ import { badRequest, conflict, notFound } from '../http/errors.js'
 import { randomToken, hashToken } from '../auth/tokens.js'
 import { membershipsForUser } from '../auth/service.js'
 import { applyHierarchyPlan } from '../hierarchy/service.js'
+import { buildingsWithSal } from '../hierarchy/lookup.js'
+import { scopeView, membershipScopes } from '../access/scope.js'
 
 const { ObjectId } = mongoose.Types
 const INVITE_TTL_MS = 7 * 24 * 3600 * 1000
@@ -397,8 +399,8 @@ export function createOrganisationService({ mailer, auth }) {
     // projects they hold a membership in.
     async listProjects({ organisationId, userId, isOrgAdmin }) {
       const filter = {}
+      const memberships = isOrgAdmin ? [] : await membershipsForUser(userId)
       if (!isOrgAdmin) {
-        const memberships = await membershipsForUser(userId)
         const ids = memberships
           .filter((m) => m.level === 'project' && String(m.organisationId) === String(organisationId))
           .map((m) => m.projectId)
@@ -412,7 +414,11 @@ export function createOrganisationService({ mailer, auth }) {
       const result = []
       for (const p of rows) {
         const activePhases = p.activePhases ?? []
+        // A scoped member lists only the buildings of their scope (access/scope.js).
+        const membership = memberships.find((m) => m.level === 'project' && String(m.projectId) === String(p._id))
+        const scopes = membershipScopes(membership, isOrgAdmin)
         const buildings = await runWithScope({ organisationId, projectId: p._id }, async () => {
+          const view = scopeView(scopes, await buildingsWithSal())
           const [buildingRows, statusRows, cmoStatuses, surveyStatuses] = await Promise.all([Building.find().lean(), PhaseStatus.find().lean(), cmoStatusByBuilding(), surveyStatusByBuilding()])
           const statusByBuilding = new Map()
           for (const s of statusRows) {
@@ -427,7 +433,7 @@ export function createOrganisationService({ mailer, auth }) {
               statusByBuilding.get(buildingId).set(phaseKey, status)
             }
           }
-          return buildingRows.map((b) => {
+          return buildingRows.filter((b) => view.coversBuilding(b._id)).map((b) => {
             const byPhase = statusByBuilding.get(String(b._id)) ?? new Map()
             const phaseEntries = activePhases.map((ap) => ({ status: byPhase.get(ap.phaseKey) ?? 'not_started' }))
             return { id: String(b._id), code: b.code, name: b.name, progress: computeOverallProgress(phaseEntries) }
@@ -448,10 +454,11 @@ export function createOrganisationService({ mailer, auth }) {
       return result
     },
 
-    async getProject({ organisationId, projectId }) {
+    // `scope` (access/scope.js): a scoped member sees only their buildings.
+    async getProject({ organisationId, projectId, scope = null }) {
       const p = await Project.findById(projectId).lean()
       if (!p) throw notFound('Project not found')
-      const buildings = await Building.find().lean()
+      const buildings = (await Building.find().lean()).filter((b) => !scope || scope.coversBuilding(b._id))
       return {
         id: String(p._id),
         name: p.name,
@@ -468,7 +475,7 @@ export function createOrganisationService({ mailer, auth }) {
 
     // General, work types, active phases (gated by shared/src/phaseGating.js)
     // and status (Danger zone: archive). Hierarchy and members have their own endpoints.
-    async updateProject({ organisationId, actor, projectId, body }) {
+    async updateProject({ organisationId, actor, projectId, body, scope = null }) {
       const project = await Project.findById(projectId)
       if (!project) throw notFound('Project not found')
       const before = { name: project.name, clientName: project.clientName, description: project.description, status: project.status, activePhases: project.activePhases.map((a) => a.phaseKey) }
@@ -523,7 +530,7 @@ export function createOrganisationService({ mailer, auth }) {
           changes,
         })
       }
-      return this.getProject({ organisationId, projectId: project._id })
+      return this.getProject({ organisationId, projectId: project._id, scope })
     },
 
     async listAudit({ organisationId, projectId, limit }) {

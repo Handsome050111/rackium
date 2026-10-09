@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
 import { startReplSet, stopReplSet, clearAll } from './helpers/memoryDb.js'
-import { createTestApp, signedInOrgAdmin, projectMember, tokenFrom } from './helpers/app.js'
+import { createTestApp, signedInOrgAdmin, projectMember, tokenFrom, addBuilding } from './helpers/app.js'
 
 let replSet
 beforeAll(async () => {
@@ -14,10 +14,12 @@ beforeEach(async () => {
 })
 
 const t = () => createTestApp()
-const BUILDING_ID = '65f0c0ffee0000000000b001'
+// A real building of the project (set by newProject): blockers need one in scope.
+let BUILDING_ID
 
 async function newProject(admin) {
   const res = await admin.agent.post(`/api/v1/orgs/${admin.orgId}/projects`).send({ name: 'LANspire', code: 'LAN' }).expect(201)
+  BUILDING_ID = await addBuilding(admin, res.body.project.id)
   return res.body.project.id
 }
 

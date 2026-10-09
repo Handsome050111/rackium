@@ -11,13 +11,15 @@ export async function buildingsWithSal(session = null) {
   const campuses = await Campus.find().session(session).lean()
   const sals = await Sal.find().session(session).lean()
   const salByCampus = new Map(campuses.map((c) => [String(c._id), String(c.salId)]))
-  const salCode = new Map(sals.map((s) => [String(s._id), s.code]))
+  const salById = new Map(sals.map((s) => [String(s._id), s]))
   return {
     buildings: buildings.map((b) => {
       const salId = salByCampus.get(String(b.campusId)) ?? null
-      return { id: String(b._id), code: b.code, name: b.name, salId, salCode: salId ? salCode.get(salId) ?? null : null }
+      const sal = salId ? salById.get(salId) : null
+      // countryId is what a country membership scope is matched on (access/scope.js).
+      return { id: String(b._id), code: b.code, name: b.name, salId, salCode: sal?.code ?? null, countryId: sal ? String(sal.countryId) : null }
     }),
-    sals: sals.map((s) => ({ id: String(s._id), code: s.code })),
+    sals: sals.map((s) => ({ id: String(s._id), code: s.code, countryId: String(s.countryId) })),
   }
 }
 

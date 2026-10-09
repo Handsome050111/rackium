@@ -543,16 +543,6 @@ export function computeSurveyPhaseStatus({ roomIds, records }) {
   return 'not_started'
 }
 
-// --- Membership scope (DATA-MODEL §1.6, D5) ----------------------------------
+// --- Membership scope: moved to scope.js (re-exported for existing imports) ---
 
-// Does a project membership's scope list cover a building? Empty = whole
-// project. `building` = { id, salId, countryId }.
-export function scopeCoversBuilding(scopes, building) {
-  if (!scopes || scopes.length === 0) return true
-  return scopes.some(
-    (s) =>
-      (s.type === 'building' && String(s.refId) === String(building.id)) ||
-      (s.type === 'sal' && String(s.refId) === String(building.salId)) ||
-      (s.type === 'country' && String(s.refId) === String(building.countryId))
-  )
-}
+export { scopeCoversBuilding } from './scope.js'

@@ -9,7 +9,7 @@ import { Organisation } from '../models/organisation.js'
 import { getTabDefinition, SURVEY_TEMPLATE_VERSION } from '@rackium/shared/surveyForm.js'
 import { recordAudit, userActor } from '../audit/audit.js'
 import { AppError, badRequest, conflict, forbidden, notFound } from '../http/errors.js'
-import { callerAccess, requireBuilding, requireRack, requireRoom } from '../survey/access.js'
+import { callerAccess, requireBuilding, requireRack, requireRoom } from '../access/scope.js'
 import { sniffKind, looksLikeCsv, CATEGORY_KINDS, limitBytesFor, declaredKind } from './sniff.js'
 
 const THUMBNAIL_PX = 320

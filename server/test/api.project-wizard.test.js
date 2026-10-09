@@ -1,7 +1,7 @@
 import mongoose from 'mongoose'
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
 import { startReplSet, stopReplSet, clearAll } from './helpers/memoryDb.js'
-import { createTestApp, signedInOrgAdmin, projectMember } from './helpers/app.js'
+import { createTestApp, signedInOrgAdmin, projectMember, addBuilding } from './helpers/app.js'
 
 let replSet
 beforeAll(async () => {
@@ -69,7 +69,8 @@ describe('project creation wizard', () => {
     const ctx = t()
     const admin = await signedInOrgAdmin(ctx)
     const res = await admin.agent.post(`/api/v1/orgs/${admin.orgId}/projects`).send({ name: 'LANspire', hierarchy: HIERARCHY, team: [{ email: 'x@example.com', role: 'viewer', scopes: [] }] }).expect(201)
-    await admin.agent.post(`/api/v1/orgs/${admin.orgId}/projects/${res.body.project.id}/blockers`).send({ buildingId: '65f0c0ffee0000000000b001', phaseKey: 'survey', description: 'PM can raise' }).expect(201)
+    const created = (await admin.agent.get(`/api/v1/orgs/${admin.orgId}/projects/${res.body.project.id}`).expect(200)).body.project
+    await admin.agent.post(`/api/v1/orgs/${admin.orgId}/projects/${created.id}/blockers`).send({ buildingId: created.buildings[0].id, phaseKey: 'survey', description: 'PM can raise' }).expect(201)
   })
 
   it('a hierarchy reference that does not resolve rolls back the whole transaction and sends no email', async () => {
@@ -119,7 +120,8 @@ describe('project settings: general, work types, phase gating, danger zone', () 
     const ctx = t()
     const admin = await signedInOrgAdmin(ctx)
     const projectId = await newProject(admin, ['cmo', 'survey', 'hld'])
-    await admin.agent.post(`/api/v1/orgs/${admin.orgId}/projects/${projectId}/blockers`).send({ buildingId: '65f0c0ffee0000000000b001', phaseKey: 'hld', description: 'Blocked' }).expect(201)
+    const buildingId = await addBuilding(admin, projectId)
+    await admin.agent.post(`/api/v1/orgs/${admin.orgId}/projects/${projectId}/blockers`).send({ buildingId, phaseKey: 'hld', description: 'Blocked' }).expect(201)
 
     await admin.agent.patch(`/api/v1/orgs/${admin.orgId}/projects/${projectId}`).send({ activePhaseKeys: ['cmo', 'survey'] }).expect(400)
   })

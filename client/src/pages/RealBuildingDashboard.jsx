@@ -29,18 +29,38 @@ export default function RealBuildingDashboard() {
   const { session: viewAsSession } = useViewAs()
   const isPm = memberships.some((m) => m.level === 'project' && String(m.projectId) === String(projectId) && m.role === 'pm')
   const [data, setData] = useState(null)
+  const [loadError, setLoadError] = useState(null)
   const [newBlocker, setNewBlocker] = useState('')
   const [busy, setBusy] = useState(false)
 
   const load = useCallback(() => {
     if (!orgId) return
-    dashboardApi.getBuildingDashboard(orgId, projectId, buildingId).then(setData)
+    dashboardApi
+      .getBuildingDashboard(orgId, projectId, buildingId)
+      .then((d) => {
+        setData(d)
+        setLoadError(null)
+      })
+      // A building outside the caller's membership scope is not found (404).
+      .catch((err) => setLoadError(err.status === 404 ? 'This building is not in the part of the project you can see.' : err.message))
   }, [orgId, projectId, buildingId])
 
   useEffect(() => {
     load()
   }, [load])
 
+  if (loadError && !data) {
+    return (
+      <div className="p-6">
+        <div role="alert" className="rounded-xl border border-border bg-surface p-6 text-sm text-text-secondary">
+          {loadError}{' '}
+          <Link to={`/orgs/${orgId}/projects/${projectId}`} className="font-medium text-brand hover:underline">
+            Back to the project
+          </Link>
+        </div>
+      </div>
+    )
+  }
   if (!data) return <div className="p-6 text-sm text-text-secondary">Loading…</div>
 
   const { building, phases, kpis, blockers, recentActivity } = data

@@ -28,7 +28,7 @@ import { withTransaction } from '../db/transaction.js'
 import { currentScope } from '../tenancy/scopeContext.js'
 import { recordAudit, userActor } from '../audit/audit.js'
 import { AppError, badRequest, conflict, forbidden, notFound } from '../http/errors.js'
-import { callerAccess, requireBuilding } from './access.js'
+import { callerAccess, requireBuilding } from '../access/scope.js'
 import { buildingsWithSal } from '../hierarchy/lookup.js'
 
 // A room with survey records cannot be deleted.

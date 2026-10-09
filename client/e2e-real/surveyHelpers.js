@@ -13,8 +13,9 @@ const api = (orgId, projectId) => `/api/v1/orgs/${orgId}/projects/${projectId}`
 
 // Invites a project member (as the signed-in owner) and accepts in a new
 // browser context through the real invitation page. Returns that page.
-export async function inviteAndAccept(ownerPage, browser, { orgId, projectId, email, role, name }) {
-  const res = await ownerPage.request.post(`/api/v1/orgs/${orgId}/invitations`, { data: { email, role, projectId } })
+// `scopes`: optional membership scopes, e.g. [{ type: 'building', refId }].
+export async function inviteAndAccept(ownerPage, browser, { orgId, projectId, email, role, name, scopes = [] }) {
+  const res = await ownerPage.request.post(`/api/v1/orgs/${orgId}/invitations`, { data: { email, role, projectId, scopes } })
   expect(res.status(), await res.text()).toBe(201)
   const link = new URL((await lastEmailTo(email)).text.match(/https?:\/\/\S+/)[0])
   const context = await browser.newContext()

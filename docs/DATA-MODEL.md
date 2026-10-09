@@ -102,6 +102,15 @@ Run in CI against a replica set, with two organisations of two projects each.
 - Unique: `(organisationId, userId)` where `level = organisation` and `revokedAt` is null; `(projectId, userId)` where `level = project` and `revokedAt` is null.
 - Brief §4.3 and §2.6: a Field Engineer scoped to one building sees only that building.
 
+**Scope enforcement** (M3b review; one server helper, `server/src/access/scope.js`, used by every project route):
+
+- A scoped member sees and acts only within their scope: dashboard (quick stats, blockers, recent activity, phase status), blockers (list, raise, update), CMO (inventory, KPIs, preview, import, assign), the project list and project home (buildings and progress), and the whole survey (structure, pathways, rack survey, forms, files).
+- **Out of scope is 404**, indistinguishable from not there. Lists are filtered rather than refused.
+- **The Org Admin is never limited**, even with a scoped project membership of their own. Unscoped project members and View As sessions see the whole project.
+- Items in a building are in scope when the building is. **SAL-level items** (an Unassigned CMO device and its system blocker, which have no building yet) are in scope for SAL and country scopes covering that SAL, not for a building scope. A building-scoped member therefore does not see the SAL's Unassigned devices or their blockers on the dashboard, and their building's CMO status may still reflect them.
+- CMO import by a scoped PM: rows for buildings outside the scope are blocked rows ("Building … is outside your scope"); rows without a building go to a SAL within the scope (a building-scoped importer has none, so those rows are blocked); naming a SAL outside the scope is refused.
+- Raising a blocker requires a real building of the project in scope (earlier any id was accepted).
+
 **`invitations`** [C]
 
 - `organisationId` · `projectId` (R) · `email` (R, case-insensitive) · `role` (R) · `scopes[]` (as above) · `invitedBy` (R) · `tokenHash` (R, unique; SHA-256 of a 32-byte random token, as in §5.5) · `expiresAt` (Date, R) · `status` (`pending` / `accepted` / `expired` / `revoked`, R) · `acceptedAt` (Date, O).
@@ -645,7 +654,7 @@ Sequence: `designed` → `approved` → `installed` → `tested` → `accepted` 
 - **Workflow**: transitions are conditional updates on `status` and `version`, each audited (`survey.tab.submitted` / `verified` / `rejected` / `imported`). Editing a Verified tab reverts it to Draft with `survey.tab.reverted`; editing an Imported tab does the same and also raises the `survey_changed_after_import` design flag (one open flag per record). Importing the building (all tabs Verified, Architect or PM) resolves open flags.
 - **Custom fields are organisation-level** (`surveyCustomFields` with `organisationId`, no `projectId`), managed by the Org Admin and shown at the end of the tab's first section in every project of the organisation. Never counted for completeness or used in calculations.
 - **Survey phase status** per building is calculated (`computeSurveyPhaseStatus`): `approved` when the building has at least one room and every expected tab (building tabs once, room tabs per room) is Verified or Imported; `changes_requested` while any tab is Rejected; `in_progress` once any tab has data or has left Draft; otherwise `not_started`. Shown on the dashboard, sidebar and project list; never stored.
-- **Scope**: membership scopes (country / SAL / building) are enforced on every survey, structure, pathway and file endpoint; out of scope is 404. (Existing M2/M3a endpoints such as the dashboard and CMO do not enforce scopes yet.)
+- **Scope**: membership scopes (country / SAL / building) are enforced on every survey, structure, pathway and file endpoint; out of scope is 404 (§1.6, "Scope enforcement").
 - `templateVersion` is stored on each record. The template is the bundled `docs/survey-fields.json`; there is no `surveyTemplates` collection yet.
 
 ### 5.5 Solution Package and share links [M `shareLink.js`, `requiredInputsStore.js`] (brief §5.5) [D15]
@@ -981,6 +990,11 @@ Audit entries are kept for the life of the organisation. The GDPR purge (brief �
 
 1. **Phase mapping per work type (F1, D4).** Until confirmed, the PM picks active phases manually or through a preset (§3.10).
 2. **Phase gating defaults (D3).** PM may add not-started phases; phases with data cannot be removed (§3.2).
+
+**Backlog** (agreed, not scheduled yet):
+
+- **Offline rack survey.** M3b's offline mode covers survey tab edits and photos only (§5.7); the rack layout (placements, RU states, rack facts) and site structure are read-only while offline. Taking the rack survey offline needs queued placement saves that the shared rack rules re-check on sync, and a conflict rule for two people changing the same rack.
+- **Photo EXIF/GPS handling.** Photos are stored as uploaded after browser compression (§9.4); EXIF is not read. To build: `capturedAt` from EXIF when present, EXIF GPS copied to `files.geo` only with the uploader's consent, and EXIF stripped from exported files (§9.2).
 
 ## 12. Decision trace
 

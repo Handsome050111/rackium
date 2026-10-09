@@ -14,7 +14,7 @@ import { withTransaction } from '../db/transaction.js'
 import { currentScope } from '../tenancy/scopeContext.js'
 import { recordAudit, userActor } from '../audit/audit.js'
 import { badRequest, conflict, forbidden, notFound } from '../http/errors.js'
-import { callerAccess, requireRack } from './access.js'
+import { callerAccess, requireRack } from '../access/scope.js'
 
 // A rack with reserved or blocked RUs cannot be deleted while they are active.
 registerDeleteGuard('rack', { model: RuState, field: 'rackId', filter: { releasedAt: null } })

@@ -16,7 +16,9 @@ const HIDDEN_FROM_NON_ADMIN = new Set(['view_as_access', 'platform_access'])
 // the imported devices (M3a), never stored (DATA-MODEL §5.1).
 export function createDashboardService() {
   return {
-    async getBuildingDashboard({ buildingId, activePhases, isOrgAdmin }) {
+    // `scope` (access/scope.js): SAL-level blockers (Unassigned CMO devices)
+    // are shown only to callers whose scope covers that SAL.
+    async getBuildingDashboard({ buildingId, activePhases, isOrgAdmin, scope = null }) {
       const building = await Building.findById(buildingId).lean()
       if (!building) throw notFound('Building not found')
 
@@ -32,7 +34,7 @@ export function createDashboardService() {
       })
       const completionPercent = computeOverallProgress(phases)
 
-      const blockers = await blockersForBuilding(buildingId)
+      const blockers = (await blockersForBuilding(buildingId)).filter((b) => !scope || scope.coversItem(b))
       const deviceCount = await Device.countDocuments({ buildingId })
       const openBlockers = blockers.filter((b) => b.status !== 'resolved')
 

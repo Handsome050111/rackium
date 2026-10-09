@@ -8,6 +8,7 @@ import { rolesIn } from '../organisations/service.js'
 import { Invitation } from '../models/invitation.js'
 import { authLimiter } from '../http/rateLimits.js'
 import { notFound, forbidden } from '../http/errors.js'
+import { projectScope } from '../access/scope.js'
 
 const idParam = z.object({ membershipId: z.string().regex(/^[a-f0-9]{24}$/) })
 const userIdParam = z.object({ userId: z.string().regex(/^[a-f0-9]{24}$/) })
@@ -155,7 +156,7 @@ export function organisationRoutes({ config, org, rateLimits }) {
   const projectBase = [...base, requireProject(), applyViewAs()]
 
   r.get('/projects/:projectId', ...projectBase, async (req, res) => {
-    res.json({ project: await org.getProject({ organisationId: req.org.id, projectId: req.project.id }) })
+    res.json({ project: await org.getProject({ organisationId: req.org.id, projectId: req.project.id, scope: await projectScope(req) }) })
   })
 
   r.patch(
@@ -164,7 +165,7 @@ export function organisationRoutes({ config, org, rateLimits }) {
     requireAction(ACTIONS.MANAGE_PROJECT_SETTINGS),
     validate({ body: projectUpdateBody }),
     async (req, res) => {
-      const project = await org.updateProject({ organisationId: req.org.id, actor: actorOf(req), projectId: req.project.id, body: req.input.body })
+      const project = await org.updateProject({ organisationId: req.org.id, actor: actorOf(req), projectId: req.project.id, body: req.input.body, scope: await projectScope(req) })
       res.json({ project })
     }
   )

@@ -267,5 +267,32 @@ Found, not fixed (reported):
 
 - Mock mode's survey completeness never counts calculated "Must" fields
   (fixed in the shared engine used by real mode; mock left unchanged).
-- Existing M2/M3a endpoints (dashboard, CMO) do not enforce membership
-  scopes yet; M3b's survey, structure, pathway and file endpoints do.
+- ~~Existing M2/M3a endpoints (dashboard, CMO) do not enforce membership
+  scopes yet~~ — fixed in the M3b review round below.
+
+### M3b review round: membership scopes everywhere
+
+Scopes are now enforced by one server helper (`server/src/access/scope.js`)
+on the dashboard, blockers, CMO, project list and project home as well as
+the survey. Found and fixed on the way, each with a test:
+
+- **Dashboard, blockers and CMO ignored scopes.** A building-scoped user
+  could open any building's dashboard, list and resolve its blockers, read
+  the whole CMO inventory and (as a scoped PM) import into or assign
+  devices to buildings outside their scope. Tests:
+  `server/test/api.scope-enforcement.test.js` (dashboard, blockers, CMO,
+  project list and home) and `client/e2e-real/scope.spec.js`.
+- **An Org Admin with a scoped project membership was limited by it** on the
+  survey endpoints. The Org Admin is never limited now. Test:
+  `api.scope-enforcement.test.js` "Org Admin is never limited".
+- **Blockers could be raised against any building id**, even one not in the
+  project. Now 404. The M2 tests that used a made-up id now create a real
+  building (`addBuilding` test helper).
+- **The real dashboard hung on "Loading…"** (with an unhandled promise
+  rejection) when the building could not be loaded. It now says the
+  building is not in the part of the project the user can see, and the
+  sidebar no longer throws. Test: `client/e2e-real/scope.spec.js`.
+- **The CMO screen defaulted the import SAL to the building's own SAL**,
+  which would have refused a building-scoped PM's whole import. It now
+  offers only SALs within the caller's scope (covered by the server test's
+  scoped-import case).
