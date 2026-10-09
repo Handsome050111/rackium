@@ -16,6 +16,8 @@ const organisationSchema = new mongoose.Schema({
     customHeightsU: { type: [Number], default: [] },
     // Brief v2.3 §4.3: "Architects can see prices only if the Org Admin grants it".
     architectsSeePrices: { type: Boolean, default: false },
+    // Hostname role codes over the defaults (shared/hldRoles.js; M4a).
+    namingRoleCodes: { type: Map, of: String, default: {} },
   },
   createdAt: { type: Date, default: () => new Date() },
   deletedAt: { type: Date, default: null },

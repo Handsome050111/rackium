@@ -35,6 +35,11 @@ const deviceSchema = new mongoose.Schema({
   model: { type: String, trim: true, default: null },
   // Set when `model` matches a catalogue item (vendor + model key).
   catalogueKey: { type: String, default: null },
+  // HLD role (shared/hldRoles.js), set for planned devices (M4a) and for
+  // existing gear the design uses. Null for survey-only items.
+  role: { type: String, default: null },
+  // PSUs configured on this device; defaults to the catalogue model's count (VAL-005).
+  psuConfigured: { type: Number, default: null, min: 0 },
   // Existing gear starts in service [F5].
   status: { type: String, enum: ['planned', 'ordered', 'delivered', 'installed', 'configured', 'tested', 'accepted', 'in_service', 'maintenance', 'retired'], required: true },
   installation: {

@@ -10,7 +10,9 @@ function uplinkStatus(finding) {
   return finding.blocked ? 'blocked' : 'validated'
 }
 
-export function buildHldFlow({ floors, rooms, devices, connections, connectionFindings, selectedDeviceId, onSelectDevice }) {
+// Real mode also passes stored canvas positions (device.position, relative to
+// the room), the selected uplink and whether devices can be dragged (Move).
+export function buildHldFlow({ floors, rooms, devices, connections, connectionFindings, selectedDeviceId, onSelectDevice, selectedConnectionId = null, draggableDevices = false }) {
   const devicesByRoom = {}
   for (const device of devices) {
     if (!device.roomId) continue
@@ -47,10 +49,10 @@ export function buildHldFlow({ floors, rooms, devices, connections, connectionFi
       type: 'device',
       parentId: device.parentId,
       extent: 'parent',
-      position: { x: device.x, y: device.y },
+      position: devices.find((d) => d.id === device.deviceId)?.position ?? { x: device.x, y: device.y },
       data: { label: device.label, sublabel: device.sublabel, role: device.role, deviceId: device.deviceId, onSelect: onSelectDevice },
       selected: device.deviceId === selectedDeviceId,
-      draggable: false,
+      draggable: draggableDevices,
     })),
   ]
 
@@ -61,6 +63,7 @@ export function buildHldFlow({ floors, rooms, devices, connections, connectionFi
       source: `device-${conn.source.deviceId}`,
       target: `device-${conn.dest.deviceId}`,
       type: 'uplink',
+      selected: conn.id === selectedConnectionId,
       data: { media: conn.media, speed: conn.speed, status: uplinkStatus(finding) },
     }
   })
@@ -68,7 +71,9 @@ export function buildHldFlow({ floors, rooms, devices, connections, connectionFi
   return { nodes, edges, roomNodes }
 }
 
-export default function HldCanvas({ flow, onInit, viewOnly }) {
+// `onEdgeClick` / `onNodeDragStop` / `nodesDraggable`: real mode's uplink
+// selection and Move tool; mock mode passes none of them.
+export default function HldCanvas({ flow, onInit, viewOnly, onEdgeClick, onNodeDragStop, nodesDraggable = false }) {
   const proOptions = useMemo(() => ({ hideAttribution: true }), [])
 
   return (
@@ -80,7 +85,9 @@ export default function HldCanvas({ flow, onInit, viewOnly }) {
         edgeTypes={HLD_EDGE_TYPES}
         onInit={onInit}
         proOptions={proOptions}
-        nodesDraggable={false}
+        nodesDraggable={nodesDraggable}
+        onEdgeClick={onEdgeClick ? (_e, edge) => onEdgeClick(edge.id) : undefined}
+        onNodeDragStop={onNodeDragStop ? (_e, node) => node.data?.deviceId && onNodeDragStop(node.data.deviceId, node.position) : undefined}
         nodesConnectable={false}
         elementsSelectable={!viewOnly}
         panOnDrag

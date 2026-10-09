@@ -1,9 +1,11 @@
 // API contracts (M1). Zod schemas shared by the server (request validation and
 // OpenAPI generation) and the client. Field rules here are the only definition.
+import { DEFAULT_ROLE_CODES, ROLE_CODE_PATTERN, duplicateRoleCodes, resolveRoleCodes, HLD_ROLE_KEYS } from './hldRoles.js'
+import { BLUEPRINT_KEYS, BLUEPRINT_VARIANT_KEYS, blueprintProblem } from './hldBlueprints.js'
 import { z } from 'zod'
 import { ALL_ROLES, PROJECT_ROLES, ORG_MEMBER_ROLE } from './policy.js'
 import { PHASE_KEYS } from './phaseCalculations.js'
-import { catalogueItemSchema, CATEGORY_GROUPS, CATALOGUE_CATEGORIES } from './catalogue.js'
+import { catalogueItemSchema, CATEGORY_GROUPS, CATALOGUE_CATEGORIES, OPTIC_MEDIA } from './catalogue.js'
 
 export const PASSWORD_MIN = 12
 export const PASSWORD_MAX = 128
@@ -365,7 +367,16 @@ export const uploadStartBody = z.object({
 
 // --- Organisation-level permissions and settings (M3a review) -------------
 export const projectCreationBody = z.object({ allowed: z.boolean() })
-export const organisationSettingsBody = z.object({ architectsSeePrices: z.boolean() })
+// Hostname role codes (brief §6.6; M4a): per role, 1-4 upper-case letters or
+// digits, distinct across roles. Omitted roles keep their default.
+export const namingRoleCodesSchema = z
+  .partialRecord(z.enum(Object.keys(DEFAULT_ROLE_CODES)), z.string().trim().toUpperCase().regex(ROLE_CODE_PATTERN, 'Use 1 to 4 letters or digits'))
+  .superRefine((codes, ctx) => {
+    for (const message of duplicateRoleCodes(resolveRoleCodes(codes))) ctx.addIssue({ code: 'custom', message })
+  })
+export const organisationSettingsBody = z
+  .object({ architectsSeePrices: z.boolean().optional(), namingRoleCodes: namingRoleCodesSchema.optional() })
+  .refine((b) => b.architectsSeePrices !== undefined || b.namingRoleCodes !== undefined, { message: 'Nothing to update' })
 
 // --- M3a: catalogue -------------------------------------------------------
 // Create and replace take the whole item (shared/src/catalogue.js is the one
@@ -455,3 +466,47 @@ export const healthResponse = z.object({
 export const accepted = z.object({
   message: z.string(),
 })
+
+// --- M4a: HLD -----------------------------------------------------------------
+// Every design write carries the revision the client loaded (brief §6.10): a
+// write based on an older revision is refused, never merged.
+const baseRevision = z.number().int().min(0)
+export const HLD_SPEEDS = ['1G', '2.5G', '10G', '25G', '40G', '100G']
+const hldEnd = z.object({ deviceId: objectId, portId: z.string().trim().min(1).max(40).nullable().optional() })
+const uplinkFields = {
+  source: hldEnd,
+  dest: hldEnd,
+  media: z.enum(OPTIC_MEDIA),
+  speed: z.enum(HLD_SPEEDS),
+  sourceSfpCode: z.string().trim().min(1).max(200).nullable().optional(),
+  destSfpCode: z.string().trim().min(1).max(200).nullable().optional(),
+  viaPatchPanel: z.boolean().optional(),
+}
+// preset = blueprint size; variant = topology variant (default: the size's own).
+export const hldGenerateBody = z
+  .object({ buildingId: objectId, preset: z.enum(BLUEPRINT_KEYS), variant: z.enum(BLUEPRINT_VARIANT_KEYS).optional(), baseRevision })
+  .superRefine((b, ctx) => {
+    const problem = blueprintProblem(b.preset, b.variant)
+    if (problem) ctx.addIssue({ code: 'custom', path: ['variant'], message: problem })
+  })
+export const hldDeviceCreateBody = z.object({ buildingId: objectId, role: z.enum(HLD_ROLE_KEYS), roomId: objectId, catalogueKey: z.string().trim().min(1).max(200).optional(), baseRevision })
+export const hldDeviceUpdateBody = z
+  .object({ catalogueKey: z.string().trim().min(1).max(200).optional(), psuConfigured: z.number().int().min(0).max(8).optional(), baseRevision })
+  .refine((b) => b.catalogueKey !== undefined || b.psuConfigured !== undefined, { message: 'Nothing to update' })
+export const hldUplinkCreateBody = z.object({ buildingId: objectId, ...uplinkFields, cableId: z.string().trim().min(1).max(32).nullable().optional(), baseRevision })
+export const hldUplinkUpdateBody = z.object({
+  source: hldEnd.optional(),
+  dest: hldEnd.optional(),
+  media: z.enum(OPTIC_MEDIA).optional(),
+  speed: z.enum(HLD_SPEEDS).optional(),
+  sourceSfpCode: z.string().trim().min(1).max(200).nullable().optional(),
+  destSfpCode: z.string().trim().min(1).max(200).nullable().optional(),
+  viaPatchPanel: z.boolean().optional(),
+  cableId: z.string().trim().min(1).max(32).nullable().optional(),
+  baseRevision,
+})
+export const hldUplinkCheckBody = z.object({ buildingId: objectId, connectionId: objectId.optional(), ...uplinkFields })
+export const hldPositionBody = z.object({ x: z.number().finite().min(-100000).max(100000), y: z.number().finite().min(-100000).max(100000) })
+export const hldRevisionQuery = z.object({ baseRevision: z.coerce.number().int().min(0) })
+export const hldSubmitBody = z.object({ buildingId: objectId, baseRevision })
+export const hldDecisionBody = z.object({ buildingId: objectId, decision: z.enum(['approved', 'changes_requested']), comment: z.string().trim().max(2000).optional() })

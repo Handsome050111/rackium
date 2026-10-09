@@ -1,8 +1,10 @@
 import { Link } from 'react-router-dom'
 import { Server, AlertTriangle, Database, Move } from 'lucide-react'
 
-export default function SurveyInputsPanel({ buildingId, summary }) {
+// `basePath`: where the building's screens live (real mode passes its own).
+export default function SurveyInputsPanel({ buildingId, summary, basePath }) {
   if (!summary) return null
+  const root = basePath ?? `/b/${buildingId}`
 
   return (
     <div className="w-full shrink-0 space-y-3 sm:w-64">
@@ -12,7 +14,7 @@ export default function SurveyInputsPanel({ buildingId, summary }) {
           {summary.racks.map((rack) => (
             <Link
               key={rack.rackId}
-              to={`/b/${buildingId}/survey/rack?rack=${rack.rackId}`}
+              to={`${root}/survey/rack?rack=${rack.rackId}`}
               className="flex items-center gap-2 rounded-lg border border-status-green/30 bg-status-green/5 px-2.5 py-2 text-xs hover:border-status-green/60"
             >
               <Server size={14} strokeWidth={2} className="shrink-0 text-status-green" />
@@ -25,7 +27,7 @@ export default function SurveyInputsPanel({ buildingId, summary }) {
           {summary.roomIssues.map((issue) => (
             <Link
               key={`${issue.roomId}-${issue.panelCode}`}
-              to={`/b/${buildingId}/survey`}
+              to={`${root}/survey`}
               className="flex items-center gap-2 rounded-lg border border-status-amber/30 bg-status-amber/5 px-2.5 py-2 text-xs hover:border-status-amber/60"
             >
               <AlertTriangle size={14} strokeWidth={2} className="shrink-0 text-status-amber" />
@@ -36,7 +38,7 @@ export default function SurveyInputsPanel({ buildingId, summary }) {
           ))}
 
           <Link
-            to={`/b/${buildingId}/cmo`}
+            to={`${root}/cmo`}
             className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 text-xs ${
               summary.cmo.pending > 0 ? 'border-status-amber/30 bg-status-amber/5 hover:border-status-amber/60' : 'border-border hover:border-brand/40'
             }`}

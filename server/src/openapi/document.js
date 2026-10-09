@@ -390,6 +390,24 @@ export function buildRegistry() {
   route('get', `${F}/{fileId}/thumbnail`, 'Download the photo thumbnail', { params: p({ fileId: 1 }) })
   route('delete', `${F}/{fileId}`, 'Remove a file (soft delete)', { params: p({ fileId: 1 }) })
 
+  // --- M4a: HLD (every design write carries baseRevision; a stale one is 409 stale_revision) ---
+  const H = '/api/v1/orgs/{orgId}/projects/{projectId}/hld'
+  const stale = { 409: err('Stale revision, or the HLD is submitted and locked') }
+  route('get', `${H}/library`, 'HLD library: roles with hostname codes and catalogue models, optics, blueprint presets')
+  route('get', `${H}/buildings/{buildingId}`, 'The HLD of a building: survey rooms and racks, devices, uplinks with lengths, positions, revision, approvals, survey-change flags', { params: p({ buildingId: 1 }) })
+  route('get', `${H}/buildings/{buildingId}/validation`, 'Run the validation engine (VAL-001…013 and the listed checks): findings by severity', { params: p({ buildingId: 1 }) })
+  route('post', `${H}/generate`, 'Generate HLD from the verified survey and a blueprint preset (Architect); adds only what is missing', { body: C.hldGenerateBody, status: 201, errors: stale })
+  route('post', `${H}/devices`, 'Add a planned device from the library (Architect); hostname from the organisation naming codes', { body: C.hldDeviceCreateBody, status: 201, errors: stale })
+  route('patch', `${H}/devices/{id}`, 'Change a planned device’s model or configured PSUs (Architect)', { params: p({ id: 1 }), body: C.hldDeviceUpdateBody, errors: stale })
+  route('delete', `${H}/devices/{id}`, 'Delete a planned device and its uplinks (Architect); ports released, cable IDs retired', { params: p({ id: 1 }), query: C.hldRevisionQuery, errors: stale })
+  route('put', `${H}/devices/{id}/position`, 'Move a device on the canvas (positions are stored apart from the design)', { params: p({ id: 1 }), body: C.hldPositionBody })
+  route('post', `${H}/uplinks/check`, 'Edit Uplink step 4: check a draft uplink with the validation rules', { body: C.hldUplinkCheckBody })
+  route('post', `${H}/uplinks`, 'Create an uplink (Architect); ports and cable ID registered in the same transaction', { body: C.hldUplinkCreateBody, status: 201, errors: { 409: err('Port or cable ID in use, or stale revision') } })
+  route('patch', `${H}/uplinks/{id}`, 'Edit Uplink / Change Medium (Architect)', { params: p({ id: 1 }), body: C.hldUplinkUpdateBody, errors: { 409: err('Port or cable ID in use, or stale revision') } })
+  route('delete', `${H}/uplinks/{id}`, 'Delete an uplink (Architect)', { params: p({ id: 1 }), query: C.hldRevisionQuery, errors: stale })
+  route('post', `${H}/submit`, 'Submit the HLD for approval (Architect): refused while any Critical finding is open; creates the version and the approval', { body: C.hldSubmitBody, status: 201, errors: { 409: err('Critical findings, stale revision or already submitted') } })
+  route('post', `${H}/decision`, 'Approve or request changes (PM or Reviewer, never the submitter); approval freezes the version', { body: C.hldDecisionBody, errors: { 409: err('Not awaiting approval') } })
+
   registry.registerPath({
     method: 'get',
     path: '/api/v1/orgs/{orgId}/projects/{projectId}/dashboard/buildings/{buildingId}',

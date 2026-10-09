@@ -159,7 +159,7 @@ describe('filtering', () => {
     expect(filterCatalogue(items, { q: '9300 48' }).map((i) => i.model)).toEqual(['C9300-48UX'])
   })
   it('filters by group, category, vendor, ports, PoE and speed', () => {
-    expect(filterCatalogue(items, { group: 'infrastructure' }).map((i) => i.model).sort()).toEqual(['PDU 0U', 'UPS 3U'])
+    expect(filterCatalogue(items, { group: 'infrastructure' }).map((i) => i.model).sort()).toEqual(['Environment Sensor', 'PDU 0U', 'UPS 3U'])
     expect(filterCatalogue(items, { category: 'patch_panel' })).toHaveLength(3)
     expect(filterCatalogue(items, { vendor: 'generic' }).every((i) => i.vendor === 'Generic')).toBe(true)
     expect(filterCatalogue(items, { minPorts: 48 }).map((i) => i.model).sort()).toEqual(['C9300-48UX', 'Cat6A Patch Panel 48-port'])

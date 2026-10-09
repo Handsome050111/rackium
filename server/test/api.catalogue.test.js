@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
+import mongoose from 'mongoose'
 import { startReplSet, stopReplSet, clearAll } from './helpers/memoryDb.js'
 import { createTestApp, signedInOrgAdmin, projectMember } from './helpers/app.js'
 import { seedPlatformCatalogue } from '../src/catalogue/seed.js'
@@ -56,6 +57,17 @@ describe('seed', () => {
   it('is idempotent and never overwrites an existing row', async () => {
     expect((await seedPlatformCatalogue()).inserted).toBe(0)
   })
+
+  // M4a review: a field added to the seed later reaches databases seeded
+  // before it existed; values already there are never overwritten.
+  it('fills in a field an existing seeded item lacks, keeping corrected values', async () => {
+    const items = mongoose.connection.db.collection('platformcatalogueitems')
+    await items.updateOne({ layer: 'seeded', key: 'Cisco C9500' }, { $unset: { requiresDualPsu: '' }, $set: { description: 'Corrected by hand' } })
+    const result = await seedPlatformCatalogue()
+    expect(result).toMatchObject({ inserted: 0, backfilled: 1 })
+    expect(await items.findOne({ layer: 'seeded', key: 'Cisco C9500' })).toMatchObject({ requiresDualPsu: true, description: 'Corrected by hand' })
+    expect((await seedPlatformCatalogue()).backfilled).toBe(0)
+  })
 })
 
 describe('browsing', () => {
@@ -81,7 +93,7 @@ describe('browsing', () => {
     const admin = await signedInOrgAdmin(t())
     const q = async (query) => (await admin.agent.get(`${cat(admin.orgId)}?${query}`).expect(200)).body.items.map((i) => i.model).sort()
     expect(await q('q=9300')).toEqual(['C9300-48UX', 'C9300-NM-8X'])
-    expect(await q('group=infrastructure')).toEqual(['PDU 0U', 'UPS 3U'])
+    expect(await q('group=infrastructure')).toEqual(['Environment Sensor', 'PDU 0U', 'UPS 3U'])
     expect(await q('category=patch_panel&minPorts=48')).toEqual(['Cat6A Patch Panel 48-port'])
     expect(await q('poe=true')).toEqual(['C9300-48UX'])
     expect(await q('speed=40G')).toEqual(['SFP-40G-SR4'])

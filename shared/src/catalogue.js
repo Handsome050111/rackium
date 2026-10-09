@@ -162,6 +162,8 @@ const itemShape = {
   poeBudgetW: nullableNumber,
   psuCount: z.number().int().min(0).max(8).nullable().default(null),
   needsUplinkModule: z.boolean().default(false),
+  // The model must run with two PSUs (VAL-005 is Critical when fewer are configured).
+  requiresDualPsu: z.boolean().default(false),
   portMap: portMapSchema.nullable().default(null),
   mediaSpeed: mediaSpeedSchema.nullable().default(null),
   compatibleSfps: partKeyList,
@@ -188,6 +190,7 @@ function itemRules(item, ctx) {
     if (item.mounting && item.mounting !== '0U' && item.heightU === 0) ctx.addIssue({ code: 'custom', path: ['heightU'], message: 'A front/rear-mounted item needs an RU height of at least 1' })
     if (item.fullDepth && item.mounting === '0U') ctx.addIssue({ code: 'custom', path: ['fullDepth'], message: 'A 0U item cannot be full depth' })
   }
+  if (item.requiresDualPsu && (item.psuCount ?? 0) < 2) ctx.addIssue({ code: 'custom', path: ['requiresDualPsu'], message: 'A model that requires dual PSUs needs at least 2 PSU slots' })
   if (item.kind === 'optic' && !item.mediaSpeed) ctx.addIssue({ code: 'custom', path: ['mediaSpeed'], message: 'An optic needs a media, speed and reach' })
   if (item.servonProductCode && !item.servonAvailable) ctx.addIssue({ code: 'custom', path: ['servonProductCode'], message: 'A SERVON code needs "SERVON available" set' })
   if (item.eosDate && item.eolDate && item.eolDate < item.eosDate) ctx.addIssue({ code: 'custom', path: ['eolDate'], message: 'End of life cannot be before end of sale' })
@@ -268,7 +271,7 @@ export function filterCatalogue(items, { q, group, category, vendor, minPorts, p
 // group here; richer port maps are edited in the form.
 export const CATALOGUE_CSV_COLUMNS = [
   'kind', 'category', 'vendor', 'model', 'description',
-  'heightU', 'fullDepth', 'mounting', 'rackMounted', 'weightKg', 'powerDrawW', 'powerInletType', 'poeBudgetW', 'psuCount', 'needsUplinkModule',
+  'heightU', 'fullDepth', 'mounting', 'rackMounted', 'weightKg', 'powerDrawW', 'powerInletType', 'poeBudgetW', 'psuCount', 'needsUplinkModule', 'requiresDualPsu',
   'accessPortCount', 'accessPortType', 'accessPortSpeed', 'accessPortPoe', 'accessPortPattern', 'accessPortStart',
   'uplinkPortCount', 'uplinkPortType', 'uplinkPortSpeed', 'uplinkPortPattern', 'uplinkPortStart',
   'opticMedia', 'opticSpeed', 'opticReachM',
@@ -344,6 +347,7 @@ export function catalogueRowToItem(row) {
     poeBudgetW: num('poeBudgetW'),
     psuCount: num('psuCount', { integer: true }),
     needsUplinkModule: bool('needsUplinkModule'),
+    requiresDualPsu: bool('requiresDualPsu'),
     portMap: groups.length ? { groups } : null,
     mediaSpeed: opticMedia ? { media: opticMedia, speed: text('opticSpeed') ?? '', reachM: num('opticReachM') ?? 0 } : null,
     compatibleSfps: list('compatibleSfps'),

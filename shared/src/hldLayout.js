@@ -45,7 +45,7 @@ export function computeHldLayout({ floors, rooms, devicesByRoom }) {
           id: `device-${device.id}`,
           deviceId: device.id,
           parentId: roomNodeId,
-          label: device.hostname,
+          label: device.hostname ?? device.label,
           sublabel: device.model,
           role: device.role,
           x: (ROOM_WIDTH - DEVICE_WIDTH) / 2,

@@ -15,6 +15,7 @@ import { Blocker } from '../models/blocker.js'
 import { Device } from '../models/device.js'
 import { cmoStatusByBuilding } from '../cmo/service.js'
 import { surveyStatusByBuilding } from '../survey/formService.js'
+import { hldStatusByBuilding } from '../hld/service.js'
 import { SurveyTabRecord } from '../models/surveyTabRecord.js'
 import { applyActivePhases } from '@rackium/shared/phaseGating.js'
 import { withTransaction } from '../db/transaction.js'
@@ -25,6 +26,7 @@ import { randomToken, hashToken } from '../auth/tokens.js'
 import { membershipsForUser } from '../auth/service.js'
 import { applyHierarchyPlan } from '../hierarchy/service.js'
 import { buildingsWithSal } from '../hierarchy/lookup.js'
+import { DEFAULT_ROLE_CODES, PROPOSED_ROLE_CODE_KEYS, resolveRoleCodes, duplicateRoleCodes } from '@rackium/shared/hldRoles.js'
 import { scopeView, membershipScopes } from '../access/scope.js'
 
 const { ObjectId } = mongoose.Types
@@ -65,6 +67,14 @@ export async function rolesIn(userId, organisationId, projectId = null) {
     // role, so only an Org Admin's organisation role is listed here.
     roles: [org?.role === ORG_ROLE ? org.role : null, project?.role].filter(Boolean),
   }
+}
+
+// Organisation settings as the API shows them: hostname role codes resolved
+// over the defaults, plus which codes are still proposals (M4a).
+function settingsView(org) {
+  const raw = org.settings?.namingRoleCodes
+  const stored = raw instanceof Map ? Object.fromEntries(raw) : raw ?? {}
+  return { architectsSeePrices: Boolean(org.settings?.architectsSeePrices), namingRoleCodes: resolveRoleCodes(stored), defaultRoleCodes: DEFAULT_ROLE_CODES, proposedRoleCodeKeys: PROPOSED_ROLE_CODE_KEYS }
 }
 
 export function createOrganisationService({ mailer, auth }) {
@@ -252,17 +262,29 @@ export function createOrganisationService({ mailer, auth }) {
     async getSettings({ organisationId }) {
       const org = await Organisation.findById(organisationId).lean()
       if (!org) throw notFound()
-      return { architectsSeePrices: Boolean(org.settings?.architectsSeePrices) }
+      return settingsView(org)
     },
 
     async updateSettings({ organisationId, actor, body }) {
       const org = await Organisation.findById(organisationId)
       if (!org) throw notFound()
-      const before = { architectsSeePrices: Boolean(org.settings?.architectsSeePrices) }
-      org.set('settings.architectsSeePrices', body.architectsSeePrices)
+      const before = settingsView(org.toObject())
+      if (body.architectsSeePrices !== undefined) org.set('settings.architectsSeePrices', body.architectsSeePrices)
+      if (body.namingRoleCodes !== undefined) {
+        const merged = { ...Object.fromEntries(org.settings?.namingRoleCodes ?? []), ...body.namingRoleCodes }
+        // Checked against the codes already stored, not only this request's.
+        const clashes = duplicateRoleCodes(resolveRoleCodes(merged))
+        if (clashes.length) throw badRequest(clashes.join('; '))
+        org.set('settings.namingRoleCodes', merged)
+      }
       await org.save()
-      const after = { architectsSeePrices: body.architectsSeePrices }
-      const changes = diffChanges({ objectType: 'Organisation', objectId: org._id, before, after, fields: ['architectsSeePrices'] })
+      const after = settingsView(org.toObject())
+      const changes = [
+        ...diffChanges({ objectType: 'Organisation', objectId: org._id, before, after, fields: ['architectsSeePrices'] }),
+        ...Object.keys(after.namingRoleCodes)
+          .filter((role) => before.namingRoleCodes[role] !== after.namingRoleCodes[role])
+          .map((role) => ({ objectType: 'Organisation', objectId: String(org._id), field: `namingRoleCodes.${role}`, before: before.namingRoleCodes[role], after: after.namingRoleCodes[role] })),
+      ]
       if (changes.length) {
         await recordAudit({
           organisationId,
@@ -419,7 +441,7 @@ export function createOrganisationService({ mailer, auth }) {
         const scopes = membershipScopes(membership, isOrgAdmin)
         const buildings = await runWithScope({ organisationId, projectId: p._id }, async () => {
           const view = scopeView(scopes, await buildingsWithSal())
-          const [buildingRows, statusRows, cmoStatuses, surveyStatuses] = await Promise.all([Building.find().lean(), PhaseStatus.find().lean(), cmoStatusByBuilding(), surveyStatusByBuilding()])
+          const [buildingRows, statusRows, cmoStatuses, surveyStatuses, hldStatuses] = await Promise.all([Building.find().lean(), PhaseStatus.find().lean(), cmoStatusByBuilding(), surveyStatusByBuilding(), hldStatusByBuilding()])
           const statusByBuilding = new Map()
           for (const s of statusRows) {
             const key = String(s.buildingId)
@@ -427,7 +449,7 @@ export function createOrganisationService({ mailer, auth }) {
             statusByBuilding.get(key).set(s.phaseKey, s.status)
           }
           // CMO is computed from imported devices, not stored (same as the dashboard).
-          for (const [phaseKey, statuses] of [['cmo', cmoStatuses], ['survey', surveyStatuses]]) {
+          for (const [phaseKey, statuses] of [['cmo', cmoStatuses], ['survey', surveyStatuses], ['hld', hldStatuses]]) {
             for (const [buildingId, status] of statuses) {
               if (!statusByBuilding.has(buildingId)) statusByBuilding.set(buildingId, new Map())
               statusByBuilding.get(buildingId).set(phaseKey, status)
@@ -489,17 +511,20 @@ export function createOrganisationService({ mailer, auth }) {
       if (body.activePhaseKeys !== undefined) {
         // PhaseStatus and Blocker are project-scoped by the tenant plugin, so this
         // already reads only this project's rows — no need to join via buildings.
-        const [statusRows, blockerRows, hasCmoDevices, hasSurveyData] = await Promise.all([
+        const [statusRows, blockerRows, hasCmoDevices, hasSurveyData, hasHldDevices] = await Promise.all([
           PhaseStatus.find({ status: { $ne: 'not_started' } }).select('phaseKey').lean(),
           Blocker.find({}).select('phaseKey').lean(),
           Device.exists({ origin: 'existing' }),
           SurveyTabRecord.exists({ hasData: true }),
+          Device.exists({ origin: 'planned' }),
         ])
         const phasesWithData = new Set([...statusRows.map((r) => r.phaseKey), ...blockerRows.map((r) => r.phaseKey)])
         // Imported CMO devices are the CMO phase's data (its status is computed from them).
         if (hasCmoDevices) phasesWithData.add('cmo')
         // Survey tab records are the survey phase's data.
         if (hasSurveyData) phasesWithData.add('survey')
+        // Planned devices are the HLD's data (M4a).
+        if (hasHldDevices) phasesWithData.add('hld')
         const result = applyActivePhases({
           currentActivePhases: project.activePhases.map((a) => a.phaseKey),
           nextPhaseKeys: body.activePhaseKeys,

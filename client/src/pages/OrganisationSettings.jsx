@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import { ACTIONS, ROLE_LABELS } from '@rackium/shared/policy.js'
 import { organisationApi } from '../api/organisationApi.js'
 import { useAuth } from '../lib/AuthContext.jsx'
+import NamingCodesSection from '../components/NamingCodesSection.jsx'
 import { canIn } from '../lib/realRoles.js'
 
 function Section({ title, description, children }) {
@@ -115,6 +116,19 @@ export default function OrganisationSettings() {
             />
             Architects can see prices
           </label>
+        )}
+      </Section>
+
+      <Section title="Naming" description="Hostname role codes: {role}-{country}-{sal}-{campus}-{building}-{floor}-{seq}, e.g. E-DE-ERL-C01-B001-EG-001.">
+        {settings?.namingRoleCodes && (
+          <NamingCodesSection
+            key={JSON.stringify(settings.namingRoleCodes)}
+            settings={settings}
+            onSave={async (namingRoleCodes) => {
+              const res = await organisationApi.updateSettings(orgId, { namingRoleCodes })
+              setSettings(res.settings)
+            }}
+          />
         )}
       </Section>
 

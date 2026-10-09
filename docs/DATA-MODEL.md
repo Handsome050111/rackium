@@ -779,6 +779,54 @@ The mock's `ready` state is removed: it appears in the phase mapping but is neve
 
 **`documentTypes`** (global seed, M `handoverModel.js` `HANDOVER_DOCUMENTS`): `exec-summary` (PDF), `survey-report` (PDF), `hld-document` (PDF), `lld-document` (PDF), `cable-matrix` (Excel, exportable), `bom-final` (Excel, exportable), `deployment-report` (PDF), `cmdb-extract` (CSV + PDF, exportable), `as-built` (PDF), `exception-register` (PDF), `photo-evidence` (ZIP, exportable). Plus the 18 Solution Package section keys.
 
+### 5.13 HLD as built in M4a (brief §5.3, §6.6, §6.8)
+
+**Devices and roles.** Planned devices are `devices` rows with `origin = planned`, `status = planned`, a `role` and a room (`rackId` optional at HLD level). Roles: `fusion`, `border`, `distribution`, `edge`, `ap`, `firewall`, `router`, `wlc`, `server`, `ups`, `pdu`, `sensor`, `wan_circuit`, `remote_site` (`shared/hldRoles.js`, one table for each role's catalogue category, hostname code, icon and BOM rule). `wan_circuit` and `remote_site` have no hostname and produce no BOM line. `psuConfigured` (Number) defaults to the catalogue model's `psuCount` (VAL-005). Catalogue items gained `requiresDualPsu` (Boolean, default false; item form, CSV column and API). The platform seed now fills in a field an existing seeded item lacks, without changing any value already stored. The catalogue gained generic, unpriced placeholder models for firewall, router, WLC, server, sensor, WAN/SP connection and remote site.
+
+**BOM rules (design level).** One line per role and model, quantity = number of devices, section *Network devices* or *Power & accessories*; provider-supplied roles excluded (`bomDeviceLines`). The per-device procurement lines of §4.10 build on this when the BOM moves to the backend.
+
+**Connections (§4.3) as built.** `buildingId` = the HLD's building. `viaPatchPanel` (Boolean) records the HLD intent to route through the destination room's patch panel (VAL-004); LLD adds the hops. Ports are optional at HLD; a chosen port must exist in the model's port map and is stored in the model's own spelling. `portOccupancy.portKey` (lower-case port ID) carries the unique index, so `Te1/1/1` and `te1/1/1` are one port. Deleting an uplink at design time releases its ports and retires its cable IDs (never reused, F4); deleting a planned device deletes its uplinks the same way. Port and cable-ID rows are written in the same transaction as the connection; a clash aborts it (409 `port_in_use` / `cable_id_in_use`).
+
+**`canvasPositions`** (new): `buildingId` · `designType` (`hld`) · `objectType` (`device`) · `objectId` · `x` · `y` (relative to the device's room box) · `updatedBy` · `updatedAt`. Unique per object. Moving a box is not a design change: no revision, no effect on approval.
+
+**`hldDesigns`** (new, one per building): `revision` (Number) · `state` (`draft` / `awaiting_approval` / `approved` / `changes_requested`) · `preset` · `pendingApprovalId` · `latestApprovedVersionId` · `lastEditedAt` / `lastEditedBy`.
+- **No stale saves (brief §6.10; real-time comes later).** Every design write carries the `baseRevision` the client loaded and is a conditional update on it, in the same transaction as the change. A write based on an older revision is refused (409 `stale_revision`, naming who changed it and when); nothing is merged. A Generate with nothing to add writes nothing.
+- **Workflow.** The Architect submits: refused while any Critical finding is open (409 `validation_blocked`) or when there is nothing to submit. Submitting creates a `designVersions` row (number +1; snapshot JSON as a `files` row, category `data_snapshot`, attached to the version, readable through the authorised file routes) and a pending `approvals` row (gate `hld_internal`), and locks the design (409 `hld_submitted`). A PM or Reviewer decides — never the submitter, even if they later hold an approver role (`canApproveSubmission`); a change request needs a comment. Approval freezes the version in the same transaction. An edit after approval or a change request starts a new draft; the approved version stays frozen.
+- **HLD phase status** per building is calculated: `approved` / `awaiting_approval` / `changes_requested` from the state, otherwise `in_progress` once the building has planned devices, else `not_started` (dashboard, sidebar, project list; phase gating counts planned devices as HLD data).
+
+**Generate HLD** (v2.2 §3.6A, BPT-001: template sizes with topology variants; `shared/hldBlueprints.js`). Needs the building's survey phase `approved` (every tab Verified or Imported). The Architect picks a **size** and a **variant**; `hldDesigns` stores both (`preset`, `variant`). Common rules for every template:
+- The **main room** is the room marked main, else the first room (by code) with a rack. Core devices (Border, Fusion, Firewall, WLC) go there. Every other comms room **with a rack** gets one Edge and one AP; rooms without a rack get nothing.
+- **Links:** Cat6A 1G for an AP drop; OM4 10G within a room; OS2 10G between rooms. The optic is the catalogue's shortest-reach optic for that media and speed that both device models list, covering the surveyed length.
+- **Suggested racks** (v2.2 §3.6A "suggested rack assignments based on room count"): every generated device except APs, WAN/SP connections and remote sites gets the first rack of its room; the second device of a pair in the same room gets the room's second rack when there is one (otherwise the same rack). Only rack-mounted models take a rack. No RU is assigned (brief §5.4: RU positions are the Architect's). A suggested rack without a PDU raises VAL-003.
+- **Idempotent:** only what is missing is added; existing devices and uplinks are reused, so changing the template later (e.g. single path → redundant distribution) adds just the difference. A Generate never removes anything.
+
+| Size | Devices | Variants (first = default) |
+|---|---|---|
+| **S** Small | Border; Edge + AP per comms room with a rack. No distribution layer. | single path |
+| **M** Medium | Fusion + Border; Edge + AP per comms room with a rack. | single path, redundant distribution |
+| **L** Large | M + a Distribution layer per floor that has comms rooms (in that floor's first such room). | single path, redundant distribution |
+| **XL** Extra large | L + Firewall and WLC in the main room. | redundant distribution, single path |
+
+| Variant | Connections |
+|---|---|
+| **Single path** | One uplink per layer: Border–Fusion; Edge → its floor's Distribution (L, XL) or → Border (S, M); Distribution → Border; Firewall → Border; WLC → Fusion (or Border); AP → Edge. |
+| **Redundant distribution** | Two Distribution switches — one pair for the building in the main room (M), one pair per floor (L, XL). Each Distribution uplinks to Border **and** Fusion; every Edge is dual-homed to **both** Distributions of its floor (M: of the building); Border–Fusion and AP → Edge as above. No Edge uplinks to Border directly. |
+
+Not built yet (v2.2 §3.6A.2): *full mesh*, *collapsed core*, *routed access*, organisation-level custom templates and template propagation.
+
+**AC-11 as built** (`shared/src/hldRules.test.js`, `server/test/api.hld.test.js`): Template M with redundant distribution on a main room with two racks and one comms room gives 6 devices (Fusion, Border, 2 Distribution, Edge, AP), 8 connections (Border–Fusion; 2 × Distribution–Border; 2 × Distribution–Fusion; the Edge to each Distribution; AP–Edge) and racks: Border, Fusion and Distribution 1 in the main room's first rack, Distribution 2 in its second, the Edge in the comms room's rack, the AP unracked.
+
+**Validation engine** (`shared/hldRules.js`, run by the server on Validate and before Submit; the uplink wizard's step-4 checks use the same rules). Findings carry rule ID, severity, message and the device, uplink or rack they concern. Interpretations where the brief leaves the data open (proposed — to confirm):
+- VAL-003: a planned device in a rack whose rack holds no PDU ("no power connection defined"); APs, patch panels, passive items and external roles are exempt.
+- VAL-005 (Critical) is driven by the catalogue: a device whose model has `requiresDualPsu = true` (catalogue item flag, M4a review; set on the placeholder Cisco C9500) with fewer than 2 PSUs configured. A model that supports two PSUs but does not require them gives the Warning "Single PSU when device supports dual" instead. The role plays no part. A catalogue item with `requiresDualPsu` must have at least 2 PSU slots.
+- VAL-006 only when the rack has a load limit (`rack.details.maxLoadKg`); VAL-009 only when the switch model has a PoE budget and connected APs have a power draw; VAL-010 uses the model's stack maximum or 8.
+- VAL-008 / VAL-011: the limit is the media limit lowered by either end's optic reach. VAL-012: no stock length long enough (§6.3). VAL-013: duplicate cable or hop-segment ID in any letter case (the registry already refuses one on write).
+- Warnings without a VAL number: single PSU, single PDU, empty RU > 50% (racks with planned devices only). Info: below port speed, no hostname, TBD (no optic chosen on a fibre link), CMO device not found in a rack, pathway not surveyed. UPS load and cooling are not applicable yet (no capacities in the catalogue; cooling disabled per §6.8).
+
+**Survey changed after import** is shown on the HLD per open flag: the tab, the room, and each field change since the flag was raised (before → after, who), from the survey audit trail.
+
+**Not in M4a:** presence and locking (real-time), the logical topology (VLANs), CMO overlay ghost icons, Break Uplink / Reroute / Replace Endpoint / Split / Merge, and an explicit hostname rename action.
+
 ---
 
 ## 6. Calculated values (never stored)
@@ -832,6 +880,22 @@ These are computed from source records on read, or from a projection rebuilt fro
 - Cable IDs are stored once and never regenerate. Reassignment is an audited action.
 - Serials and MACs are stored as entered. Validation results are calculated.
 - Design version numbers are stored and monotonic.
+
+**Hostname role codes (M4a)** — an organisation naming setting, `organisations.settings.namingRoleCodes` (role → code, 1–4 upper-case letters or digits, distinct across roles), edited by the Org Admin. Omitted roles use the defaults:
+
+| Role | Code | Status |
+|---|---|---|
+| Fusion · Border · Distribution · Edge · Access point | F · B · D · E · A | brief §6.6 |
+| Firewall | FW | **proposed — client to confirm** |
+| Router | R | **proposed — client to confirm** |
+| WLC | WC | **proposed — client to confirm** |
+| Server | SV | **proposed — client to confirm** |
+| UPS | UP | **proposed — client to confirm** |
+| PDU | PD | **proposed — client to confirm** |
+| Sensor | SN | **proposed — client to confirm** |
+| WAN/SP connection · Remote site | — | no hostname (provider-supplied / another site) |
+
+A new planned device takes the next free 3-digit sequence for its role and floor (`shared/hldRoles.js#nextHostname`). Changing a code affects new devices only; existing hostnames never change on their own (above).
 
 ---
 
