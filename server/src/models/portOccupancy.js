@@ -7,6 +7,8 @@ const { ObjectId } = mongoose.Schema.Types
 // the port-assignment guarantee; rows are written in the same transaction as
 // the connection (or hop) that takes the port.
 const portOccupancySchema = new mongoose.Schema({
+  // One registry per design layer (M4b): double booking is impossible inside a design.
+  layer: { type: String, default: 'hld' },
   deviceId: { type: ObjectId, required: true },
   portId: { type: String, required: true },
   // Case-insensitive identity of the port ("Te1/1/1" = "te1/1/1").
@@ -19,7 +21,7 @@ const portOccupancySchema = new mongoose.Schema({
 
 portOccupancySchema.__modelName = 'PortOccupancy'
 tenantScope(portOccupancySchema, { scope: 'project' })
-portOccupancySchema.index({ projectId: 1, deviceId: 1, portKey: 1 }, { unique: true })
+portOccupancySchema.index({ projectId: 1, layer: 1, deviceId: 1, portKey: 1 }, { unique: true })
 portOccupancySchema.index({ projectId: 1, connectionId: 1 })
 
 export const PortOccupancy = mongoose.models.PortOccupancy || mongoose.model('PortOccupancy', portOccupancySchema)

@@ -333,3 +333,47 @@ organisation settings response now carries the naming codes.
   (no RU); a rack without a PDU then raises VAL-003, as it should. Tests:
   AC-11 in `shared/src/hldRules.test.js` and `api.hld.test.js`, and
   "VAL-003: a planned device in a suggested rack with no PDU".
+
+## Part 6: M4b — LLD, Rackium Editor and design versions
+
+Found and fixed while building and testing M4b, each with a test:
+
+- **The main LLD layer is project-wide, but clearing it was not scoped to the
+  building.** Restore and promote cleared port occupancy and retired cable IDs
+  for the whole `lld` layer, which would have wiped every other building's
+  LLD registries. Clearing now works through the building's own connections
+  and devices. Test: `api.lld.test.js` (concurrent IDs across two buildings,
+  restore and promote cases).
+- **A branch and the main LLD could both take the same new cable ID.** Each
+  claims its own revision and the unique index is per layer, so a plain read
+  of the main registry raced. New branch IDs are now also claimed in the main
+  registry, where the unique index decides. Test: `api.lld.test.js` "a branch
+  and the main LLD writing at the same time cannot both take a new ID".
+- **A branch could take an ID the main LLD gave to a different cable.** The
+  "inherited from main" allowance accepted any main connection of the
+  building. Branch copies now record `originId` and may keep only their own
+  cable's IDs. Test: same test, "keeps its own cable's IDs only".
+- **The Physical Connections tab crashed in real mode**: the prototype NexAI
+  analyser read blueprint suggestions the real topology does not have (blank
+  page). It now tolerates their absence and takes the approved HLD's device
+  count from the server. Test: `NexAiAnalyserPanel.test.jsx`.
+- **A second LLD write clicked during the first one's reload was lost.** It
+  went out with the old revision, was refused as stale, and the first
+  write's reload then cleared the message. LLD writes are now queued, each
+  using the revision the previous one produced. Tests:
+  `client/src/lib/serialQueue.test.js`, `e2e-real/lld.spec.js` (Copy into
+  LLD then Mark reviewed at once).
+- **Rack elevation blocks covered the RU numbers** (existing bug, mock and
+  real): blocks started at the face's left edge. They now start after the
+  number column. Test: `RackElevation.test.jsx`.
+- **Surveyed 0U gear (PDUs) was missing from LLD elevations**: the view did
+  not carry `railSide`. Test: `api.lld.test.js` (rack elevations).
+- **The editor's rack elevation was clipped at 1440 px** (two faces in a
+  narrow column). The elevation has a `compact` one-face mode, used there.
+  Test: `RackElevation.test.jsx` (compact).
+- **The "Place" and "Add from catalogue" rows shared one Rack/RU/Face state**,
+  so adding a panel moved the device form's values. Each row now has its
+  own. Covered by `e2e-real/lld.spec.js` (placement then panel).
+- **A patch-panel hop's suggestion button sat inside the port select's
+  label** (invalid nesting: a click also activated the select). Moved out.
+  Covered by `e2e-real/lld.spec.js` (hop suggestions).

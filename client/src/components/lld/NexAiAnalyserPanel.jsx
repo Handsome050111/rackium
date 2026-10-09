@@ -4,8 +4,9 @@ import { Sparkles, CheckCircle2, AlertTriangle } from 'lucide-react'
 // placements), never typed in — "HLD mapped" devices are the ones with a
 // real rack/room placement, so the variance is a genuine signal, not a
 // decorative number.
-export default function NexAiAnalyserPanel({ topology, lldDeviceCount, hldChanged }) {
-  const hldBaselineCount = topology.devices.length
+// `hldDeviceCount` (real mode): the approved HLD version's device count.
+export default function NexAiAnalyserPanel({ topology, lldDeviceCount, hldChanged, hldDeviceCount }) {
+  const hldBaselineCount = hldDeviceCount ?? topology.devices.length
   const variance = Math.abs(hldBaselineCount - lldDeviceCount)
   const aligned = variance === 0 && !hldChanged
 
@@ -17,7 +18,7 @@ export default function NexAiAnalyserPanel({ topology, lldDeviceCount, hldChange
       </div>
       <Row label="HLD baseline" value={`${hldBaselineCount} managed devices`} />
       <Row label="LLD mapped" value={`${lldDeviceCount} managed devices`} />
-      <Row label="Suggested direct uplinks" value={String(topology.suggestions.uplinks.length)} />
+      <Row label="Suggested direct uplinks" value={String(topology.suggestions?.uplinks.length ?? 0)} />
       <Row label="Design variance" value={String(variance)} />
       <div className={`mt-1 flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium ${
         aligned ? 'bg-status-green/10 text-status-green' : 'bg-status-amber/10 text-status-amber'

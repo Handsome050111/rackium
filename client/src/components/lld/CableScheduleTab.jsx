@@ -5,9 +5,11 @@ import { exportCableScheduleXlsx } from '../../lib/lldExport.js'
 import { useRole } from '../../lib/RoleContext.jsx'
 import { canEditLld } from '../../lib/permissions.js'
 
-export default function CableScheduleTab({ rows, buildingCode, checks, onAssignCableId, onAssignAllMissing, onSetEngineerSelected, frozen }) {
+// `editable` (real mode) overrides the mock role check; `cableIdSuggestion`
+// pre-fills an empty Cable ID (a suggestion, saved only when the user saves).
+export default function CableScheduleTab({ rows, buildingCode, checks, onAssignCableId, onAssignAllMissing, onSetEngineerSelected, frozen, editable: editableProp, cableIdSuggestion = null }) {
   const { role } = useRole()
-  const editable = canEditLld(role) && !frozen
+  const editable = (editableProp ?? canEditLld(role)) && !frozen
   const missing = rows.filter((r) => !r.cableId).length
 
   return (
@@ -21,7 +23,7 @@ export default function CableScheduleTab({ rows, buildingCode, checks, onAssignC
           </span>
         )}
         <div className="ml-auto flex items-center gap-2">
-          {editable && missing > 0 && (
+          {editable && onAssignAllMissing && missing > 0 && (
             <button
               type="button"
               onClick={onAssignAllMissing}
@@ -57,7 +59,7 @@ export default function CableScheduleTab({ rows, buildingCode, checks, onAssignC
           </thead>
           <tbody>
             {rows.map((r) => (
-              <CableRow key={r.id} row={r} editable={editable} onAssignCableId={onAssignCableId} onSetEngineerSelected={onSetEngineerSelected} />
+              <CableRow key={r.id} row={r} editable={editable} onAssignCableId={onAssignCableId} onSetEngineerSelected={onSetEngineerSelected} cableIdSuggestion={cableIdSuggestion} />
             ))}
           </tbody>
         </table>
@@ -66,11 +68,11 @@ export default function CableScheduleTab({ rows, buildingCode, checks, onAssignC
   )
 }
 
-function CableRow({ row, editable, onAssignCableId, onSetEngineerSelected }) {
+function CableRow({ row, editable, onAssignCableId, onSetEngineerSelected, cableIdSuggestion }) {
   return (
     <tr className="border-b border-border/60 last:border-0">
       <td className="whitespace-nowrap px-3 py-1.5">
-        <CableIdCell row={row} editable={editable} onAssign={onAssignCableId} />
+        <CableIdCell row={row} editable={editable} onAssign={onAssignCableId} suggestion={cableIdSuggestion} />
       </td>
       <td className="whitespace-nowrap px-3 py-1.5 text-text-secondary">{row.source.label}</td>
       <td className="whitespace-nowrap px-3 py-1.5 text-text-secondary">
@@ -98,9 +100,9 @@ function CableRow({ row, editable, onAssignCableId, onSetEngineerSelected }) {
   )
 }
 
-function CableIdCell({ row, editable, onAssign }) {
+function CableIdCell({ row, editable, onAssign, suggestion }) {
   const [editing, setEditing] = useState(false)
-  const [value, setValue] = useState(row.cableId ?? '')
+  const [value, setValue] = useState(row.cableId ?? suggestion ?? '')
   const [error, setError] = useState(null)
 
   if (!editable) return row.cableId ?? <span className="text-status-amber">Pending</span>

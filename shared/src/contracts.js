@@ -374,9 +374,23 @@ export const namingRoleCodesSchema = z
   .superRefine((codes, ctx) => {
     for (const message of duplicateRoleCodes(resolveRoleCodes(codes))) ctx.addIssue({ code: 'custom', message })
   })
+// Cable stock lengths (brief §6.3, configurable by the Org Admin; M4b): the
+// whole table, each list ascending, positive metres.
+const lengthList = z
+  .array(z.number().positive().max(10000))
+  .min(1)
+  .max(20)
+  .refine((l) => l.every((v, i) => i === 0 || v > l[i - 1]), 'Lengths must be in ascending order without repeats')
+export const stockLengthsSchema = z.object({
+  cat6a: z.object({ 'same-rack': lengthList, 'same-room': lengthList, 'cross-room': lengthList }),
+  os2: lengthList,
+  om4: lengthList,
+  dac: lengthList,
+  stack: lengthList,
+})
 export const organisationSettingsBody = z
-  .object({ architectsSeePrices: z.boolean().optional(), namingRoleCodes: namingRoleCodesSchema.optional() })
-  .refine((b) => b.architectsSeePrices !== undefined || b.namingRoleCodes !== undefined, { message: 'Nothing to update' })
+  .object({ architectsSeePrices: z.boolean().optional(), namingRoleCodes: namingRoleCodesSchema.optional(), stockLengths: stockLengthsSchema.optional() })
+  .refine((b) => b.architectsSeePrices !== undefined || b.namingRoleCodes !== undefined || b.stockLengths !== undefined, { message: 'Nothing to update' })
 
 // --- M3a: catalogue -------------------------------------------------------
 // Create and replace take the whole item (shared/src/catalogue.js is the one
@@ -510,3 +524,59 @@ export const hldPositionBody = z.object({ x: z.number().finite().min(-100000).ma
 export const hldRevisionQuery = z.object({ baseRevision: z.coerce.number().int().min(0) })
 export const hldSubmitBody = z.object({ buildingId: objectId, baseRevision })
 export const hldDecisionBody = z.object({ buildingId: objectId, decision: z.enum(['approved', 'changes_requested']), comment: z.string().trim().max(2000).optional() })
+
+// --- M4b: LLD, Rackium Editor, design versions ----------------------------------
+// `branchId` (optional) addresses an LLD branch; omitted = the main LLD.
+const branchRef = { branchId: objectId.optional() }
+const cableIdField = z.string().trim().min(1, 'A Cable ID needs 1 to 32 characters').max(32, 'A Cable ID needs 1 to 32 characters')
+const lldEnd = z.object({ deviceId: objectId, portId: z.string().trim().min(1).max(40).nullable().optional() })
+export const lldHop = z.object({
+  patchPanelId: objectId,
+  inPort: z.string().trim().min(1).max(40),
+  outPort: z.string().trim().min(1).max(40),
+  segmentCableId: cableIdField.nullable().optional(),
+})
+const lldConnectionFields = {
+  source: lldEnd,
+  dest: lldEnd,
+  media: z.enum(OPTIC_MEDIA),
+  speed: z.enum(HLD_SPEEDS),
+  sourceSfpCode: z.string().trim().min(1).max(200).nullable().optional(),
+  destSfpCode: z.string().trim().min(1).max(200).nullable().optional(),
+  hops: z.array(lldHop).max(8).optional(),
+  cableId: cableIdField.nullable().optional(),
+  engineerSelectedM: z.number().positive().max(100000).nullable().optional(),
+}
+export const lldStartBody = z.object({ buildingId: objectId })
+export const lldRebaseBody = z.object({ buildingId: objectId, baseRevision })
+export const lldCopyBody = z.object({ buildingId: objectId, hldDeviceIds: z.array(objectId).max(200).default([]), hldConnectionIds: z.array(objectId).max(400).default([]), baseRevision })
+export const lldDeviceCreateBody = z.object({ buildingId: objectId, ...branchRef, catalogueKey: z.string().trim().min(1).max(200), rackId: objectId, ru: z.number().int().min(1).max(60).nullable(), face: z.enum(['front', 'rear']).default('front'), label: z.string().trim().min(1).max(60).optional(), baseRevision })
+export const lldPlacementBody = z.object({ rackId: objectId.nullable(), ru: z.number().int().min(1).max(60).nullable(), face: z.enum(['front', 'rear']).default('front'), baseRevision })
+export const lldConnectionCreateBody = z.object({ buildingId: objectId, ...branchRef, ...lldConnectionFields, baseRevision })
+export const lldConnectionUpdateBody = z.object({
+  source: lldEnd.optional(),
+  dest: lldEnd.optional(),
+  media: z.enum(OPTIC_MEDIA).optional(),
+  speed: z.enum(HLD_SPEEDS).optional(),
+  sourceSfpCode: z.string().trim().min(1).max(200).nullable().optional(),
+  destSfpCode: z.string().trim().min(1).max(200).nullable().optional(),
+  hops: z.array(lldHop).max(8).optional(),
+  cableId: cableIdField.nullable().optional(),
+  engineerSelectedM: z.number().positive().max(100000).nullable().optional(),
+  baseRevision,
+})
+export const lldViewQuery = z.object({ branchId: objectId.optional() })
+const hostnameField = z.string().trim().regex(/^[A-Za-z0-9][A-Za-z0-9-]{0,62}$/, 'Letters, digits and hyphens, up to 63 characters')
+export const lldRenamePreviewBody = z
+  .object({ buildingId: objectId, ...branchRef, renames: z.array(z.object({ deviceId: objectId, hostname: hostnameField })).max(500).optional(), regenerate: z.boolean().optional() })
+  .refine((b) => b.regenerate || b.renames?.length, { message: 'Give the new hostnames, or regenerate them from the naming codes' })
+export const lldRenameBody = z
+  .object({ buildingId: objectId, ...branchRef, renames: z.array(z.object({ deviceId: objectId, hostname: hostnameField })).max(500).optional(), regenerate: z.boolean().optional(), baseRevision })
+  .refine((b) => b.regenerate || b.renames?.length, { message: 'Give the new hostnames, or regenerate them from the naming codes' })
+export const lldVersionBody = z.object({ buildingId: objectId, ...branchRef, label: z.string().trim().min(1).max(80) })
+export const lldDiffQuery = z.object({ buildingId: objectId, from: z.string().regex(/^([a-f0-9]{24}|current(:[a-f0-9]{24})?)$/), to: z.string().regex(/^([a-f0-9]{24}|current(:[a-f0-9]{24})?)$/) })
+export const lldRestoreBody = z.object({ ...branchRef, baseRevision })
+export const lldBranchBody = z.object({ buildingId: objectId, name: z.string().trim().min(1).max(80), fromVersionId: objectId.optional() })
+export const lldBranchPromoteBody = z.object({ baseRevision })
+export const lldSubmitBody = z.object({ buildingId: objectId, baseRevision })
+export const lldDecisionBody = z.object({ buildingId: objectId, decision: z.enum(['approved', 'changes_requested']), comment: z.string().trim().max(2000).optional() })

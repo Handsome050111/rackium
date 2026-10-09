@@ -13,6 +13,8 @@ const designVersionSchema = new mongoose.Schema({
   number: { type: Number, required: true, min: 1 },
   label: { type: String, default: null },
   basedOnVersionId: { type: ObjectId, default: null },
+  // The LLD branch the version was saved on (null = the main design).
+  branchId: { type: ObjectId, default: null },
   frozen: { type: Boolean, default: false },
   frozenAt: { type: Date, default: null },
   changeSummaries: { type: [String], default: [] },

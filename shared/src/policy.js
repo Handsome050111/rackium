@@ -57,6 +57,8 @@ export const ACTIONS = {
   RESERVE_RU: 'reserve_ru',
   BLOCK_RU: 'block_ru',
   IMPORT_SURVEY_INTO_HLD: 'import_survey_into_hld',
+  // DATA-MODEL §7: an explicit hostname rename (preview, then apply) — M4b.
+  RENAME_HOSTNAMES: 'rename_hostnames',
 }
 
 // Who may perform each action. An Org Admin's organisation-level role grants
@@ -90,6 +92,7 @@ const MATRIX = {
   [ACTIONS.RESERVE_RU]: ['architect'],
   [ACTIONS.BLOCK_RU]: ['org_admin', 'pm'],
   [ACTIONS.IMPORT_SURVEY_INTO_HLD]: ['architect', 'pm'],
+  [ACTIONS.RENAME_HOSTNAMES]: ['architect', 'pm'],
 }
 
 // Roles a user may hold at each level. Invitations and memberships are

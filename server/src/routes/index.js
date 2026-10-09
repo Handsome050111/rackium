@@ -11,11 +11,12 @@ import { catalogueRoutes } from './catalogue.js'
 import { cmoRoutes } from './cmo.js'
 import { surveyRoutes } from './survey.js'
 import { hldRoutes } from './hld.js'
+import { lldRoutes } from './lld.js'
 import { fileRoutes } from './files.js'
 
 export const API_VERSION = '1'
 
-export function apiRouter({ config, auth, org, hierarchy, blockers, viewAs, dashboard, catalogue, cmo, survey, files, hld, rateLimits, openapiDocument, version }) {
+export function apiRouter({ config, auth, org, hierarchy, blockers, viewAs, dashboard, catalogue, cmo, survey, files, hld, lld, rateLimits, openapiDocument, version }) {
   const r = recordingRouter()
 
   r.get('/health', (req, res) => {
@@ -42,6 +43,7 @@ export function apiRouter({ config, auth, org, hierarchy, blockers, viewAs, dash
     ['/orgs/:orgId/projects/:projectId/cmo', cmoRoutes({ config, cmo })],
     ['/orgs/:orgId/projects/:projectId/survey', surveyRoutes({ config, survey })],
     ['/orgs/:orgId/projects/:projectId/hld', hldRoutes({ config, hld })],
+    ['/orgs/:orgId/projects/:projectId/lld', lldRoutes({ config, lld })],
     ['/orgs/:orgId/projects/:projectId/files', fileRoutes({ config, files })],
   ]
   for (const [prefix, subRouter] of mounts) {

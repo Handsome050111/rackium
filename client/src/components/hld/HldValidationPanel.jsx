@@ -8,7 +8,7 @@ const SECTIONS = [
 
 // Validation results (brief v2.3 §6.8): findings grouped Critical / Warning /
 // Info with their rule ID; a finding on an uplink or device selects it.
-export default function HldValidationPanel({ result, onSelectFinding, onClose }) {
+export default function HldValidationPanel({ result, onSelectFinding, onClose, designLabel = 'HLD' }) {
   const { findings, summary } = result
   return (
     <div data-testid="hld-validation" className="space-y-3 rounded-xl border border-border bg-surface p-4">
@@ -31,7 +31,7 @@ export default function HldValidationPanel({ result, onSelectFinding, onClose })
       {findings.length === 0 && (
         <p className="flex items-center gap-1.5 text-xs font-medium text-status-green">
           <CheckCircle2 size={14} strokeWidth={2} />
-          No findings — the HLD can be submitted.
+          No findings — the {designLabel} can be submitted.
         </p>
       )}
       {SECTIONS.map((s) => {

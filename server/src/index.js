@@ -7,6 +7,9 @@ import { connectDatabase, disconnectDatabase } from './db/connect.js'
 import { createApp, VERSION } from './app.js'
 import { createEmailSender } from './email/index.js'
 import { seedPlatformCatalogue } from './catalogue/seed.js'
+import { Device } from './models/device.js'
+import { PortOccupancy } from './models/portOccupancy.js'
+import { CableIdRegistry } from './models/cableIdRegistry.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 dotenv.config({ path: path.join(here, '..', '.env'), quiet: true })
@@ -26,6 +29,9 @@ async function main() {
   const logger = createLogger({ level: config.LOG_LEVEL, pretty: config.NODE_ENV === 'development' })
   await connectDatabase(config.MONGODB_URI)
   logger.info({ version: VERSION, env: config.NODE_ENV }, 'database connected (replica set)')
+  // M4b made hostname, port and cable-ID uniqueness per design layer: replace
+  // the older project-wide unique indexes on databases created before it.
+  for (const Model of [Device, PortOccupancy, CableIdRegistry]) await Model.syncIndexes()
   const seeded = await seedPlatformCatalogue()
   logger.info(seeded, 'platform catalogue seeded (placeholder data; existing rows untouched)')
 

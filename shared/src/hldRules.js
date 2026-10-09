@@ -56,6 +56,17 @@ const finding = (rule, objectType, objectId, message, extra = {}) => ({
 
 const isSfpPortType = (type) => /SFP|QSFP/i.test(String(type ?? ''))
 
+// Does a port type take a medium? RJ45 takes Cat6A; SFP/QSFP cages take
+// fibre optics, DAC and stack cables; LC/SC (fibre patch panels) take fibre.
+// Unknown port types are not judged.
+export function portSuitsMedia(portType, media) {
+  const t = String(portType ?? '')
+  if (/RJ45/i.test(t)) return media === 'cat6a'
+  if (/SFP|QSFP/i.test(t)) return media !== 'cat6a'
+  if (/^(LC|SC|MPO)/i.test(t)) return media === 'os2' || media === 'om4'
+  return true
+}
+
 // The length limit of a link: the media limit, lowered by either end's optic reach.
 export function linkLimitM(conn, opticOf) {
   const limits = [DEFAULT_MEDIA_LIMITS_M[conn.media]]
@@ -108,6 +119,12 @@ export function connectionFindings(conn, ctx) {
       }
     } else if (OPTICAL_MEDIA.has(conn.media)) {
       out.push(finding('I-TBD', 'connection', conn.id, `${label()}: no SFP chosen at the ${side === 'source' ? 'source' : 'destination'} end`, { suffix: `sfp-${side}` }))
+    }
+    // VAL-001 also covers the port itself: copper media on an optical port, or
+    // fibre/DAC on an RJ45 port. (An optic on an RJ45 port is VAL-002 above.)
+    if (item && end.portId && !sfp) {
+      const port = expandPortMap(item.portMap).find((p) => p.id.toLowerCase() === String(end.portId).toLowerCase())
+      if (port && !portSuitsMedia(port.type, conn.media)) out.push(finding('VAL-001', 'connection', conn.id, `${label()}: ${port.id} is ${port.type}, the link is ${conn.media.toUpperCase()}`, { suffix: `port-${side}` }))
     }
     // Info: the link runs below what the port can do.
     if (item && end.portId) {

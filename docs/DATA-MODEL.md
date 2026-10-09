@@ -825,7 +825,41 @@ Not built yet (v2.2 §3.6A.2): *full mesh*, *collapsed core*, *routed access*, o
 
 **Survey changed after import** is shown on the HLD per open flag: the tab, the room, and each field change since the flag was raised (before → after, who), from the survey audit trail.
 
-**Not in M4a:** presence and locking (real-time), the logical topology (VLANs), CMO overlay ghost icons, Break Uplink / Reroute / Replace Endpoint / Split / Merge, and an explicit hostname rename action.
+**Not in M4a:** presence and locking (real-time), the logical topology (VLANs), CMO overlay ghost icons, Break Uplink / Reroute / Replace Endpoint / Split / Merge, and an explicit hostname rename action (added in M4b, §5.14).
+
+### 5.14 LLD, Rackium Editor and design versions as built in M4b (brief §5.4, §6.1–6.4, §6.10)
+
+Decisions marked ★ are interpretations — proposed, to confirm.
+
+**Design layers ★.** Planned devices, connections and both registries carry a `layer`: `hld`, `lld` (the main LLD) or `lld:<branchId>` (an LLD branch). Rows from before M4b have no layer and count as `hld`; surveyed (`existing`) devices have none and are shared by every design. Uniqueness moved from the project to the layer: `devices (projectId, layer, hostname)`, `portOccupancy (projectId, layer, deviceId, portKey)`, `cableIdRegistry (projectId, layer, cableKey)`. The server re-syncs these indexes at boot so older databases drop the project-wide ones. The dashboard device count and the HLD read only the `hld` layer.
+
+**LLD from the approved HLD ★.** Starting the LLD (Architect) copies the latest approved HLD version's snapshot into the `lld` layer: devices (with their suggested rack, no RU) and uplinks (with ports and optics), each with `hldRef` = the HLD item it came from. From then on the two evolve independently; nothing re-syncs. HLD cable IDs are **not** copied — the LLD assigns them (brief §5.4).
+
+**`lldDesigns`** (new, one per building): `revision` · `state` (`draft` / `awaiting_approval` / `approved` / `changes_requested`) · `basedOnHldVersionId` · `basedOnHldNumber` · `pendingApprovalId` · `latestApprovedVersionId` · `startedBy` · `lastEditedAt` / `lastEditedBy`. Stale saves are refused exactly as in the HLD (§5.13). LLD phase status per building is calculated from the state (`in_progress` once started).
+
+**HLD → LLD reconciliation.** When a newer HLD version is approved the LLD shows "Based on HLD vN — HLD has changed" and, on request, a side-by-side comparison through `hldRef`: devices and uplinks only in the HLD, only in the LLD, and changed (devices: role, model, room; uplinks: endpoints, media, speed, optics). The Architect copies chosen HLD items in ("Copy into LLD"), then "Mark reviewed against HLD vN" moves the baseline. LLD-only items (patch panels, cable managers) have no `hldRef` and are never reported.
+
+**Rack elevations.** The Architect places the layer's devices by rack, RU and face (or unplaces them). The server applies the shared rack rules (`shared/rackValidation.js`: per-face overlap, full depth, rack boundary, 0U on rails) against surveyed gear, active RU states and the design's other devices, and names the clash. Patch panels, cable managers and accessories are added from the catalogue into a rack (label `PP-<rack>-NN` / `CM-<rack>-NN`).
+
+**Rackium Editor (port mapping).** Ports come from the catalogue port map (a surveyed panel without a model gets 24/48 numbered ports from its label). **Patch-panel ports have a rear and a front ★:** a hop takes the panel's rear port (in) and front port (out); a cable ending on a panel lands on its front. `portKey` for a panel side is `<port>#rear` / `<port>#front`. The system suggests the first free port compatible with the medium; it never assigns one. Ends, hops (≤ 8; `patchPanelId`, `inPort`, `outPort`, optional `segmentCableId`; rack, room and RU recorded from the panel) and the cable ID are written with their occupancy and registry rows in **one transaction**; a clash aborts it (409 `port_in_use` / `cable_id_in_use`). VAL-001 now also checks the port type against the medium (RJ45 ↔ Cat6A, SFP/QSFP ↔ fibre/DAC, LC/SC/MPO ↔ fibre).
+
+**Cable IDs.** Suggestion: the next free 8-digit number (from 26184735) over every ID in the project's registry, retired ones included. Free text 1–32 characters, unique per project ignoring case, across connection and hop-segment IDs, never reused. A branch inherits its main design's IDs; a **new** ID on a branch is also claimed in the main registry (as retired, owned by the branch connection), so the unique index arbitrates between a branch and the main LLD writing at the same time, and a discarded branch's IDs stay used ★. A branch connection records `originId` (the main connection it was copied from) and may keep only that connection's IDs.
+
+**Cable lengths.** Suggested = the shared formulas (same rack: RU distance; same room: rack positions; cross room: surveyed pathway + slack), rounded up to the organisation's **`settings.stockLengths`** (new; Org Admin; Cat6A per situation, the other media one list each; default = the brief's table, `DEFAULT_STOCK_LENGTHS`). Engineer Selected (`lengths.engineerSelectedM`) is editable and overrides; Installed comes with deployment. **Estimated** is calculated: no pathway, an `estimated` pathway, or a surveyed one without a distance. VAL-011 (over the medium/optic limit, Critical), VAL-012 (no stock length long enough, Warning), VAL-013 (duplicate ID — the registry refuses it up front).
+
+**LLD checks ★** (on top of the HLD rules, all Critical, block submit): `L-PORT` (a connection end without a port), `L-CABLE-ID` (a connection without a cable ID), `L-PLACEMENT` (a rack-mounted device without a rack, or with a rack but no RU; APs and external roles exempt), `L-HOP` (a hop whose panel is not in the design, whose ports do not exist, or whose panel type does not suit the medium).
+
+**Tabs (client audit).** Physical Connections (renamed from Connectivity), Rack Elevations, Port Schedule, Cable Schedule with Cable ID as the first column; both schedules export to Excel.
+
+**Design versions (§5.6) as built.** "Save version" (Architect) writes a `designVersions` row (`designType: lld`, `label`, `branchId` when saved on a branch, `basedOnVersionId` = the HLD version) with the layer's full snapshot as a `files` row. History lists every version; any two (or the current main design or an open branch) can be compared — devices and connections added, removed and changed, field by field. **Restore** replaces the main LLD or a branch with a version's contents; restoring into the layer it came from keeps record ids, so a cable gets its own ID back; the versions themselves never change. Submitting writes a version too; approval freezes it (read-only, shown "Approved · frozen").
+
+**`branches`** (§5.6) as built (`designBranches`): `buildingId` · `designType` (`lld`) · `name` · `parentVersionId` (null = from the current main LLD) · `status` · `revision` (a branch has its own revision) · `createdBy` · `resolvedBy` / `resolvedAt`. A branch is the layer `lld:<branchId>`. **Promote** replaces the main LLD with the branch (its records move to the `lld` layer; refused if one of its new cable IDs is held elsewhere in the project); **discard** deletes it. No merge. Submit and approval act on the main LLD only.
+
+**Hostname rename (§7).** Architect or PM: type new names or regenerate them from the organisation naming codes, preview every change with problems (two devices sharing a name, a name used by a surveyed device), then apply in one transaction with one audit entry (`device.hostname.renamed`, one change per device). Renames apply to the LLD layer; the HLD keeps its names. **Refused once any LLD version is approved ★** (409 `change_request_required`); change requests arrive with M5.
+
+**Workflow.** As the HLD: the Architect submits (refused with Critical findings), a PM or Reviewer decides, never the submitter, through the generic `approvals` record with gate `lld_internal`.
+
+**Not in M4b:** change requests (M5), real-time presence, merging branches, LLD for HLD changes made after LLD approval other than by reconciliation, and installed lengths (deployment).
 
 ---
 

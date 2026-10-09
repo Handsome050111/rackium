@@ -18,6 +18,8 @@ const organisationSchema = new mongoose.Schema({
     architectsSeePrices: { type: Boolean, default: false },
     // Hostname role codes over the defaults (shared/hldRoles.js; M4a).
     namingRoleCodes: { type: Map, of: String, default: {} },
+    // Cable stock lengths (shared/cableLength.js DEFAULT_STOCK_LENGTHS shape); null = the default table (M4b).
+    stockLengths: { type: mongoose.Schema.Types.Mixed, default: null },
   },
   createdAt: { type: Date, default: () => new Date() },
   deletedAt: { type: Date, default: null },

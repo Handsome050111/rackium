@@ -14,6 +14,8 @@ import RealSiteStructure from './pages/realSurvey/RealSiteStructure.jsx'
 import RealRackSurvey from './pages/realSurvey/RealRackSurvey.jsx'
 import RealRoomDetails from './pages/realSurvey/RealRoomDetails.jsx'
 import RealHld from './pages/RealHld.jsx'
+import RealLld from './pages/RealLld.jsx'
+import RealRackiumEditor from './pages/RealRackiumEditor.jsx'
 import OrganisationSettings from './pages/OrganisationSettings.jsx'
 import Catalogue from './pages/Catalogue.jsx'
 import CatalogueItem from './pages/CatalogueItem.jsx'
@@ -116,6 +118,8 @@ export default function App() {
           <Route path="room" element={<RealRoomDetails />} />
         </Route>
         <Route path="projects/:projectId/buildings/:buildingId/hld" element={<RealHld />} />
+        <Route path="projects/:projectId/buildings/:buildingId/lld" element={<RealLld />} />
+        <Route path="projects/:projectId/buildings/:buildingId/lld/editor" element={<RealRackiumEditor />} />
         <Route path="projects/:projectId/buildings/:buildingId/:phaseKey" element={<RealPhasePlaceholder />} />
         <Route path="settings" element={<OrganisationSettings />} />
         <Route path="catalogue" element={<Catalogue />} />

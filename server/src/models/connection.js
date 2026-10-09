@@ -29,6 +29,13 @@ export const CONNECTION_SPEEDS = ['1G', '2.5G', '10G', '25G', '40G', '100G']
 
 const connectionSchema = new mongoose.Schema({
   buildingId: { type: ObjectId, required: true, index: true },
+  // Design layer (M4b): 'hld', 'lld' or 'lld:<branchId>'; null = 'hld' (pre-M4b rows).
+  layer: { type: String, default: null },
+  // The HLD uplink an LLD connection was copied from (reconciliation).
+  hldRef: { type: ObjectId, default: null },
+  // On a branch copy: the main-LLD connection it came from (it may keep that
+  // connection's cable IDs, nothing else).
+  originId: { type: ObjectId, default: null },
   source: { type: endSchema, required: true },
   dest: { type: endSchema, required: true },
   media: { type: String, enum: CONNECTION_MEDIA, required: true },
