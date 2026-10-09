@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { Camera, Upload, CheckCircle2, AlertTriangle, ExternalLink, Lock } from 'lucide-react'
 import RequirementBadge from './RequirementBadge.jsx'
 import { parseHintOptions, fieldFormatError } from '../../lib/surveyFormModel.js'
+import { useSurveyMedia } from './SurveyMediaContext.js'
+import { PhotoField, FileField } from './PhotoField.jsx'
 
 const inputClass =
   'h-9 w-full rounded-lg border border-border bg-surface px-2.5 text-xs text-text focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20 disabled:cursor-not-allowed disabled:bg-surface-muted disabled:text-text-secondary'
@@ -20,6 +22,10 @@ const SERIAL_STATUS_STYLE = {
 export default function FormField({ field, value, confirmed, onChange, onConfirm, editable, calculatedValue, onValidateSerial, linkTo, compact }) {
   const [serialStatus, setSerialStatus] = useState(null)
   const [checking, setChecking] = useState(false)
+  const media = useSurveyMedia()
+  // Set by real mode on fields the caller's role may not fill (e.g. an
+  // Architect sees non-prefill fields); the server refuses them anyway.
+  if (field.readOnlyForRole) editable = false
 
   if (calculatedValue !== undefined) {
     return (
@@ -64,6 +70,22 @@ export default function FormField({ field, value, confirmed, onChange, onConfirm
             </button>
           ))}
         </div>
+      </Field>
+    )
+  }
+
+  // Real mode: real photos and files (a div, not a label — the controls hold buttons).
+  if (media && (field.type === 'photo' || field.type === 'photo_multi')) {
+    return (
+      <Field label={field.label} requirement={field.requirement} compact={compact} asDiv>
+        <PhotoField label={field.label} value={value} editable={editable} multi={field.type === 'photo_multi'} onChange={onChange} />
+      </Field>
+    )
+  }
+  if (media && field.type === 'file') {
+    return (
+      <Field label={field.label} requirement={field.requirement} compact={compact} asDiv>
+        <FileField label={field.label} value={value} editable={editable} onChange={onChange} />
       </Field>
     )
   }
@@ -182,20 +204,21 @@ export default function FormField({ field, value, confirmed, onChange, onConfirm
   )
 }
 
-function Field({ label, requirement, hint, compact, children }) {
+function Field({ label, requirement, hint, compact, asDiv, children }) {
   if (compact) {
     // Used inside a table cell, where the column header already carries the
     // label/badge — just the control.
     return <div>{children}</div>
   }
+  const Wrapper = asDiv ? 'div' : 'label'
   return (
-    <label className="block space-y-1">
+    <Wrapper className="block space-y-1">
       <span className="flex items-center gap-1.5 text-xs text-text-secondary">
         {label}
         <RequirementBadge requirement={requirement} />
       </span>
       {children}
       {hint && !parseHintOptions(hint) && <p className="text-[10px] text-text-secondary">{hint}</p>}
-    </label>
+    </Wrapper>
   )
 }

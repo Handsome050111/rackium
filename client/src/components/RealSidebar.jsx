@@ -49,7 +49,10 @@ function SidebarContent({ showLabels, orgId, projectId, buildingId, onNavigate }
     setPhases(null)
     if (!orgId || !projectId || !buildingId) return undefined
     let active = true
-    dashboardApi.getBuildingDashboard(orgId, projectId, buildingId).then((r) => active && setPhases(r.phases))
+    dashboardApi
+      .getBuildingDashboard(orgId, projectId, buildingId)
+      .then((r) => active && setPhases(r.phases))
+      .catch(() => active && setPhases(null)) // e.g. a building outside the caller's scope
     return () => {
       active = false
     }

@@ -44,6 +44,10 @@ export async function recordAudit({
   buildingId = null,
   phaseKey = null,
   viewAsSessionId = null,
+  // Offline replay (DATA-MODEL §5.7): when the edit was queued, and whether it
+  // overwrote a change made meanwhile (last save wins).
+  offlineQueuedAt = null,
+  conflict = false,
   session = null,
 }) {
   if (!actor?.type) throw new Error('recordAudit requires an actor')
@@ -68,6 +72,8 @@ export async function recordAudit({
         buildingId,
         phaseKey,
         viewAsSessionId,
+        offlineQueuedAt,
+        conflict,
         batchId,
       })
       saved.push(await entry.save({ session }))

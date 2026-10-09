@@ -48,6 +48,15 @@ export const ACTIONS = {
   // the devices that land Unassigned at SAL level.
   IMPORT_CMO: 'import_cmo',
   ASSIGN_CMO_DEVICE: 'assign_cmo_device',
+  // M3b, brief v2.3 §5.2 / §4.1: floors, rooms, racks and pathways are
+  // created and edited during the survey (Field Engineer, within scope) as
+  // well as pre-created by PM or Architect. Deleting stays
+  // MANAGE_HIERARCHY_DETAIL. Reserved RU is the Architect's, blocked RU the
+  // PM's or Org Admin's, and the Architect cannot override a block.
+  EDIT_SITE_STRUCTURE: 'edit_site_structure',
+  RESERVE_RU: 'reserve_ru',
+  BLOCK_RU: 'block_ru',
+  IMPORT_SURVEY_INTO_HLD: 'import_survey_into_hld',
 }
 
 // Who may perform each action. An Org Admin's organisation-level role grants
@@ -77,6 +86,10 @@ const MATRIX = {
   [ACTIONS.VIEW_AS]: ['org_admin'],
   [ACTIONS.IMPORT_CMO]: ['org_admin', 'pm'],
   [ACTIONS.ASSIGN_CMO_DEVICE]: ['pm'],
+  [ACTIONS.EDIT_SITE_STRUCTURE]: ['org_admin', 'pm', 'architect', 'field_engineer'],
+  [ACTIONS.RESERVE_RU]: ['architect'],
+  [ACTIONS.BLOCK_RU]: ['org_admin', 'pm'],
+  [ACTIONS.IMPORT_SURVEY_INTO_HLD]: ['architect', 'pm'],
 }
 
 // Roles a user may hold at each level. Invitations and memberships are

@@ -9,6 +9,10 @@ import ProjectSettings from './pages/ProjectSettings.jsx'
 import RealBuildingDashboard from './pages/RealBuildingDashboard.jsx'
 import RealPhasePlaceholder from './pages/RealPhasePlaceholder.jsx'
 import RealCmo from './pages/RealCmo.jsx'
+import RealSurveyLayout from './pages/realSurvey/RealSurveyLayout.jsx'
+import RealSiteStructure from './pages/realSurvey/RealSiteStructure.jsx'
+import RealRackSurvey from './pages/realSurvey/RealRackSurvey.jsx'
+import RealRoomDetails from './pages/realSurvey/RealRoomDetails.jsx'
 import OrganisationSettings from './pages/OrganisationSettings.jsx'
 import Catalogue from './pages/Catalogue.jsx'
 import CatalogueItem from './pages/CatalogueItem.jsx'
@@ -104,6 +108,12 @@ export default function App() {
         <Route path="projects/:projectId/settings" element={<ProjectSettings />} />
         <Route path="projects/:projectId/buildings/:buildingId" element={<RealBuildingDashboard />} />
         <Route path="projects/:projectId/buildings/:buildingId/cmo" element={<RealCmo />} />
+        <Route path="projects/:projectId/buildings/:buildingId/survey" element={<RealSurveyLayout />}>
+          <Route index element={<RealSiteStructure key="building" mode="building" />} />
+          <Route path="campus" element={<RealSiteStructure key="campus" mode="campus" />} />
+          <Route path="rack" element={<RealRackSurvey />} />
+          <Route path="room" element={<RealRoomDetails />} />
+        </Route>
         <Route path="projects/:projectId/buildings/:buildingId/:phaseKey" element={<RealPhasePlaceholder />} />
         <Route path="settings" element={<OrganisationSettings />} />
         <Route path="catalogue" element={<Catalogue />} />

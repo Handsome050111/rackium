@@ -6,7 +6,7 @@ import { testConfig } from './config.js'
 
 export function createTestApp({ rateLimits, config: overrides } = {}) {
   const config = testConfig(overrides)
-  const logger = createLogger({ level: 'silent' })
+  const logger = createLogger({ level: process.env.TEST_LOG_LEVEL ?? 'silent' })
   const mailer = createMemoryEmailSender()
   const limits = rateLimits ?? { ...DEFAULT_RATE_LIMITS, enabled: false }
   const app = createApp({ config, logger, mailer, rateLimits: limits })
@@ -42,4 +42,16 @@ export async function signedInOrgAdmin(t, { email = 'owner@example.com', organis
   const res = await agent.post('/api/v1/auth/login').send({ email, password: PASSWORD }).expect(200)
   const orgId = res.body.memberships.find((m) => m.level === 'organisation').organisationId
   return { agent, orgId, userId: res.body.user.id, email }
+}
+
+// Gives a project one real building (B001) and returns its id — blockers and
+// other building-level calls must name a building of the project in scope.
+export async function addBuilding(admin, projectId, code = 'B001') {
+  const base = `/api/v1/orgs/${admin.orgId}/projects/${projectId}`
+  await admin.agent
+    .post(`${base}/hierarchy/import`)
+    .send({ rows: [{ countryCode: 'DE', countryName: 'Germany', salCode: 'ERL', campusCode: 'C01', buildingCode: code, buildingName: `Building ${code}`, wingCode: '', wingName: '' }] })
+    .expect(201)
+  const project = (await admin.agent.get(base).expect(200)).body.project
+  return project.buildings.find((b) => b.code === code).id
 }

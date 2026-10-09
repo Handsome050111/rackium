@@ -120,6 +120,18 @@ describe('policy (v2.3 §4.3)', () => {
     for (const role of ["field_engineer", "viewer"]) expect(canSeePrices([role], { architectsSeePrices: true })).toBe(false)
   })
 
+  it("survey: structure editing includes the Field Engineer; RU reserve is Architect-only, RU block PM or Org Admin", () => {
+    for (const role of ["org_admin", "pm", "architect", "field_engineer"]) expect(can([role], ACTIONS.EDIT_SITE_STRUCTURE)).toBe(true)
+    for (const role of ["reviewer", "viewer"]) expect(can([role], ACTIONS.EDIT_SITE_STRUCTURE)).toBe(false)
+    expect(can(["architect"], ACTIONS.RESERVE_RU)).toBe(true)
+    expect(can(["pm"], ACTIONS.RESERVE_RU)).toBe(false)
+    expect(can(["pm"], ACTIONS.BLOCK_RU)).toBe(true)
+    expect(can(["org_admin"], ACTIONS.BLOCK_RU)).toBe(true)
+    expect(can(["architect"], ACTIONS.BLOCK_RU)).toBe(false)
+    expect(can(["architect"], ACTIONS.IMPORT_SURVEY_INTO_HLD)).toBe(true)
+    expect(can(["field_engineer"], ACTIONS.IMPORT_SURVEY_INTO_HLD)).toBe(false)
+  })
+
   it("CMO: Org Admin and PM import; only the PM assigns Unassigned devices (brief v2.3 §5.1)", () => {
     expect(can(["org_admin"], ACTIONS.IMPORT_CMO)).toBe(true)
     expect(can(["pm"], ACTIONS.IMPORT_CMO)).toBe(true)

@@ -220,3 +220,79 @@ after the build step, with the Chromium browser cached by `actions/cache`
 (keyed on the installed `@playwright/test` version) so a cache hit skips the
 ~100MB+ download and only reinstalls the OS packages, which is quick. Job
 timeout raised from 45 to 60 minutes.
+
+## Part 4: M3b — Physical Site Survey on the backend
+
+Bugs found while building and testing M3b, each with the test that now
+catches it:
+
+- **Placing a CMO device wiped its serial.** The placement contract defaulted
+  an omitted serial to `null`, so dragging a CMO device into a rack without
+  restating the serial cleared it and its registry entry. Identity fields
+  are now optional (omitted = keep), and an imported CMO serial cannot be
+  changed from the rack. Test: `api.survey-structure.test.js` "placing a CMO
+  device keeps its serial".
+- **RU-state delete guard blocked racks forever.** Released RU states kept
+  blocking rack deletion. The guard now counts active rows only
+  (`registerDeleteGuard` filter).
+- **Offline queue conflicted with itself.** Conflicts were detected per
+  record, so every queued edit after the first (all sharing the base from
+  when the tab was opened) was reported as overwriting the user's own edit.
+  Conflicts are now field-level and only for changes by another user. Tests:
+  `api.survey-forms.test.js` "the user's own queued edits sharing one base
+  never conflict" and "removing a row a colleague changed … is a conflict".
+- **Temporary ids for new rack items.** Undo could resurrect an identified
+  device under a new temporary id, which then collided with itself on its
+  serial. New items now get a client-chosen device id. Test:
+  `api.survey-structure.test.js` "a new item keeps the id the client chose
+  across saves, removal and undo".
+- **Reused file id.** A client-chosen file id already used by another
+  user's (or another tenant's) file returned that file's metadata, or a 500
+  on the duplicate key. Now 409 `upload_exists`. Test: `api.files.test.js`
+  "an id already used by someone else's file is refused".
+- **Survey evidence removable after submission.** A Field Engineer could
+  delete photos from a Submitted or Verified tab. Now refused until the tab
+  is back in Draft. Test: `api.files.test.js` "a survey tab's photos cannot be
+  removed once it is submitted".
+- **Pathway distance lost when leaving the page.** The distance saves after
+  a short typing pause; leaving within it dropped the value. The page now
+  flushes the pending save on unmount. Test: `e2e-real/survey.spec.js`
+  (structure step, "Regression: a distance typed just before leaving").
+- **Too-broad console-error filter in the new e2e.** The survey spec first
+  ignored every "Failed to load resource"; it now ignores network failures
+  only while the network is deliberately cut, and collects errors only
+  after sign-in.
+
+Found, not fixed (reported):
+
+- Mock mode's survey completeness never counts calculated "Must" fields
+  (fixed in the shared engine used by real mode; mock left unchanged).
+- ~~Existing M2/M3a endpoints (dashboard, CMO) do not enforce membership
+  scopes yet~~ — fixed in the M3b review round below.
+
+### M3b review round: membership scopes everywhere
+
+Scopes are now enforced by one server helper (`server/src/access/scope.js`)
+on the dashboard, blockers, CMO, project list and project home as well as
+the survey. Found and fixed on the way, each with a test:
+
+- **Dashboard, blockers and CMO ignored scopes.** A building-scoped user
+  could open any building's dashboard, list and resolve its blockers, read
+  the whole CMO inventory and (as a scoped PM) import into or assign
+  devices to buildings outside their scope. Tests:
+  `server/test/api.scope-enforcement.test.js` (dashboard, blockers, CMO,
+  project list and home) and `client/e2e-real/scope.spec.js`.
+- **An Org Admin with a scoped project membership was limited by it** on the
+  survey endpoints. The Org Admin is never limited now. Test:
+  `api.scope-enforcement.test.js` "Org Admin is never limited".
+- **Blockers could be raised against any building id**, even one not in the
+  project. Now 404. The M2 tests that used a made-up id now create a real
+  building (`addBuilding` test helper).
+- **The real dashboard hung on "Loading…"** (with an unhandled promise
+  rejection) when the building could not be loaded. It now says the
+  building is not in the part of the project the user can see, and the
+  sidebar no longer throws. Test: `client/e2e-real/scope.spec.js`.
+- **The CMO screen defaulted the import SAL to the building's own SAL**,
+  which would have refused a building-scoped PM's whole import. It now
+  offers only SALs within the caller's scope (covered by the server test's
+  scoped-import case).

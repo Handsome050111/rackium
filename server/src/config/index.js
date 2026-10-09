@@ -17,6 +17,8 @@ const schema = z
     RESEND_API_KEY: z.string().optional(),
     EMAIL_FROM: z.string().min(3).default('Rackium <no-reply@localhost>'),
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+    // Local-disk file store (DATA-MODEL §9, hosting: files on the VPS disk behind a storage interface).
+    FILE_STORAGE_DIR: z.string().min(1).default('var/files'),
   })
   .superRefine((cfg, ctx) => {
     if (cfg.EMAIL_PROVIDER === 'resend' && !cfg.RESEND_API_KEY) {

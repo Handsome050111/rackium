@@ -6,7 +6,7 @@ import { rackInstanceCalculatedValue } from '../../lib/surveyFormModel.js'
 // Structure), reconciled by api/surveyFormsDesign.js. `rack_elevation`
 // links into the existing Rack Survey screen instead of being a typed
 // field — brief: "do not rebuild it".
-export default function RackLayoutSection({ section, instances, rackList, buildingId, editable, onFieldChange, onValidateSerial }) {
+export default function RackLayoutSection({ section, instances, rackList, buildingId, rackLinkFor, editable, onFieldChange, onValidateSerial }) {
   if (rackList.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-border bg-surface p-4 text-center text-xs text-text-secondary">
@@ -33,7 +33,7 @@ export default function RackLayoutSection({ section, instances, rackList, buildi
                     value={instance[field.key]}
                     editable={editable}
                     calculatedValue={calculated}
-                    linkTo={field.type === 'rack_elevation' ? `/b/${buildingId}/survey/rack?rack=${rack.id}` : undefined}
+                    linkTo={field.type === 'rack_elevation' ? (rackLinkFor ? rackLinkFor(rack.id) : `/b/${buildingId}/survey/rack?rack=${rack.id}`) : undefined}
                     onChange={(v) => onFieldChange(rack.id, field.key, v)}
                     onValidateSerial={field.type === 'serial' ? onValidateSerial : undefined}
                   />

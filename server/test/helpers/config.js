@@ -1,3 +1,6 @@
+import os from 'node:os'
+import path from 'node:path'
+
 export const testConfig = (overrides = {}) => ({
   NODE_ENV: 'test',
   PORT: 0,
@@ -10,5 +13,7 @@ export const testConfig = (overrides = {}) => ({
   EMAIL_FROM: 'Rackium <test@localhost>',
   LOG_LEVEL: 'silent',
   IS_PRODUCTION: false,
+  // One fresh directory per test process; files never touch the repo.
+  FILE_STORAGE_DIR: path.join(os.tmpdir(), `rackium-test-files-${process.pid}`),
   ...overrides,
 })

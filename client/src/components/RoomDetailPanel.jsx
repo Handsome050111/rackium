@@ -47,7 +47,8 @@ function StatusSelect({ label, value, options, onChange, disabled }) {
   )
 }
 
-export default function RoomDetailPanel({ room, floor, meta, onMetaChange, disabled }) {
+// `evidence`: real mode passes its own photo control; mock mode keeps the local slots.
+export default function RoomDetailPanel({ room, floor, meta, onMetaChange, disabled, evidence }) {
   return (
     <div className="space-y-3 rounded-xl border border-border bg-surface p-4">
       <div className="flex items-center gap-2 text-sm font-semibold text-text">
@@ -91,7 +92,7 @@ export default function RoomDetailPanel({ room, floor, meta, onMetaChange, disab
 
       <div className="border-t border-border pt-3">
         <div className="mb-2 text-xs font-medium text-text-secondary">Photos ({meta.photoCount} attached)</div>
-        <EvidenceSlots labels={['Room', 'Rack area']} disabled={disabled} />
+        {evidence ?? <EvidenceSlots labels={['Room', 'Rack area']} disabled={disabled} />}
       </div>
     </div>
   )

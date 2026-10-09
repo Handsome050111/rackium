@@ -42,6 +42,8 @@ const config = {
   EMAIL_FROM: 'Rackium <e2e@localhost>',
   LOG_LEVEL: 'silent',
   IS_PRODUCTION: false,
+  // Survey photos uploaded during the e2e run (gitignored).
+  FILE_STORAGE_DIR: path.join(here, '.runtime-files'),
 }
 
 async function main() {

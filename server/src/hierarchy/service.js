@@ -34,14 +34,15 @@ const CHILD_CHECKS = {
 
 // Call from a later module's own file to add a dependency check, e.g.
 // registerDeleteGuard('rack', { model: Device, field: 'rackId', label: 'devices' }).
+// An optional `filter` narrows what counts (e.g. only active rows).
 export function registerDeleteGuard(level, guard) {
   if (!CHILD_CHECKS[level]) throw new Error(`Unknown hierarchy level: ${level}`)
   CHILD_CHECKS[level].push(guard)
 }
 
 async function assertDeletable(level, id) {
-  for (const { model, field } of CHILD_CHECKS[level]) {
-    const count = await model.countDocuments({ [field]: id })
+  for (const { model, field, filter } of CHILD_CHECKS[level]) {
+    const count = await model.countDocuments({ [field]: id, ...(filter ?? {}) })
     if (count > 0) throw conflict('has_children', `Cannot delete: it still has ${model.modelName.toLowerCase()} records under it`)
   }
 }

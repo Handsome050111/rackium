@@ -13,7 +13,8 @@ import { resetDemoData } from '../lib/persistentStore.js'
 
 function UserMenu() {
   const { role, setRole } = useRole()
-  const { isOffline, setOffline, pendingCount, syncing } = useOffline()
+  const { isOffline, setOffline, pendingCount: mockPending, realPending = 0, syncing } = useOffline()
+  const pendingCount = mockPending + realPending
   const { user, mode, signOut } = useAuth()
   const [open, setOpen] = useState(false)
   const menuRef = useRef(null)

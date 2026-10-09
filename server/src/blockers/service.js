@@ -62,16 +62,17 @@ export function createBlockersService() {
       return toBlocker(blocker)
     },
 
-    async listForBuilding({ buildingId }) {
-      return (await blockersForBuilding(buildingId)).map(toBlocker)
+    // `scope` (access/scope.js) hides SAL-level blockers outside the caller's scope.
+    async listForBuilding({ buildingId, scope = null }) {
+      return (await blockersForBuilding(buildingId)).filter((b) => !scope || scope.coversItem(b)).map(toBlocker)
     },
 
     // Transitions follow DATA-MODEL §5.10: open/in_progress -> resolved and
     // open -> in_progress need the owner or a PM; resolved -> open (reopen)
     // is open to any project member. Reassigning the owner is PM only.
-    async update({ organisationId, projectId, actor, actorRoles, id, body }) {
+    async update({ organisationId, projectId, actor, actorRoles, id, body, scope = null }) {
       const blocker = await Blocker.findById(id)
-      if (!blocker) throw notFound('Blocker not found')
+      if (!blocker || (scope && !scope.coversItem(blocker))) throw notFound('Blocker not found')
       const isPm = actorRoles.includes('pm')
       const isOwner = blocker.ownerId && String(blocker.ownerId) === String(actor.userId)
       const before = { status: blocker.status, ownerId: blocker.ownerId }

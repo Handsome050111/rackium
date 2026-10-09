@@ -102,6 +102,15 @@ Run in CI against a replica set, with two organisations of two projects each.
 - Unique: `(organisationId, userId)` where `level = organisation` and `revokedAt` is null; `(projectId, userId)` where `level = project` and `revokedAt` is null.
 - Brief §4.3 and §2.6: a Field Engineer scoped to one building sees only that building.
 
+**Scope enforcement** (M3b review; one server helper, `server/src/access/scope.js`, used by every project route):
+
+- A scoped member sees and acts only within their scope: dashboard (quick stats, blockers, recent activity, phase status), blockers (list, raise, update), CMO (inventory, KPIs, preview, import, assign), the project list and project home (buildings and progress), and the whole survey (structure, pathways, rack survey, forms, files).
+- **Out of scope is 404**, indistinguishable from not there. Lists are filtered rather than refused.
+- **The Org Admin is never limited**, even with a scoped project membership of their own. Unscoped project members and View As sessions see the whole project.
+- Items in a building are in scope when the building is. **SAL-level items** (an Unassigned CMO device and its system blocker, which have no building yet) are in scope for SAL and country scopes covering that SAL, not for a building scope. A building-scoped member therefore does not see the SAL's Unassigned devices or their blockers on the dashboard, and their building's CMO status may still reflect them.
+- CMO import by a scoped PM: rows for buildings outside the scope are blocked rows ("Building … is outside your scope"); rows without a building go to a SAL within the scope (a building-scoped importer has none, so those rows are blocked); naming a SAL outside the scope is refused.
+- Raising a blocker requires a real building of the project in scope (earlier any id was accepted).
+
 **`invitations`** [C]
 
 - `organisationId` · `projectId` (R) · `email` (R, case-insensitive) · `role` (R) · `scopes[]` (as above) · `invitedBy` (R) · `tokenHash` (R, unique; SHA-256 of a 32-byte random token, as in §5.5) · `expiresAt` (Date, R) · `status` (`pending` / `accepted` / `expired` / `revoked`, R) · `acceptedAt` (Date, O).
@@ -246,6 +255,16 @@ Run in CI against a replica set, with two organisations of two projects each.
 - Embedded `cablePath`: `mainCableEntry`, `pathway`, `secondaryEntry` (Strings), `verticalManagers`, `horizontalManagers` (Numbers ≥ 0).
 - Embedded `accessibility`: `front`, `rear`, `left`, `right` (`accessible` / `not_accessible`).
 - Reserved and blocked RUs are not on the rack. See §4.2.
+
+**As built in M3b (rooms, racks, rack survey; supersedes the points above where they differ):**
+
+- Room `survey` also takes `power: not_available` and `environment: issue` (the prototype's room panel offers both), plus `updatedAt` / `updatedBy`. Photo count is computed from `files`.
+- Rack facts (`details`, `mountingPower`, `cablePath`, `accessibility`) are stored as validated sub-documents (Mixed, shape checked by `rackFactsBody`); `frontClearanceMm` / `rearClearanceMm` sit under `accessibility`, as the prototype shows them. Editing facts is `EDIT_SITE_STRUCTURE` (Org Admin, PM, Architect, Field Engineer).
+- Rack revisions live on the rack as `surveyRevision` `{ revision, savedAt, savedBy, autosavedAt }` instead of a separate `rackRevisions` collection (§5.6): one row per rack either way, and it saves a join. Autosave sets `autosavedAt` only; Save Version increments `revision`.
+- Existing devices placed in the Rack Survey are `devices` rows (`origin = existing`) with the placement fields `ru` (null for 0U), `heightU`, `face`, `fullDepth`, `mounting` (`rack` / `0U`), `railSide`, `category`, `label`, `sublabel`. A newly placed item's id is chosen by the client (24-hex, like file ids) so autosave and undo keep addressing the same device. Removing gear unplaces identified devices (CMO or with a serial) and deletes anonymous library items.
+- Placement validation re-runs `shared/rackValidation.js` server-side (overlap per face, full-depth, boundary, height) against every other placement and the active RU states. Serials and MACs go through the project registry; an imported CMO device's serial cannot be changed from the rack; an omitted serial/MAC keeps the stored one.
+- The readiness summary is calculated on read (`shared/rackReadiness.js`), never stored.
+- Floors, rooms and racks are created by Org Admin, PM, Architect and Field Engineer (`EDIT_SITE_STRUCTURE`), within the caller's membership scopes. There is no separate "structure verified" state: the Architect verifies the structure through the survey tabs (§5.4), which carry the rooms and racks (Comms Rooms Summary, Rack Layout).
 
 ### 3.9 Project settings [M partial `projectSettings.js`, `powerStandards.js`; C rest]
 
@@ -435,6 +454,10 @@ Renamed from "building connection". Device links keep the name *connection*.
 - Unique `(projectId, roomLowId, roomHighId)`. Rooms may sit in different buildings (brief §5.2).
 - The mock's `fromRoomId` and `toRoomId` become the normalised pair. A route has no meaningful direction.
 
+**As built in M3b:** `buildingIds` (`[ObjectId]`, one or two) replaces the single `buildingId`, so a cross-building route is listed and audited under both buildings. Evidence photos are `files` attached to the pathway (no `fileIds` array). `updatedBy` / `updatedAt` are kept. The API returns pathways in the `{ fromRoomId, toRoomId, routeStatus, distanceM }` shape `shared/pathway.js` and `shared/cableLength.js` take. A room with pathways cannot be deleted.
+
+**RU states as built in M3b (§4.2):** a released state keeps its row (`releasedAt`, `releasedBy`); only active rows block rack deletion. Setting a state over an occupied RU is refused (409).
+
 ### 4.6 CMO, lifecycle imports and import batches [M `cmoDesign.js`] (brief §5.1)
 
 **`importBatches`**: `projectId` (R) · `type` (`cmo` / `lifecycle`, R) · `uploadedBy` (R) · `uploadedAt` (Date, R) · `sourceFileId` (ObjectId → `files`, R) · `rowCount` (Number, R) · `status` (`previewed` / `committed` / `rejected`, R) · `summary` (embedded counts by outcome).
@@ -623,6 +646,17 @@ Sequence: `designed` → `approved` → `installed` → `tested` → `accepted` 
 
 **Survey custom field** — `surveyCustomFields`: `projectId` · `organisationId` · `tab` (R) · `key` (`custom_<id>`, R, immutable) · `label` (R) · `type` (R) · `requirement` (always `unspecified`). Custom fields are stored and shown. They are never used in calculations or completeness. Scoped per project; the mock keys them by tab name only (§13).
 
+**As built in M3b (supersedes the points above where they differ):**
+
+- **Field values** are stored per field: `{ key, value, confirmed, updatedBy, updatedAt }`. `value` is Mixed, validated against the template field type on every write: String, Number, Boolean, null, or `{ fileIds: [ObjectId] }` for photo and file fields (several for `photo_multi` and galleries). `updatedBy` / `updatedAt` per field drive the conflict report (§5.7). Table and Rack Layout rows are `rows[] { rowId, rackId?, rowKey?, fieldValues }`; `item_list` rows are keyed by `rowKey` (the template row) with one value per column.
+- **Edits are operations** (`shared/surveyForm.js`): `setField`, `confirmField`, `addRow`, `duplicateRow`, `removeRow`; row ids are chosen by the client so an offline replay is idempotent. The same validator runs in the browser and on the server: the Field Engineer fills everything; Architect and PM set only prefill fields, and only while the tab is Draft or Rejected; only the Field Engineer confirms `prefilled_validated` fields on site; calculated fields are refused. A Submitted tab is locked until the Architect verifies or rejects it.
+- **Calculated values** (building/room identity, rack name and sequence in Rack Layout, Comms Rooms Summary RU and PDU counts from the rack survey) are merged in on read and shown read-only. Completeness counts them. The prototype never counted calculated must fields, so a started row with a calculated must column could never be submitted; that bug is fixed in the shared engine and left as it is in mock mode.
+- **Workflow**: transitions are conditional updates on `status` and `version`, each audited (`survey.tab.submitted` / `verified` / `rejected` / `imported`). Editing a Verified tab reverts it to Draft with `survey.tab.reverted`; editing an Imported tab does the same and also raises the `survey_changed_after_import` design flag (one open flag per record). Importing the building (all tabs Verified, Architect or PM) resolves open flags.
+- **Custom fields are organisation-level** (`surveyCustomFields` with `organisationId`, no `projectId`), managed by the Org Admin and shown at the end of the tab's first section in every project of the organisation. Never counted for completeness or used in calculations.
+- **Survey phase status** per building is calculated (`computeSurveyPhaseStatus`): `approved` when the building has at least one room and every expected tab (building tabs once, room tabs per room) is Verified or Imported; `changes_requested` while any tab is Rejected; `in_progress` once any tab has data or has left Draft; otherwise `not_started`. Shown on the dashboard, sidebar and project list; never stored.
+- **Scope**: membership scopes (country / SAL / building) are enforced on every survey, structure, pathway and file endpoint; out of scope is 404 (§1.6, "Scope enforcement").
+- `templateVersion` is stored on each record. The template is the bundled `docs/survey-fields.json`; there is no `surveyTemplates` collection yet.
+
 ### 5.5 Solution Package and share links [M `shareLink.js`, `requiredInputsStore.js`] (brief §5.5) [D15]
 
 **Share link** — `shareLinks`:
@@ -662,6 +696,14 @@ Sequence: `designed` → `approved` → `installed` → `tested` → `accepted` 
 - Queued edits replay in `queuedAt` order, each in its own transaction.
 - A replay compares the record's `lastModifiedAt` with the edit's base. A later server change is a conflict. The last save wins, and the conflict is written to the audit entry's `conflict` field and reported to the user.
 - Photos captured offline upload on sync. `capturedAt` comes from the device, not from the sync time.
+
+**As built in M3b:**
+
+- Offline covers survey tab edits (including rows) and photos. Site structure and the rack layout stay online-only, as in the prototype; their screens turn read-only while offline.
+- The browser queues each edit in IndexedDB with `opId`, `queuedAt` and the tab's base `lastModifiedAt` (the epoch for a never-saved tab, so a colleague's first edit still counts). Photos are compressed and stored as blobs under a client-chosen file id that the queued edit already references.
+- On reconnect, photos upload first (chunked, resuming from what the server has), then the edits go to `POST …/survey/sync` in `queuedAt` order; an edit waiting on a photo that has not arrived is held back. Each edit runs in its own transaction; `processedOps (projectId, opId)` makes a retried sync a no-op.
+- **Conflict = field level**: a field (or row) this edit touches that **another user** changed after the edit's base. The editor's own earlier edits never count (a queue sharing one base used to report every edit after the first as a conflict with itself). Last save wins; the result and the audit entry (`source: offline_sync`, `offlineQueuedAt`, `conflict: true`) carry each overwritten field with its previous value, the new value, and who changed it when. An edit to a row removed meanwhile is skipped and reported; an edit to a Submitted tab is rejected and reported.
+- A tab already opened this session reopens offline from memory.
 
 ### 5.8 CMDB operational change (brief §5.8)
 
@@ -875,6 +917,14 @@ Audit entries are kept for the life of the organisation. The GDPR purge (brief �
 | Import source | import batch | `import_source` |
 | Design snapshot | design version | `data_snapshot` |
 
+### 9.4 As built in M3b
+
+- **Storage** is an interface (`put`, `append`, `read`, `stream`, `move`, `remove`) with a local-disk implementation for the VPS (`FILE_STORAGE_DIR`). Keys are `files/<projectId>/<fileId>` and `thumbs/<projectId>/<fileId>`; key format and the storage root are checked on every call.
+- **Uploads are chunked and resumable** (`uploads` collection): `POST …/files/uploads` with a **client-chosen** `fileId`, name, declared type, size, SHA-256, category and attachment; `PATCH …/uploads/:fileId?offset=` appends a chunk only at the received offset (409 `offset_mismatch` tells the client where to resume); `POST …/complete` checks size and SHA-256 (422 on mismatch), sniffs the real content type from the bytes (415 for anything not a photo, PDF, Excel or CSV — a renamed file is caught), applies the per-type limit from organisation settings (413), makes a 320 px JPEG thumbnail for photos (`sharp`), and creates the `files` row with `_id = fileId`. A file id already used anywhere is refused (409), never overwritten.
+- **Downloads only through authorised API calls** (`GET …/files/:id/content` and `/thumbnail`, session cookie): project, organisation and the caller's building scope are checked on every request; `Cache-Control: private`; images inline, everything else as an attachment. This replaces short-lived signed URLs, which a single-server VPS deployment does not need. EXIF handling and `geo` are not implemented yet.
+- **Write rights**: survey-tab files are the Field Engineer's; room, rack and pathway evidence may be added by anyone who edits the site structure. Viewers read only. Files on a Submitted, Verified or Imported tab cannot be removed until the tab is back in Draft. Deletion is soft (`deletedAt`, `deletedBy`).
+- Survey photos use category `photo_reference`; `photo_room` / `photo_rack` are accepted but the screens do not distinguish them yet.
+
 ---
 
 ## 10. Uniqueness, transactions and atomic operations
@@ -940,6 +990,11 @@ Audit entries are kept for the life of the organisation. The GDPR purge (brief �
 
 1. **Phase mapping per work type (F1, D4).** Until confirmed, the PM picks active phases manually or through a preset (§3.10).
 2. **Phase gating defaults (D3).** PM may add not-started phases; phases with data cannot be removed (§3.2).
+
+**Backlog** (agreed, not scheduled yet):
+
+- **Offline rack survey.** M3b's offline mode covers survey tab edits and photos only (§5.7); the rack layout (placements, RU states, rack facts) and site structure are read-only while offline. Taking the rack survey offline needs queued placement saves that the shared rack rules re-check on sync, and a conflict rule for two people changing the same rack.
+- **Photo EXIF/GPS handling.** Photos are stored as uploaded after browser compression (§9.4); EXIF is not read. To build: `capturedAt` from EXIF when present, EXIF GPS copied to `files.geo` only with the uploader's consent, and EXIF stripped from exported files (§9.2).
 
 ## 12. Decision trace
 

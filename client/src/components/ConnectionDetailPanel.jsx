@@ -6,7 +6,8 @@ const ROUTE_STATUS_OPTIONS = [
   { value: 'estimated', label: 'Estimated' },
 ]
 
-export default function ConnectionDetailPanel({ connection, onChange, disabled }) {
+// `evidence` and `actions`: real-mode photo control and extra buttons; mock mode keeps the local slots.
+export default function ConnectionDetailPanel({ connection, onChange, disabled, evidence, actions }) {
   return (
     <div className="space-y-3 rounded-xl border border-border bg-surface p-4">
       <div className="flex items-center gap-2 text-sm font-semibold text-text">
@@ -66,8 +67,9 @@ export default function ConnectionDetailPanel({ connection, onChange, disabled }
 
       <div className="border-t border-border pt-3">
         <div className="mb-2 text-xs font-medium text-text-secondary">Evidence</div>
-        <EvidenceSlots labels={['Route 1', 'Route 2']} disabled={disabled} />
+        {evidence ?? <EvidenceSlots labels={['Route 1', 'Route 2']} disabled={disabled} />}
       </div>
+      {actions}
     </div>
   )
 }

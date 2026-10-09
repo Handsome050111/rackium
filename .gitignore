@@ -20,4 +20,7 @@ node_modules
 
 # Real-mode Playwright harness runtime output (server/e2e/testServer.mjs)
 server/e2e/.runtime-emails.json
+# Local file storage (development) and the e2e server's file store
+server/var/
+server/e2e/.runtime-files/
 client/dist-real/

@@ -60,7 +60,9 @@ export default function RealCmo() {
 
   const building = context?.buildings.find((b) => b.id === buildingId) ?? null
 
-  const salId = pickedSalId || building?.salId || ''
+  // Only a SAL the caller's scope covers (a building-scoped user has none:
+  // rows without a building are then refused per row by the server).
+  const salId = pickedSalId || (context?.sals.some((s) => s.id === building?.salId) ? building.salId : '')
 
   const unassignedBySal = useMemo(() => {
     if (!context) return []

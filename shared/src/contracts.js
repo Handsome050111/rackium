@@ -206,6 +206,163 @@ export const blockerUpdateBody = z
 
 export const viewAsStartBody = z.object({ projectId: objectId, role: z.enum(PROJECT_ROLES) })
 
+// --- M3b: site structure, rack survey, survey forms, files, sync ---------
+const nonNegInt = z.number().int().min(0).max(100000)
+// During the survey a room or rack may be added with a generated code
+// (TR-<floor>-NN, R0N), as in the prototype.
+export const surveyRoomCreateBody = z.object({ floorId: objectId, code: z.string().trim().min(1).max(40).optional(), name: placeName.optional() })
+export const surveyRackCreateBody = z.object({ roomId: objectId, code: z.string().trim().min(1).max(20).optional(), heightU: z.coerce.number().int().positive().default(42) })
+export const roomSurveyBody = z
+  .object({
+    access: z.enum(['verified', 'not_verified']).optional(),
+    power: z.enum(['available', 'not_available', 'unknown']).optional(),
+    environment: z.enum(['verified', 'to_verify', 'issue', 'unknown']).optional(),
+  })
+  .refine((v) => Object.keys(v).length > 0, { message: 'Provide at least one survey fact' })
+
+const sockets = z.object({ totalSockets: nonNegInt, freeSockets: nonNegInt }).nullable()
+export const rackFactsBody = z.object({
+  details: z
+    .object({
+      type: z.string().trim().max(60).nullable(),
+      standard: z.string().trim().max(60).nullable(),
+      externalDepthMm: nonNegInt.nullable(),
+      usableDepthMm: nonNegInt.nullable(),
+      railDistanceMm: nonNegInt.nullable(),
+      condition: z.string().trim().max(60).nullable(),
+    })
+    .partial()
+    .optional(),
+  mountingPower: z
+    .object({
+      cageNutType: z.string().trim().max(30).nullable(),
+      availableCageNutSets: nonNegInt.nullable(),
+      mountingRails: z.string().trim().max(60).nullable(),
+      redundantPower: z.enum(['available', 'not_available']).nullable(),
+      earthingVerified: z.boolean().nullable(),
+      pduA: sockets,
+      pduB: sockets,
+    })
+    .partial()
+    .optional(),
+  cablePath: z
+    .object({
+      mainCableEntry: z.string().trim().max(120).nullable(),
+      pathway: z.string().trim().max(120).nullable(),
+      secondaryEntry: z.string().trim().max(120).nullable(),
+      verticalManagers: nonNegInt.nullable(),
+      horizontalManagers: nonNegInt.nullable(),
+    })
+    .partial()
+    .optional(),
+  accessibility: z
+    .object({
+      front: z.enum(['accessible', 'not_accessible']).nullable(),
+      rear: z.enum(['accessible', 'not_accessible']).nullable(),
+      left: z.enum(['accessible', 'not_accessible']).nullable(),
+      right: z.enum(['accessible', 'not_accessible']).nullable(),
+      frontClearanceMm: nonNegInt.nullable(),
+      rearClearanceMm: nonNegInt.nullable(),
+    })
+    .partial()
+    .optional(),
+})
+
+export const pathwayCreateBody = z.object({
+  fromRoomId: objectId,
+  toRoomId: objectId,
+  routeStatus: z.enum(['surveyed', 'estimated']).default('estimated'),
+  distanceM: z.number().positive().max(100000).nullable().default(null),
+})
+export const pathwayUpdateBody = z
+  .object({ routeStatus: z.enum(['surveyed', 'estimated']).optional(), distanceM: z.number().positive().max(100000).nullable().optional() })
+  .refine((v) => v.routeStatus !== undefined || v.distanceM !== undefined, { message: 'Provide routeStatus or distanceM' })
+
+// One rack's existing gear, replaced as a whole on every (auto)save. A
+// placement with deviceId moves that device (a CMO device of the building, or
+// one placed earlier); without it a new existing device is recorded.
+export const rackPlacementBody = z.object({
+  deviceId: objectId.nullable().default(null),
+  ru: z.number().int().min(0).max(60),
+  heightU: z.number().int().min(0).max(60),
+  face: z.enum(['front', 'rear']),
+  fullDepth: z.boolean().default(false),
+  mounting: z.enum(['rack', '0U']).default('rack'),
+  railSide: z.enum(['left', 'right']).nullable().default(null),
+  category: z.string().trim().max(60).nullable().default(null),
+  label: z.string().trim().min(1).max(120),
+  sublabel: z.string().trim().max(120).nullable().default(null),
+  // Identity: omitted = keep what the device has; null = clear it.
+  catalogueKey: z.string().trim().max(200).nullable().optional(),
+  hostname: z.string().trim().max(120).nullable().optional(),
+  model: z.string().trim().max(120).nullable().optional(),
+  serial: z.string().trim().max(120).nullable().optional(),
+  mac: z.string().trim().max(40).nullable().optional(),
+})
+export const rackPlacementsBody = z.object({ placements: z.array(rackPlacementBody).max(200) })
+export const ruStateBody = z.object({
+  ru: z.number().int().min(1).max(60),
+  face: z.enum(['front', 'rear', 'both']),
+  state: z.enum(['reserved', 'blocked']),
+  reason: z.string().trim().max(200).nullable().default(null),
+})
+
+const surveyTarget = { buildingId: objectId, roomId: objectId.nullable().default(null), tab: z.string().trim().min(1).max(80) }
+const surveyOp = z.object({
+  kind: z.enum(['setField', 'confirmField', 'addRow', 'duplicateRow', 'removeRow']),
+  sectionIndex: z.number().int().min(0).max(20),
+  key: z.string().trim().max(120).optional(),
+  value: z.union([z.string().max(2000), z.number(), z.boolean(), z.null(), z.object({ fileIds: z.array(objectId).max(50) })]).optional(),
+  confirmed: z.boolean().optional(),
+  rowId: objectId.optional(),
+  newRowId: objectId.optional(),
+  rackId: objectId.optional(),
+  rowKey: z.string().trim().max(120).optional(),
+})
+export const surveyEditBody = z.object({ ...surveyTarget, op: surveyOp, baseLastModifiedAt: z.string().datetime().nullable().default(null) })
+export const surveyTransitionBody = z.object({ ...surveyTarget, action: z.enum(['submit', 'verify', 'reject']), reason: z.string().trim().max(1000).default('') })
+export const surveyRecordQuery = z.object({ buildingId: objectId, roomId: objectId.optional(), tab: z.string().trim().min(1).max(80) })
+export const surveyImportBody = z.object({ buildingId: objectId })
+export const surveySyncBody = z.object({
+  edits: z
+    .array(
+      z.object({
+        opId: z.string().regex(/^[A-Za-z0-9_-]{8,64}$/),
+        queuedAt: z.string().datetime(),
+        ...surveyTarget,
+        op: surveyOp,
+        baseLastModifiedAt: z.string().datetime().nullable().default(null),
+      })
+    )
+    .min(1)
+    .max(500),
+})
+export const surveyCustomFieldBody = z.object({
+  tab: z.string().trim().min(1).max(80),
+  label: z.string().trim().min(1).max(120),
+  type: z.enum(['text', 'number', 'yes_no']).default('text'),
+})
+
+export const FILE_CATEGORIES = ['photo_room', 'photo_rack', 'photo_reference', 'photo_device_label', 'evidence', 'document']
+export const fileAttachment = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('surveyTab'), ...surveyTarget }),
+  z.object({ type: z.literal('room'), id: objectId }),
+  z.object({ type: z.literal('rack'), id: objectId }),
+  z.object({ type: z.literal('pathway'), id: objectId }),
+])
+export const uploadStartBody = z.object({
+  // Chosen by the client so an offline edit can reference the photo before it uploads.
+  fileId: objectId,
+  fileName: z.string().trim().min(1).max(255),
+  mimeType: z.string().trim().min(3).max(100),
+  sizeBytes: z.number().int().min(1).max(50 * 1024 * 1024),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  category: z.enum(FILE_CATEGORIES),
+  attachedTo: fileAttachment,
+  capturedAt: z.string().datetime().nullable().default(null),
+  caption: z.string().trim().max(200).nullable().default(null),
+})
+
 // --- Organisation-level permissions and settings (M3a review) -------------
 export const projectCreationBody = z.object({ allowed: z.boolean() })
 export const organisationSettingsBody = z.object({ architectsSeePrices: z.boolean() })

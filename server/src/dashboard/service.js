@@ -4,6 +4,7 @@ import { PhaseStatus } from '../models/phaseStatus.js'
 import { Device } from '../models/device.js'
 import { blockersForBuilding } from '../blockers/service.js'
 import { cmoStatusByBuilding } from '../cmo/service.js'
+import { surveyStatusByBuilding } from '../survey/formService.js'
 import { AuditEntry } from '../models/auditEntry.js'
 import { notFound } from '../http/errors.js'
 
@@ -15,21 +16,25 @@ const HIDDEN_FROM_NON_ADMIN = new Set(['view_as_access', 'platform_access'])
 // the imported devices (M3a), never stored (DATA-MODEL §5.1).
 export function createDashboardService() {
   return {
-    async getBuildingDashboard({ buildingId, activePhases, isOrgAdmin }) {
+    // `scope` (access/scope.js): SAL-level blockers (Unassigned CMO devices)
+    // are shown only to callers whose scope covers that SAL.
+    async getBuildingDashboard({ buildingId, activePhases, isOrgAdmin, scope = null }) {
       const building = await Building.findById(buildingId).lean()
       if (!building) throw notFound('Building not found')
 
       const statusRows = await PhaseStatus.find({ buildingId }).lean()
       const statusByPhase = new Map(statusRows.map((r) => [r.phaseKey, r]))
       const cmoStatus = (await cmoStatusByBuilding()).get(String(building._id)) ?? 'not_started'
+      const surveyStatus = (await surveyStatusByBuilding()).get(String(building._id)) ?? 'not_started'
       const phases = activePhases.map(({ phaseKey, position }) => {
         if (phaseKey === 'cmo') return { phaseKey, position, status: cmoStatus, subLabel: null }
+        if (phaseKey === 'survey') return { phaseKey, position, status: surveyStatus, subLabel: null }
         const row = statusByPhase.get(phaseKey)
         return { phaseKey, position, status: row?.status ?? 'not_started', subLabel: row?.subLabel ?? null }
       })
       const completionPercent = computeOverallProgress(phases)
 
-      const blockers = await blockersForBuilding(buildingId)
+      const blockers = (await blockersForBuilding(buildingId)).filter((b) => !scope || scope.coversItem(b))
       const deviceCount = await Device.countDocuments({ buildingId })
       const openBlockers = blockers.filter((b) => b.status !== 'resolved')
 
