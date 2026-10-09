@@ -9,7 +9,7 @@ const none = (value) => Promise.resolve(value)
 // write carries the revision the screen loaded; a stale one comes back as a
 // 409 `stale_revision` with who changed it.
 export const hldApi = {
-  library: (o, p) => (real ? apiRequest(`${base(o, p)}/library`) : none({ roles: [], optics: [], presets: [] })),
+  library: (o, p) => (real ? apiRequest(`${base(o, p)}/library`) : none({ roles: [], optics: [], presets: [], variants: [] })),
   view: (o, p, buildingId) => (real ? apiRequest(`${base(o, p)}/buildings/${buildingId}`) : none(null)),
   validate: (o, p, buildingId) => (real ? apiRequest(`${base(o, p)}/buildings/${buildingId}/validation`) : none({ findings: [], summary: { critical: 0, warning: 0, info: 0, blocksSubmit: false } })),
   generate: (o, p, body) => (real ? apiRequest(`${base(o, p)}/generate`, { method: 'POST', body }) : none(null)),

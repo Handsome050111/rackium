@@ -29,6 +29,7 @@ const EMPTY = {
   poeBudgetW: '',
   psuCount: '',
   needsUplinkModule: false,
+  requiresDualPsu: false,
   groups: [],
   opticMedia: 'om4',
   opticSpeed: '10G',
@@ -93,6 +94,7 @@ function toPayload(form) {
     poeBudgetW: num(form.poeBudgetW),
     psuCount: num(form.psuCount),
     needsUplinkModule: form.needsUplinkModule,
+    requiresDualPsu: form.requiresDualPsu,
     portMap: form.groups.length
       ? { groups: form.groups.map((g) => ({ role: g.role, type: g.type, speed: g.speed || null, poe: g.poe, count: num(g.count), start: num(g.start) ?? 1, pattern: g.pattern })) }
       : null,
@@ -263,6 +265,7 @@ export default function CatalogueItemForm() {
           <input type="number" min="0" value={form.psuCount} onChange={(e) => set({ psuCount: e.target.value })} className={inputClass} />
         </Field>
         <Check label="Needs uplink module" checked={form.needsUplinkModule} onChange={(v) => set({ needsUplinkModule: v })} />
+        <Check label="Requires dual PSU" checked={form.requiresDualPsu} onChange={(v) => set({ requiresDualPsu: v })} />
       </section>
 
       <section className="space-y-3 rounded-xl border border-border bg-surface p-4">

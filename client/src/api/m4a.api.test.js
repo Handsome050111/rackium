@@ -20,7 +20,7 @@ describe('M4a HLD API module', () => {
     vi.stubGlobal('fetch', vi.fn())
     vi.resetModules()
     const { hldApi } = await import('./hldApi.js')
-    expect(await hldApi.library('o', 'p')).toEqual({ roles: [], optics: [], presets: [] })
+    expect(await hldApi.library('o', 'p')).toEqual({ roles: [], optics: [], presets: [], variants: [] })
     expect(await hldApi.validate('o', 'p', 'b')).toMatchObject({ findings: [] })
     expect(fetch).not.toHaveBeenCalled()
   })

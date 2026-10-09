@@ -45,8 +45,12 @@ test('set up: a project whose B001 survey is verified', async ({ browser }) => {
   const { floor } = await post(fe, '/survey/floors', { buildingId: b001, token: 'EG', name: 'Ground floor', order: 0 })
   const { room: main } = await post(fe, '/survey/rooms', { floorId: floor.id })
   const { room: second } = await post(fe, '/survey/rooms', { floorId: floor.id })
-  await post(fe, '/survey/racks', { roomId: main.id })
-  await post(fe, '/survey/racks', { roomId: second.id })
+  const racks = [(await post(fe, '/survey/racks', { roomId: main.id })).rack, (await post(fe, '/survey/racks', { roomId: second.id })).rack]
+  // Each rack has a PDU (the HLD suggests racks for its devices; VAL-003 needs power there).
+  for (const rack of racks) {
+    const res = await fe.request.patch(`${api}/survey/racks/${rack.id}/placements`, { data: { placements: [{ ru: 0, heightU: 0, face: 'rear', mounting: '0U', railSide: 'left', label: 'PDU-A', category: 'Power' }] } })
+    expect(res.status(), await res.text()).toBe(200)
+  }
   await post(architect, '/survey/pathways', { fromRoomId: main.id, toRoomId: second.id, routeStatus: 'surveyed', distanceM: 42 })
   const targets = [...BUILDING_TABS.map((tab) => ({ tab, roomId: null })), ...[main.id, second.id].flatMap((roomId) => ROOM_TABS.map((tab) => ({ tab, roomId })))]
   for (const t of targets) {
@@ -62,6 +66,7 @@ test('the Architect generates the HLD from the verified survey', async () => {
   await architect.goto(hldUrl())
   await expect(architect.getByRole('heading', { name: /NexAI-Suggested HLD — Building B001/ })).toBeVisible()
   await architect.getByLabel('Blueprint preset').selectOption('M')
+  await expect(architect.getByLabel('Blueprint variant')).toHaveValue('single_path')
   await architect.getByRole('button', { name: 'Generate HLD' }).click()
   for (const host of ['F-DE-ERL-C01-B001-EG-001', 'B-DE-ERL-C01-B001-EG-001', 'E-DE-ERL-C01-B001-EG-001', 'A-DE-ERL-C01-B001-EG-001']) {
     await expect(architect.getByText(host, { exact: true }).first()).toBeVisible()

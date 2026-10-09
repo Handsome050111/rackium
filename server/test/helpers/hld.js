@@ -7,14 +7,25 @@ import { surveyProject, roomWithRack, fillTab, transition } from './survey.js'
 
 // A survey project (helpers/survey.js) whose building B001 has two comms
 // rooms with racks on floor EG, a surveyed pathway between them and every
-// survey tab Verified — what Generate HLD needs. Adds a Reviewer.
-export async function hldProject(ctx, { distanceM = 42, verify = true } = {}) {
+// survey tab Verified — what Generate HLD needs. Every rack has a PDU (so
+// suggested rack assignments are powered, VAL-003). Adds a Reviewer.
+// `mainRacks`: racks in the main room (2 to see a Distribution pair split).
+export async function hldProject(ctx, { distanceM = 42, verify = true, mainRacks = 1, pdus = true } = {}) {
   const p = await surveyProject(ctx)
   await p.admin.agent.patch(p.base).send({ activePhaseKeys: ['cmo', 'survey', 'hld'] }).expect(200)
   const b001 = p.building('B001').id
   const first = await roomWithRack(p.fe, p.base, b001)
   const second = (await p.fe.post(`${p.base}/survey/rooms`).send({ floorId: first.floor.id }).expect(201)).body.room
-  await p.fe.post(`${p.base}/survey/racks`).send({ roomId: second.id }).expect(201)
+  const racks = [first.rack, (await p.fe.post(`${p.base}/survey/racks`).send({ roomId: second.id }).expect(201)).body.rack]
+  for (let i = 1; i < mainRacks; i++) racks.push((await p.fe.post(`${p.base}/survey/racks`).send({ roomId: first.room.id }).expect(201)).body.rack)
+  if (pdus) {
+    for (const rack of racks) {
+      await p.fe
+        .patch(`${p.base}/survey/racks/${rack.id}/placements`)
+        .send({ placements: [{ ru: 0, heightU: 0, face: 'rear', mounting: '0U', railSide: 'left', label: 'PDU-A', category: 'Power' }] })
+        .expect(200)
+    }
+  }
   if (distanceM != null) {
     await p.architect.post(`${p.base}/survey/pathways`).send({ fromRoomId: first.room.id, toRoomId: second.id, routeStatus: 'surveyed', distanceM }).expect(201)
   }
@@ -22,6 +33,7 @@ export async function hldProject(ctx, { distanceM = 42, verify = true } = {}) {
   p.reviewer = await projectMember(ctx, p.admin, { email: 'reviewer@example.com', role: 'reviewer', projectId: p.projectId })
   p.b001 = b001
   p.rooms = { main: first.room, second }
+  p.racks = racks
   p.hld = `${p.base}/hld`
   return p
 }

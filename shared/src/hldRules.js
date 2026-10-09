@@ -40,9 +40,6 @@ export const HLD_RULES = {
   'I-ESTIMATED-PATH': { severity: 'info', title: 'Cable pathway not surveyed (length is estimated)' },
 }
 
-// Core switches must be built redundant (brief: VAL-005 "requires dual
-// PSU"); other dual-capable devices only warn (W-SINGLE-PSU).
-export const DUAL_PSU_REQUIRED_ROLES = ['fusion', 'border', 'distribution']
 export const DEFAULT_STACK_MAX = 8
 const OPTICAL_MEDIA = new Set(['os2', 'om4'])
 const POWERED_EXEMPT_CATEGORIES = new Set(['patch_panel', 'cable_management', 'accessory', 'cage_nut', 'cabinet', 'pdu', 'wan_sp_connection', 'remote_site', 'ap'])
@@ -173,9 +170,12 @@ export function validateHld(design, ctx) {
     const info = roleInfo(d.role)
     const item = ctx.itemOf(d)
     if (info?.named && !d.hostname) out.push(finding('I-NO-HOSTNAME', 'device', d.id, `${d.label ?? info.label} has no hostname`))
-    if (d.origin === 'planned' && item?.psuCount >= 2 && d.psuConfigured != null && d.psuConfigured < 2) {
-      if (DUAL_PSU_REQUIRED_ROLES.includes(d.role)) out.push(finding('VAL-005', 'device', d.id, `${d.hostname ?? d.label}: a ${info?.label ?? d.role} switch needs dual PSUs; ${d.psuConfigured} configured`))
-      else out.push(finding('W-SINGLE-PSU', 'device', d.id, `${d.hostname ?? d.label}: ${item.model} supports ${item.psuCount} PSUs; ${d.psuConfigured} configured`))
+    // VAL-005 comes from the catalogue: a model flagged requiresDualPsu run
+    // with fewer than two PSUs is Critical. A model that merely supports two
+    // gives the brief's Warning (no power redundancy).
+    if (item && d.psuConfigured != null && d.psuConfigured < 2) {
+      if (item.requiresDualPsu) out.push(finding('VAL-005', 'device', d.id, `${d.hostname ?? d.label}: ${item.vendor} ${item.model} requires dual PSUs; ${d.psuConfigured} configured`))
+      else if (item.psuCount >= 2) out.push(finding('W-SINGLE-PSU', 'device', d.id, `${d.hostname ?? d.label}: ${item.model} supports ${item.psuCount} PSUs; ${d.psuConfigured} configured`))
     }
   }
 

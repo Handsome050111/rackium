@@ -50,6 +50,7 @@ export const SEEDED_CATALOGUE = [
     mounting: 'front',
     powerInletType: 'C14',
     psuCount: 2,
+    requiresDualPsu: true,
     portMap: { groups: [{ role: 'access', type: 'SFP+', speed: '10G', poe: false, count: 24, start: 1, pattern: 'Te1/1/{n}' }] },
     compatibleSfps: TEN_G_OPTICS,
     unitPriceMinor: 850000,

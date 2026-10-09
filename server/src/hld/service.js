@@ -5,7 +5,7 @@ import { findSurveyedDistance } from '@rackium/shared/pathway.js'
 import { expandPortMap } from '@rackium/shared/catalogue.js'
 import { computeFreeRU } from '@rackium/shared/rackValidation.js'
 import { HLD_ROLES, roleInfo, nextHostname, defaultModelFor, resolveRoleCodes, PROPOSED_ROLE_CODE_KEYS } from '@rackium/shared/hldRoles.js'
-import { generateFromBlueprint, BLUEPRINT_PRESETS, presetOf } from '@rackium/shared/hldBlueprints.js'
+import { generateFromBlueprint, BLUEPRINT_PRESETS, BLUEPRINT_VARIANTS, blueprintProblem, defaultVariantOf } from '@rackium/shared/hldBlueprints.js'
 import { validateHld, uplinkChecks, summariseFindings } from '@rackium/shared/hldRules.js'
 import { canApproveSubmission } from '@rackium/shared/policy.js'
 import { Device } from '../models/device.js'
@@ -296,10 +296,11 @@ function surveyInputs(data, cat) {
 }
 
 // What the blueprint would add to the current design (shared/hldBlueprints.js).
-function blueprintPlan(data, preset) {
+function blueprintPlan(data, preset, variant) {
   return generateFromBlueprint({
     preset,
-    rooms: data.rooms.map((r) => ({ id: String(r._id), floorId: String(r.floorId), isMainRoom: Boolean(r.isMainRoom), hasRack: data.racks.some((k) => String(k.roomId) === String(r._id)) })),
+    variant,
+    rooms: data.rooms.map((r) => ({ id: String(r._id), floorId: String(r.floorId), isMainRoom: Boolean(r.isMainRoom), rackIds: data.racks.filter((k) => String(k.roomId) === String(r._id)).map((k) => String(k._id)) })),
     floors: data.floors.map((f) => ({ id: String(f._id), token: f.token, order: f.order })),
     devices: data.devices.filter((d) => d.origin === 'planned').map((d) => ({ id: String(d._id), role: d.role, roomId: String(d.roomId) })),
     links: data.connections.map((c) => ({ sourceId: String(c.source.deviceId), destId: String(c.dest.deviceId) })),
@@ -322,7 +323,7 @@ export function createHldService({ storage }) {
   }
 
   // Creates one planned device in the caller's transaction.
-  async function createDevice({ building, role, roomId, catalogueKey, floors, rooms, catalogue, takenHostnames, session }) {
+  async function createDevice({ building, role, roomId, rackId = null, catalogueKey, floors, rooms, catalogue, takenHostnames, session }) {
     const info = roleInfo(role)
     if (!info) throw badRequest(`Unknown role ${role}`)
     const room = rooms.find((r) => String(r._id) === String(roomId))
@@ -344,6 +345,8 @@ export function createHldService({ storage }) {
           salId: building.salId,
           buildingId: building.id,
           roomId: room._id,
+          // A suggested rack (blueprint), only for a rack-mounted model; no RU (brief §5.4).
+          rackId: rackId && item?.rackMounted ? rackId : null,
           hostname,
           label: info.label,
           model: item?.model ?? null,
@@ -410,7 +413,7 @@ export function createHldService({ storage }) {
     const surveyStatus = (await surveyStatusByBuilding()).get(building.id) ?? 'not_started'
     return {
       building,
-      design: { revision: design.revision, state: design.state, preset: design.preset, lastEditedAt: design.lastEditedAt, lastEditedBy: names.get(String(design.lastEditedBy)) ?? null },
+      design: { revision: design.revision, state: design.state, preset: design.preset, variant: design.variant ?? null, lastEditedAt: design.lastEditedAt, lastEditedBy: names.get(String(design.lastEditedBy)) ?? null },
       status,
       surveyVerified: surveyStatus === 'approved',
       floors: data.floors.map((f) => ({ id: String(f._id), token: f.token, name: f.name, order: f.order })),
@@ -510,29 +513,32 @@ export function createHldService({ storage }) {
         })),
         optics: catalogue.filter((i) => i.kind === 'optic' && i.mediaSpeed).map((i) => ({ key: i.key, media: i.mediaSpeed.media, speed: i.mediaSpeed.speed, reachM: i.mediaSpeed.reachM })),
         presets: BLUEPRINT_PRESETS,
+        variants: BLUEPRINT_VARIANTS,
       }
     },
 
     // Generate HLD (brief §5.3): the blueprint filled with the verified survey.
-    async generate(req, { buildingId, preset, baseRevision }, actor) {
-      if (!presetOf(preset)) throw badRequest('Choose a blueprint preset')
+    async generate(req, { buildingId, preset, variant: requested, baseRevision }, actor) {
+      const variant = requested ?? defaultVariantOf(preset)
+      const problem = blueprintProblem(preset, variant)
+      if (problem) throw badRequest(problem)
       const building = await requireBuilding(req, buildingId)
       if ((await surveyStatusByBuilding()).get(building.id) !== 'approved') {
         throw conflict('survey_not_verified', `Verify every survey tab of ${building.code} first — the HLD is generated from the verified survey`)
       }
       // Nothing missing: no write, so nobody else's next save turns stale.
       const design = await designOf(building.id)
-      const preview = blueprintPlan(await loadDesign(building.id, req.project.id), preset)
+      const preview = blueprintPlan(await loadDesign(building.id, req.project.id), preset, variant)
       if (!preview.devices.length && !preview.links.length) {
         if (design.revision !== baseRevision) throw await staleError(design, baseRevision)
         return { added: { devices: 0, uplinks: 0 }, revision: design.revision }
       }
       const result = await write(req, building.id, baseRevision, actor, async ({ data, session }) => {
-        const plan = blueprintPlan(data, preset)
+        const plan = blueprintPlan(data, preset, variant)
         const taken = await projectHostnames(session)
         const refs = new Map()
         for (const spec of plan.devices) {
-          const device = await createDevice({ building, role: spec.role, roomId: spec.roomId, floors: data.floors, rooms: data.rooms, catalogue: data.catalogue, takenHostnames: taken, session })
+          const device = await createDevice({ building, role: spec.role, roomId: spec.roomId, rackId: spec.rackId, floors: data.floors, rooms: data.rooms, catalogue: data.catalogue, takenHostnames: taken, session })
           refs.set(spec.key, device)
           data.devices.push(device.toObject())
         }
@@ -550,8 +556,8 @@ export function createHldService({ storage }) {
           created.push(conn)
           data.connections.push(conn.toObject())
         }
-        await HldDesign.updateOne({ buildingId: building.id }, { $set: { preset } }, { session })
-        await recordAudit({ organisationId: req.org.id, projectId: req.project.id, buildingId: building.id, phaseKey: 'hld', actor: userActor(actor.userId, actor.role), action: 'hld.generated', objectType: 'Building', objectId: building.id, changeType: 'design_intent', source: 'ui', comment: `Blueprint ${preset}: ${plan.devices.length} device(s), ${plan.links.length} uplink(s) added`, session })
+        await HldDesign.updateOne({ buildingId: building.id }, { $set: { preset, variant } }, { session })
+        await recordAudit({ organisationId: req.org.id, projectId: req.project.id, buildingId: building.id, phaseKey: 'hld', actor: userActor(actor.userId, actor.role), action: 'hld.generated', objectType: 'Building', objectId: building.id, changeType: 'design_intent', source: 'ui', comment: `Blueprint ${preset} · ${BLUEPRINT_VARIANTS.find((v) => v.key === variant)?.label}: ${plan.devices.length} device(s), ${plan.links.length} uplink(s) added`, session })
         return { added: { devices: plan.devices.length, uplinks: created.length } }
       })
       return result

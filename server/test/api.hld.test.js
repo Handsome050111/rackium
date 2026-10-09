@@ -64,6 +64,42 @@ describe('Generate HLD (blueprint + verified survey)', () => {
     expect(l.added.devices).toBe(1)
   })
 
+  // AC-11 (brief v2.3 §8.2), on the real backend.
+  it('AC-11: Template M with redundant distribution produces correct device count, connections and rack assignments', async () => {
+    const p = await hldProject(t(), { mainRacks: 2 })
+    const [mainR01, secondR01, mainR02] = p.racks.map((r) => r.id)
+    expectStatus(await save(p, 'post', `${p.hld}/generate`, { buildingId: p.b001, preset: 'M', variant: 'redundant_distribution' }), 201)
+    const view = await hldView(p.architect, p)
+    expect(view.design).toMatchObject({ preset: 'M', variant: 'redundant_distribution' })
+    const of = (role) => view.devices.filter((d) => d.role === role)
+    // Devices: Fusion, Border, a Distribution pair (main room); Edge + AP (the comms room).
+    expect(view.devices.map((d) => d.role).sort()).toEqual(['ap', 'border', 'distribution', 'distribution', 'edge', 'fusion'])
+    expect(of('distribution').map((d) => d.hostname).sort()).toEqual(['D-DE-ERL-C01-B001-EG-001', 'D-DE-ERL-C01-B001-EG-002'])
+    // Connections: Border–Fusion, each Distribution to Border and Fusion, the Edge to both Distributions, AP to Edge = 8.
+    expect(view.connections).toHaveLength(8)
+    const links = (a, b) => view.connections.filter((c) => (c.source.deviceId === a.id && c.dest.deviceId === b.id) || (c.source.deviceId === b.id && c.dest.deviceId === a.id))
+    for (const dist of of('distribution')) {
+      expect(links(dist, of('border')[0])).toHaveLength(1)
+      expect(links(dist, of('fusion')[0])).toHaveLength(1)
+      expect(links(dist, of('edge')[0])).toEqual([expect.objectContaining({ media: 'os2', sourceSfpCode: 'Cisco SFP-10G-LR', length: expect.objectContaining({ lengthM: 44 }) })])
+    }
+    expect(links(of('border')[0], of('edge')[0])).toHaveLength(0)
+    // Racks: core in the main room's first rack, the pair split over its two racks, the Edge in its room's rack, the AP unracked.
+    expect(of('border')[0].rackId).toBe(mainR01)
+    expect(of('fusion')[0].rackId).toBe(mainR01)
+    expect(of('distribution').map((d) => d.rackId).sort()).toEqual([mainR01, mainR02].sort())
+    expect(of('edge')[0].rackId).toBe(secondR01)
+    expect(of('ap')[0].rackId).toBeNull()
+    // A generated design with powered racks has no Critical finding.
+    expect((await p.architect.get(`${p.hld}/buildings/${p.b001}/validation`).expect(200)).body.summary.critical).toBe(0)
+  })
+
+  it('a size/variant pair that does not exist is refused', async () => {
+    const p = await hldProject(t())
+    const res = await p.architect.post(`${p.hld}/generate`).send({ buildingId: p.b001, preset: 'S', variant: 'redundant_distribution', baseRevision: 0 }).expect(400)
+    expect(JSON.stringify(res.body.error)).toMatch(/no Redundant distribution variant/)
+  })
+
   it('only the Architect edits; every project member reads; scope and organisation are enforced', async () => {
     const ctx = t()
     const p = await hldProject(ctx)
@@ -139,11 +175,15 @@ describe('Validation engine on the server (VAL-001…013)', () => {
     await expectStatus(await save(p, 'patch', `${p.hld}/uplinks/${uplink('border', 'edge').id}`, { destSfpCode: 'Cisco SFP-10G-SR' }, p.architect), 200)
     // VAL-002: an optic on an RJ45 port.
     await expectStatus(await save(p, 'patch', `${p.hld}/uplinks/${uplink('edge', 'ap').id}`, { media: 'om4', speed: '10G', sourceSfpCode: 'Cisco SFP-10G-SR', destSfpCode: 'Cisco SFP-10G-SR', source: { deviceId: byRole('edge').id, portId: 'Gi1/0/1' } }, p.architect), 200)
-    // VAL-005: a core switch with one PSU.
+    // VAL-005: the Border's model (C9500) is flagged requiresDualPsu in the catalogue; one PSU is Critical.
+    // The Edge's model (C9300) only supports two: one PSU is a Warning, never VAL-005.
+    await expectStatus(await save(p, 'patch', `${p.hld}/devices/${byRole('edge').id}`, { psuConfigured: 1 }, p.architect), 200)
     await expectStatus(await save(p, 'patch', `${p.hld}/devices/${byRole('border').id}`, { psuConfigured: 1 }, p.architect), 200)
     const bad = await validate()
     expect(rules(bad)).toEqual(expect.arrayContaining(['VAL-001', 'VAL-002', 'VAL-005']))
     expect(bad.summary.blocksSubmit).toBe(true)
+    expect(bad.findings.filter((f) => f.rule === 'VAL-005').map((f) => [f.objectId, f.severity])).toEqual([[byRole('border').id, 'critical']])
+    expect(bad.findings.find((f) => f.rule === 'W-SINGLE-PSU')).toMatchObject({ objectId: byRole('edge').id, severity: 'warning' })
     expect(bad.findings.find((f) => f.rule === 'VAL-001')).toMatchObject({ severity: 'critical', objectType: 'connection', objectId: uplink('border', 'edge').id })
   })
 
@@ -166,6 +206,13 @@ describe('Validation engine on the server (VAL-001…013)', () => {
     const findings = (await unsurveyed.p.architect.get(`${unsurveyed.p.hld}/buildings/${unsurveyed.p.b001}/validation`)).body
     expect(findings.findings.find((f) => f.rule === 'I-ESTIMATED-PATH')).toMatchObject({ severity: 'info' })
     expect(findings.summary.blocksSubmit).toBe(false)
+  })
+
+  it('VAL-003: a planned device in a suggested rack with no PDU is Critical', async () => {
+    const { p, byRole } = await generated({ pdus: false })
+    const body = (await p.architect.get(`${p.hld}/buildings/${p.b001}/validation`).expect(200)).body
+    expect(body.findings.filter((f) => f.rule === 'VAL-003').map((f) => f.objectId).sort()).toEqual([byRole('border').id, byRole('fusion').id, byRole('edge').id].sort())
+    expect(body.summary.blocksSubmit).toBe(true)
   })
 
   it('Edit Uplink step 4 checks a draft with the same rules', async () => {

@@ -320,3 +320,16 @@ Found and fixed while building and testing M4a, each with a test:
 Expectation updates (intended changes, not regressions): the infrastructure
 catalogue group now includes the placeholder environment sensor, and the
 organisation settings response now carries the naming codes.
+
+### M4a review round: blueprint variants and VAL-005 from the catalogue
+
+- **New seed fields never reached existing databases.** The platform seed
+  only inserted missing items, so `requiresDualPsu` on the C9500 would have
+  existed only in fresh databases. The seed now fills a field an existing
+  seeded item lacks, still never changing a stored value. Test:
+  `api.catalogue.test.js` "fills in a field an existing seeded item lacks".
+- **Generated devices had no rack**, although the brief's templates suggest
+  rack assignments (v2.2 §3.6A, AC-11). Devices now get a suggested rack
+  (no RU); a rack without a PDU then raises VAL-003, as it should. Tests:
+  AC-11 in `shared/src/hldRules.test.js` and `api.hld.test.js`, and
+  "VAL-003: a planned device in a suggested rack with no PDU".

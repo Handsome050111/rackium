@@ -172,6 +172,7 @@ export default function CatalogueItem() {
               ['PSUs', item.compatiblePsus.join(', ') || null],
               ['Modules', item.compatibleModules.join(', ') || null],
               ['Needs uplink module', yesNo(item.needsUplinkModule)],
+              ['Requires dual PSU', yesNo(item.requiresDualPsu)],
             ]}
           />
         </Section>

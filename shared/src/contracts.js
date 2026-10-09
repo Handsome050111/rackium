@@ -1,7 +1,7 @@
 // API contracts (M1). Zod schemas shared by the server (request validation and
 // OpenAPI generation) and the client. Field rules here are the only definition.
 import { DEFAULT_ROLE_CODES, ROLE_CODE_PATTERN, duplicateRoleCodes, resolveRoleCodes, HLD_ROLE_KEYS } from './hldRoles.js'
-import { BLUEPRINT_KEYS } from './hldBlueprints.js'
+import { BLUEPRINT_KEYS, BLUEPRINT_VARIANT_KEYS, blueprintProblem } from './hldBlueprints.js'
 import { z } from 'zod'
 import { ALL_ROLES, PROJECT_ROLES, ORG_MEMBER_ROLE } from './policy.js'
 import { PHASE_KEYS } from './phaseCalculations.js'
@@ -482,7 +482,13 @@ const uplinkFields = {
   destSfpCode: z.string().trim().min(1).max(200).nullable().optional(),
   viaPatchPanel: z.boolean().optional(),
 }
-export const hldGenerateBody = z.object({ buildingId: objectId, preset: z.enum(BLUEPRINT_KEYS), baseRevision })
+// preset = blueprint size; variant = topology variant (default: the size's own).
+export const hldGenerateBody = z
+  .object({ buildingId: objectId, preset: z.enum(BLUEPRINT_KEYS), variant: z.enum(BLUEPRINT_VARIANT_KEYS).optional(), baseRevision })
+  .superRefine((b, ctx) => {
+    const problem = blueprintProblem(b.preset, b.variant)
+    if (problem) ctx.addIssue({ code: 'custom', path: ['variant'], message: problem })
+  })
 export const hldDeviceCreateBody = z.object({ buildingId: objectId, role: z.enum(HLD_ROLE_KEYS), roomId: objectId, catalogueKey: z.string().trim().min(1).max(200).optional(), baseRevision })
 export const hldDeviceUpdateBody = z
   .object({ catalogueKey: z.string().trim().min(1).max(200).optional(), psuConfigured: z.number().int().min(0).max(8).optional(), baseRevision })

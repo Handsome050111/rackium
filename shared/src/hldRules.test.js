@@ -5,7 +5,7 @@ import { generateFromBlueprint, BLUEPRINT_KEYS } from './hldBlueprints.js'
 
 // Catalogue fragments in the shape of shared/catalogue.js items.
 const ITEMS = {
-  'Cisco C9500': { vendor: 'Cisco', model: 'C9500', category: 'switch', psuCount: 2, weightKg: 20, portMap: { groups: [{ role: 'access', type: 'SFP+', speed: '10G', count: 24, start: 1, pattern: 'Te1/1/{n}' }] }, compatibleSfps: ['Cisco SFP-10G-SR', 'Cisco SFP-10G-LR'] },
+  'Cisco C9500': { vendor: 'Cisco', model: 'C9500', category: 'switch', psuCount: 2, requiresDualPsu: true, weightKg: 20, portMap: { groups: [{ role: 'access', type: 'SFP+', speed: '10G', count: 24, start: 1, pattern: 'Te1/1/{n}' }] }, compatibleSfps: ['Cisco SFP-10G-SR', 'Cisco SFP-10G-LR'] },
   'Cisco C9300-48UX': { vendor: 'Cisco', model: 'C9300-48UX', category: 'switch', psuCount: 2, poeBudgetW: 100, portMap: { groups: [{ role: 'access', type: 'RJ45', speed: '1G', poe: true, count: 48, start: 1, pattern: 'Gi1/0/{n}' }, { role: 'module', type: 'SFP+', speed: '10G', count: 8, start: 1, pattern: 'Te1/1/{n}' }] }, compatibleSfps: ['Cisco SFP-10G-SR', 'Cisco SFP-10G-LR'] },
   'Cisco AP': { vendor: 'Cisco', model: 'AP', category: 'ap', powerDrawW: 30, portMap: { groups: [{ role: 'uplink', type: 'RJ45', speed: '2.5G', count: 1, start: 0, pattern: 'Eth{n}' }] } },
   'Generic PDU': { vendor: 'Generic', model: 'PDU', category: 'pdu' },
@@ -69,10 +69,17 @@ describe('HLD validation rules (VAL-001…013)', () => {
     expect(rules(hop)).toContain('VAL-013')
   })
 
-  it('VAL-005 core needs dual PSU (Critical); other dual-capable devices only warn', () => {
+  it('VAL-005 comes from the catalogue flag requiresDualPsu (Critical), not from the role', () => {
     const findings = validateHld({ devices: [{ ...core, psuConfigured: 1 }, { ...edge, psuConfigured: 1 }], connections: [] }, ctxFor([core, edge]))
-    expect(findings.find((f) => f.rule === 'VAL-005').objectId).toBe('b')
-    expect(findings.find((f) => f.rule === 'W-SINGLE-PSU').objectId).toBe('e')
+    expect(findings.find((f) => f.rule === 'VAL-005')).toMatchObject({ objectId: 'b', severity: 'critical' })
+    expect(findings.find((f) => f.rule === 'W-SINGLE-PSU')).toMatchObject({ objectId: 'e', severity: 'warning' })
+    // An Edge on a model that requires dual PSUs is Critical too; a Border on one that doesn't only warns.
+    const edgeOnC9500 = { ...edge, catalogueKey: 'Cisco C9500', psuConfigured: 1 }
+    const borderOnC9300 = { ...core, catalogueKey: 'Cisco C9300-48UX', psuConfigured: 1 }
+    const swapped = validateHld({ devices: [edgeOnC9500, borderOnC9300], connections: [] }, ctxFor([edgeOnC9500, borderOnC9300]))
+    expect(swapped.filter((f) => f.rule === 'VAL-005').map((f) => f.objectId)).toEqual(['e'])
+    expect(swapped.filter((f) => f.rule === 'W-SINGLE-PSU').map((f) => f.objectId)).toEqual(['b'])
+    expect(rules(validateHld({ devices: [{ ...core, psuConfigured: 2 }], connections: [] }, ctxFor([core])))).toEqual([])
   })
 
   it('VAL-009 PoE over 80% of budget; VAL-010 stack near the maximum', () => {
@@ -150,41 +157,97 @@ describe('HLD roles, hostnames and BOM rules', () => {
   })
 })
 
-describe('blueprint presets (Generate HLD)', () => {
+describe('blueprint templates (Generate HLD; v2.2 §3.6A, BPT-001)', () => {
   const floors = [
-    { id: 'f0', token: 'EG', order: 0 },
-    { id: 'f1', token: '1.OG', order: 1 },
+    { id: 'f0', order: 0 },
+    { id: 'f1', order: 1 },
   ]
   const rooms = [
-    { id: 'main', floorId: 'f0', isMainRoom: true, hasRack: true },
-    { id: 'r1', floorId: 'f0', isMainRoom: false, hasRack: true },
-    { id: 'r2', floorId: 'f1', isMainRoom: false, hasRack: true },
-    { id: 'r3', floorId: 'f1', isMainRoom: false, hasRack: false },
+    { id: 'main', floorId: 'f0', isMainRoom: true, rackIds: ['k-main-1', 'k-main-2'] },
+    { id: 'r1', floorId: 'f0', isMainRoom: false, rackIds: ['k-r1'] },
+    { id: 'r2', floorId: 'f1', isMainRoom: false, rackIds: ['k-r2'] },
+    { id: 'r3', floorId: 'f1', isMainRoom: false, rackIds: [] },
   ]
+  const gen = (preset, variant) => generateFromBlueprint({ preset, variant, rooms, floors, devices: [], links: [] })
   const roles = (plan) => plan.devices.map((d) => `${d.role}@${d.roomId}`).sort()
+  const between = (plan, a, b) => plan.links.filter((l) => (l.from === a && l.to === b) || (l.from === b && l.to === a))
 
-  it('S/M/L/XL produce their topologies from the surveyed rooms', () => {
+  // AC-11 (brief v2.3 §8.2): Template M with redundant distribution gives the
+  // correct devices, connections and racks.
+  it('AC-11: Template M with redundant distribution produces correct device count, connections and rack assignments', () => {
+    const plan = gen('M', 'redundant_distribution')
+    // Devices: Fusion, Border and a Distribution pair in the main room; Edge + AP in each comms room with a rack.
+    expect(roles(plan)).toEqual(['ap@r1', 'ap@r2', 'border@main', 'distribution@main', 'distribution@main', 'edge@r1', 'edge@r2', 'fusion@main'])
+    expect(plan.devices).toHaveLength(8)
+    // Connections: Border–Fusion; each Distribution to Border and Fusion (4);
+    // each Edge to both Distributions (4); each AP to its Edge (2) = 11.
+    expect(plan.links).toHaveLength(11)
+    const [d0, d1] = ['new:distribution:main:0', 'new:distribution:main:1']
+    for (const d of [d0, d1]) {
+      expect(between(plan, 'new:border:main:0', d)).toHaveLength(1)
+      expect(between(plan, 'new:fusion:main:0', d)).toHaveLength(1)
+      for (const e of ['new:edge:r1:0', 'new:edge:r2:0']) expect(between(plan, d, e)).toEqual([expect.objectContaining({ media: 'os2', speed: '10G' })])
+    }
+    expect(between(plan, 'new:border:main:0', 'new:fusion:main:0')).toEqual([expect.objectContaining({ media: 'om4' })])
+    expect(between(plan, 'new:edge:r1:0', 'new:ap:r1:0')).toEqual([expect.objectContaining({ media: 'cat6a', speed: '1G' })])
+    // No Edge hangs off Border directly.
+    expect(plan.links.some((l) => l.from === 'new:border:main:0' && l.to.startsWith('new:edge'))).toBe(false)
+    // Racks: the pair split across the main room's two racks; core in the first; Edge in its room's rack; APs unracked.
+    const rackOf = Object.fromEntries(plan.devices.map((d) => [d.key, d.rackId]))
+    expect(rackOf).toEqual({
+      'new:border:main:0': 'k-main-1',
+      'new:fusion:main:0': 'k-main-1',
+      [d0]: 'k-main-1',
+      [d1]: 'k-main-2',
+      'new:edge:r1:0': 'k-r1',
+      'new:ap:r1:0': null,
+      'new:edge:r2:0': 'k-r2',
+      'new:ap:r2:0': null,
+    })
+  })
+
+  it('every size with its variants: S single path only; M; L per floor; XL services and redundant by default', () => {
     expect(BLUEPRINT_KEYS).toEqual(['S', 'M', 'L', 'XL'])
-    const m = generateFromBlueprint({ preset: 'M', rooms, floors, devices: [], links: [] })
-    expect(roles(m)).toEqual(['ap@r1', 'ap@r2', 'border@main', 'edge@r1', 'edge@r2', 'fusion@main'])
-    expect(m.links.find((l) => l.from === 'new:border:main' && l.to === 'new:edge:r1')).toMatchObject({ media: 'os2', speed: '10G' })
-    expect(m.links.find((l) => l.from === 'new:edge:r1' && l.to === 'new:ap:r1')).toMatchObject({ media: 'cat6a', speed: '1G' })
-    expect(m.links.find((l) => l.from === 'new:border:main' && l.to === 'new:fusion:main')).toMatchObject({ media: 'om4' })
+    const s = gen('S')
+    expect(roles(s)).toEqual(['ap@r1', 'ap@r2', 'border@main', 'edge@r1', 'edge@r2'])
+    expect(s.links).toHaveLength(4) // Border→Edge ×2, Edge→AP ×2
+    expect(() => gen('S', 'redundant_distribution')).toThrow(/no Redundant distribution variant/)
 
-    expect(roles(generateFromBlueprint({ preset: 'S', rooms, floors, devices: [], links: [] }))).not.toContain('fusion@main')
-    const l = generateFromBlueprint({ preset: 'L', rooms, floors, devices: [], links: [] })
+    const m = gen('M')
+    expect(roles(m)).toEqual(['ap@r1', 'ap@r2', 'border@main', 'edge@r1', 'edge@r2', 'fusion@main'])
+    expect(m.links).toHaveLength(5) // Border–Fusion, Border→Edge ×2, Edge→AP ×2
+
+    const l = gen('L', 'single_path')
     expect(roles(l)).toEqual(expect.arrayContaining(['distribution@r1', 'distribution@r2']))
-    expect(l.links.some((x) => x.from === 'new:distribution:r2' && x.to === 'new:edge:r2')).toBe(true)
-    const xl = generateFromBlueprint({ preset: 'XL', rooms, floors, devices: [], links: [] })
+    expect(between(l, 'new:distribution:r2:0', 'new:edge:r2:0')).toHaveLength(1)
+    expect(between(l, 'new:border:main:0', 'new:distribution:r1:0')).toHaveLength(1)
+    expect(between(l, 'new:fusion:main:0', 'new:distribution:r1:0')).toHaveLength(0) // single path: one uplink
+    const lr = gen('L', 'redundant_distribution')
+    expect(lr.devices.filter((d) => d.role === 'distribution')).toHaveLength(4) // a pair per floor
+    expect(lr.links.filter((x) => x.to === 'new:edge:r2:0' || x.from === 'new:edge:r2:0').filter((x) => !x.to.startsWith('new:ap'))).toHaveLength(2)
+
+    const xl = gen('XL')
     expect(roles(xl)).toEqual(expect.arrayContaining(['firewall@main', 'wlc@main']))
-    expect(xl.links.filter((x) => x.from === 'new:distribution:r2' && x.to === 'new:edge:r2')).toHaveLength(2)
+    expect(xl.devices.filter((d) => d.role === 'distribution')).toHaveLength(4)
+    expect(roles(gen('XL', 'single_path')).filter((r) => r.startsWith('distribution'))).toHaveLength(2)
   })
 
   it('is idempotent: existing devices and links are reused, nothing twice', () => {
-    const first = generateFromBlueprint({ preset: 'M', rooms, floors, devices: [], links: [] })
+    for (const [size, variant] of [['M', 'redundant_distribution'], ['XL', undefined], ['S', undefined]]) {
+      const first = gen(size, variant)
+      const ids = new Map(first.devices.map((d, i) => [d.key, `d${i}`]))
+      const devices = first.devices.map((d) => ({ id: ids.get(d.key), role: d.role, roomId: d.roomId }))
+      const links = first.links.map((x) => ({ sourceId: ids.get(x.from), destId: ids.get(x.to) }))
+      expect(generateFromBlueprint({ preset: size, variant, rooms, floors, devices, links })).toEqual({ devices: [], links: [] })
+    }
+  })
+
+  it('moving from single path to redundant distribution adds the second Distribution and the extra uplinks only', () => {
+    const first = gen('L', 'single_path')
     const ids = new Map(first.devices.map((d, i) => [d.key, `d${i}`]))
     const devices = first.devices.map((d) => ({ id: ids.get(d.key), role: d.role, roomId: d.roomId }))
-    const links = first.links.map((l) => ({ sourceId: ids.get(l.from), destId: ids.get(l.to) }))
-    expect(generateFromBlueprint({ preset: 'M', rooms, floors, devices, links })).toEqual({ devices: [], links: [] })
+    const links = first.links.map((x) => ({ sourceId: ids.get(x.from), destId: ids.get(x.to) }))
+    const more = generateFromBlueprint({ preset: 'L', variant: 'redundant_distribution', rooms, floors, devices, links })
+    expect(more.devices.map((d) => d.role)).toEqual(['distribution', 'distribution'])
   })
 })

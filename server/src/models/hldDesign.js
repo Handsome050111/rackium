@@ -13,6 +13,7 @@ const hldDesignSchema = new mongoose.Schema({
   // approval starts a new draft; the approved version stays frozen.
   state: { type: String, enum: ['draft', 'awaiting_approval', 'approved', 'changes_requested'], default: 'draft' },
   preset: { type: String, default: null },
+  variant: { type: String, default: null },
   pendingApprovalId: { type: ObjectId, default: null },
   latestApprovedVersionId: { type: ObjectId, default: null },
   lastEditedAt: { type: Date, default: null },

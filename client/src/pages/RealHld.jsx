@@ -36,6 +36,7 @@ export default function RealHld() {
   const [error, setError] = useState(null)
   const [stale, setStale] = useState(null)
   const [preset, setPreset] = useState('M')
+  const [variant, setVariant] = useState(null) // null = the size's default
   const [mode, setMode] = useState('select')
   const [selectedDeviceId, setSelectedDeviceId] = useState(null)
   const [selectedConnectionId, setSelectedConnectionId] = useState(null)
@@ -57,6 +58,7 @@ export default function RealHld() {
       setError(null)
       setStale(null)
       if (v.design.preset) setPreset(v.design.preset)
+      if (v.design.variant) setVariant(v.design.variant)
     } catch (err) {
       setError(err.status === 404 ? 'This building is not in the part of the project you can see.' : err.message)
     }
@@ -211,7 +213,7 @@ export default function RealHld() {
   }
 
   async function generate() {
-    const res = await write((rev) => hldApi.generate(orgId, projectId, { buildingId, preset, baseRevision: rev }))
+    const res = await write((rev) => hldApi.generate(orgId, projectId, { buildingId, preset, variant: chosenVariant, baseRevision: rev }))
     if (res) clearHistory()
   }
 
@@ -310,7 +312,7 @@ export default function RealHld() {
   const flow = buildHldFlow({
     floors: view.floors,
     rooms: view.rooms,
-    devices: devices.map((d) => ({ ...d, sublabel: d.model })),
+    devices: devices.map((d) => ({ ...d, model: [d.model, view.racks.find((k) => k.id === d.rackId)?.code].filter(Boolean).join(' · ') })),
     connections,
     connectionFindings: findingsByConn,
     selectedDeviceId,
@@ -321,6 +323,8 @@ export default function RealHld() {
   const selectedDevice = devices.find((d) => d.id === selectedDeviceId) ?? null
   const portOptionsFor = (deviceId) => devices.find((d) => d.id === deviceId)?.ports ?? []
   const sfpOptionsFor = (media, speed) => library.optics.filter((o) => o.media === media && String(o.speed) === String(speed)).map((o) => o.key)
+  const sizeInfo = library.presets.find((p) => p.key === preset)
+  const chosenVariant = sizeInfo?.variants.includes(variant) ? variant : sizeInfo?.variants[0]
   const blockedLinks = Object.values(findingsByConn).filter((f) => f.blocked).length
   const summary = validation?.summary ?? { critical: 0, warning: 0, info: 0, blocksSubmit: false }
 
@@ -349,6 +353,19 @@ export default function RealHld() {
                       {p.key} — {p.label}
                     </option>
                   ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1 text-xs">
+                <span className="text-text-secondary">Variant</span>
+                <select value={chosenVariant ?? ''} onChange={(e) => setVariant(e.target.value)} aria-label="Blueprint variant" className="h-9 rounded-lg border border-border bg-surface px-2 text-xs text-text focus:border-brand focus:outline-none">
+                  {(sizeInfo?.variants ?? []).map((key) => {
+                    const v = library.variants.find((x) => x.key === key)
+                    return (
+                      <option key={key} value={key} title={v?.description}>
+                        {v?.label ?? key}
+                      </option>
+                    )
+                  })}
                 </select>
               </label>
               <button
