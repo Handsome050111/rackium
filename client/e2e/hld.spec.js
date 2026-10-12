@@ -22,7 +22,7 @@ test.describe('HLD — High-Level Design', () => {
   test('Survey inputs panel is calculated from survey data, not typed in', async ({ page }) => {
     await page.goto('/b/b001/hld')
     await expect(page.getByText('UG1705 · R01 · 37 free U')).toBeVisible()
-    await expect(page.getByText('TR-2OG-01 · PP-09 · 0 free ports')).toBeVisible()
+    await expect(page.getByText('TR-2OG-01 · PP-TR-2OG-01-R01-01 · 0 free ports')).toBeVisible()
     await expect(page.getByText(/CMO inventory · \d+\/\d+/)).toBeVisible()
   })
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { portKey, portOptions, suggestPort, portsOf, validateLld, diffDesigns, reconcileWithHld, routeSides, routeBookings, hopProblems, routeTrace, hopText } from './lldDesign.js'
+import { portKey, portOptions, suggestPort, portsOf, validateLld, diffDesigns, reconcileWithHld, routeSides, routeBookings, hopProblems, routeTrace, hopText, panelLabel, nextPanelLabel, duplicatePanelLabels, PANEL_LABEL_PATTERN, pairBookings, pairConflicts } from './lldDesign.js'
 import { connectionFindings, portSuitsMedia } from './hldRules.js'
 import { computeSuggestedLength, stockLengthsFor, DEFAULT_STOCK_LENGTHS } from './cableLength.js'
 
@@ -149,6 +149,59 @@ describe('patch-panel sides by cable type (M4b review)', () => {
     const findings = validateLld({ devices, connections: [conn] }, ctxFor(devices))
     expect(findings.map((f) => [f.rule, f.severity])).toEqual([['L-HOP', 'critical']])
     expect(findings[0].message).toMatch(/01 is on the rear, but a patch cord/)
+  })
+})
+
+describe('panel labels: room-qualified and unique per building', () => {
+  it('PP-<room>-<rack>-NN, hostname-safe; the next free number; duplicates found ignoring case', () => {
+    expect(panelLabel({ room: 'TR-EG-01', rack: 'R01', seq: 1 })).toBe('PP-TR-EG-01-R01-01')
+    expect(panelLabel({ prefix: 'CM', room: 'tr 2.og/01', rack: 'r02', seq: 12 })).toBe('CM-TR-2-OG-01-R02-12')
+    expect(PANEL_LABEL_PATTERN.test(panelLabel({ room: 'Ü-Raum 1', rack: 'R 1', seq: 3 }))).toBe(true)
+    // Two rooms with an R01 each no longer collide.
+    expect(panelLabel({ room: 'TR-EG-01', rack: 'R01', seq: 1 })).not.toBe(panelLabel({ room: 'TR-EG-02', rack: 'R01', seq: 1 }))
+    expect(nextPanelLabel({ room: 'TR-EG-01', rack: 'R01' }, ['pp-tr-eg-01-r01-01', 'PP-TR-EG-01-R01-03'])).toBe('PP-TR-EG-01-R01-02')
+    expect(duplicatePanelLabels([{ id: 'a', label: 'PP-X-R01-01' }, { id: 'b', label: 'pp-x-r01-01' }, { id: 'c', label: 'PP-X-R01-02' }])).toEqual([{ label: 'PP-X-R01-01', ids: ['a', 'b'] }])
+  })
+})
+
+describe('one connection per panel port (front and rear never split)', () => {
+  const isPanel = (id) => ['pp1', 'pp2'].includes(String(id))
+  const twoPanel = { source: { deviceId: 'edge', portId: 'Gi1/0/1' }, dest: { deviceId: 'border', portId: 'Te1/1/1' }, hops: [{ patchPanelId: 'pp2', inPort: '01', outPort: '01' }, { patchPanelId: 'pp1', inPort: '05', outPort: '05' }] }
+
+  it('a route books one pair key per panel port', () => {
+    expect(pairBookings(routeBookings(twoPanel, isPanel)).map((p) => `${p.deviceId}:${p.portKey}`)).toEqual(['pp2:01#pair', 'pp1:05#pair'])
+  })
+
+  it('refuses a panel side whose other side another connection uses; its own rows and legacy cabling are fine', () => {
+    const cord = { source: { deviceId: 'edge', portId: 'Gi1/0/2' }, dest: { deviceId: 'pp1', portId: '05' }, hops: [] } // front of 05
+    const trunkOnRear = [{ deviceId: 'pp1', portKey: '05#rear', connectionId: 'c-trunk', source: 'connection' }]
+    const conflicts = pairConflicts(routeBookings(cord, isPanel), trunkOnRear, { connectionId: 'c-cord', nameOf: (id) => id.toUpperCase(), connectionName: (id) => `connection ${id}` })
+    expect(conflicts.map((c) => c.message)).toEqual(["PP1 port 05: its rear is already used by connection c-trunk — a panel port's front and rear belong to one connection; add this route to that connection as a hop instead"])
+    expect(pairConflicts(routeBookings(cord, isPanel), trunkOnRear, { connectionId: 'c-trunk' })).toEqual([])
+    expect(pairConflicts(routeBookings(cord, isPanel), [{ ...trunkOnRear[0], connectionId: null, source: 'pre_occupied' }], { connectionId: 'c-cord' })).toEqual([])
+  })
+
+  it('suggestions skip a panel port another connection holds on either side', () => {
+    const ports = [1, 2].map((n) => ({ id: `0${n}`, n, type: 'RJ45', role: 'access' }))
+    const options = portOptions(ports, { media: 'cat6a', side: 'front', occupiedKeys: new Set(['01#pair']) })
+    expect(options.map((o) => o.occupied)).toEqual([true, false])
+    expect(suggestPort(options)).toBe('02')
+  })
+
+  it('validateLld: L-PANEL-PAIR when front and rear are in two connections; L-PANEL-LABEL for a repeated label', () => {
+    const devices = [
+      { id: 'e', hostname: 'E-1', role: 'edge', catalogueKey: 'edge' },
+      { id: 'a', hostname: 'A-1', role: 'ap', catalogueKey: 'ap' },
+      { id: 'p', label: 'PP-X-R01-01', catalogueKey: 'panel', isPanel: true },
+      { id: 'q', label: 'PP-X-R01-01', catalogueKey: 'panel', isPanel: true },
+    ]
+    const cord = { id: 'c1', source: { deviceId: 'e', portId: 'Gi1/0/1' }, dest: { deviceId: 'p', portId: '01' }, media: 'cat6a', speed: '1G', cableId: 'A', hops: [] }
+    const trunk = { id: 'c2', source: { deviceId: 'p', portId: '01' }, dest: { deviceId: 'q', portId: '01' }, media: 'cat6a', speed: '1G', cableId: 'B', hops: [] }
+    const findings = validateLld({ devices, connections: [cord, trunk] }, ctxFor(devices))
+    expect(findings.filter((f) => f.rule.startsWith('L-PANEL')).map((f) => [f.rule, f.message])).toEqual([
+      ['L-PANEL-LABEL', 'PP-X-R01-01 is used by 2 patch panels in this building'],
+      ['L-PANEL-PAIR', 'PP-X-R01-01 port 01: front and rear are in 2 different connections — make it one connection with a hop'],
+    ])
   })
 })
 

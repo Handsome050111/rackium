@@ -116,12 +116,13 @@ test('Rack Elevations: place devices by RU and face; an overlap is refused; add 
   await panel.getByLabel('RU').nth(1).fill('42')
   await panel.getByRole('button', { name: 'Add to rack' }).click()
   // Drawn on the elevation (the block's title is its label).
-  await expect(architect.getByTitle('PP-R01-01')).toBeVisible()
+  await expect(architect.getByTitle('PP-TR-EG-02-R01-01')).toBeVisible()
   // A second panel in the Border's rack (main room), for a two-panel route.
   await panel.getByLabel('Rack').nth(1).selectOption(racks[0].id)
   await panel.getByLabel('RU').nth(1).fill('30')
   await panel.getByRole('button', { name: 'Add to rack' }).click()
-  await expect(architect.getByTitle('PP-R01-01')).toHaveCount(2)
+  // Same rack code (R01) in another room: still a different label.
+  await expect(architect.getByTitle('PP-TR-EG-01-R01-01')).toBeVisible()
 })
 
 test('Rackium Editor: ports from the catalogue, suggestions applied by the user, a patch-panel hop, a Cable ID', async () => {
@@ -144,7 +145,7 @@ test('Rackium Editor: ports from the catalogue, suggestions applied by the user,
   await expect(hops.getByLabel('Hop 1 in (front)')).toHaveValue('01')
   await hops.getByRole('button', { name: 'Suggested: 02 — use' }).click()
   await expect(hops.getByLabel('Hop 1 out (front)')).toHaveValue('02')
-  await expect(editor.getByTestId('route-trace')).toContainText('PP-R01-01 01 front | PP-R01-01 02 front')
+  await expect(editor.getByTestId('route-trace')).toContainText('PP-TR-EG-02-R01-01 01 front | PP-TR-EG-02-R01-01 02 front')
   await editor.getByLabel('Hop 1 segment Cable ID').fill('SEG-EA-1')
   await editor.getByRole('button', { name: view.cableIdSuggestion }).click()
   await expect(editor.getByLabel('Cable ID', { exact: true })).toHaveValue(view.cableIdSuggestion)
@@ -173,7 +174,7 @@ test('Rackium Editor: a two-panel route — patch cords on the fronts, the trunk
   const hops = editor.getByTestId('hops')
   await editor.getByRole('button', { name: 'Add hop' }).click()
   await editor.getByLabel('Hop 1 panel').selectOption({ index: 1 }) // the Edge's rack
-  // Rack codes repeat per room, so each panel option also names its room (regression: two identical 'PP-R01-01 (R01)').
+  // Labels are unique per building (regression: two identical 'PP-R01-01 (R01)').
   const options = (await editor.getByLabel('Hop 1 panel').locator('option').allTextContents()).slice(1)
   expect(options).toHaveLength(2)
   expect(new Set(options).size).toBe(2)
@@ -184,7 +185,7 @@ test('Rackium Editor: a two-panel route — patch cords on the fronts, the trunk
   await expect(hops.getByLabel('Hop 1 port (front | rear)')).toHaveValue('03')
   await hops.getByRole('button', { name: /Suggested: 01 — use/ }).click()
   await expect(hops.getByLabel('Hop 2 port (rear | front)')).toHaveValue('01')
-  await expect(editor.getByTestId('route-trace')).toContainText('PP-R01-01 03 front | PP-R01-01 03 rear → PP-R01-01 01 rear | PP-R01-01 01 front')
+  await expect(editor.getByTestId('route-trace')).toContainText('PP-TR-EG-02-R01-01 03 front | PP-TR-EG-02-R01-01 03 rear → PP-TR-EG-01-R01-01 01 rear | PP-TR-EG-01-R01-01 01 front')
   if (process.env.LLD_SHOTS) {
     for (const [width, height] of [[1440, 900], [390, 844]]) {
       await architect.setViewportSize({ width, height })
@@ -202,7 +203,7 @@ test('Rackium Editor: a two-panel route — patch cords on the fronts, the trunk
   // The Cable Schedule shows the sides.
   await architect.goto(lldUrl())
   await architect.getByRole('tab', { name: 'Cable Schedule' }).click()
-  await expect(architect.getByText('PP-R01-01 03 front | rear → PP-R01-01 01 rear | front')).toBeVisible()
+  await expect(architect.getByText('PP-TR-EG-02-R01-01 03 front | rear → PP-TR-EG-01-R01-01 01 rear | front')).toBeVisible()
   // Removed again so the rest of the flow submits a clean LLD.
   await architect.goto(`${lldUrl()}/editor?rack=${racks[1].id}&connection=${route.id}`)
   architect.once('dialog', (d) => d.accept())

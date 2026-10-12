@@ -27,6 +27,40 @@ export function fallbackPanelPorts(device) {
   return Array.from({ length: count }, (_, i) => ({ id: String(i + 1).padStart(2, '0'), n: i + 1, role: 'access', type: fibre ? 'LC' : 'RJ45', speed: null, poe: false }))
 }
 
+// --- Panel labels (unique per building) -------------------------------------------
+
+// Rack codes repeat in every room (R01 …), so a panel's default label is
+// room-qualified and hostname-safe: PP-<room>-<rack>-NN (cable managers CM-…),
+// e.g. PP-TR-EG-01-R01-01. Letters, digits and hyphens only.
+export const PANEL_LABEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9-]{0,62}$/
+export const labelToken = (s) =>
+  String(s ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+export function panelLabel({ prefix = 'PP', room, rack, seq }) {
+  return [prefix, labelToken(room), labelToken(rack), String(seq).padStart(2, '0')].filter(Boolean).join('-')
+}
+// The next label not already used in the building (case-insensitive).
+export function nextPanelLabel({ prefix = 'PP', room, rack }, usedLabels) {
+  const used = new Set([...usedLabels].filter(Boolean).map((l) => String(l).toLowerCase()))
+  let seq = 1
+  while (used.has(panelLabel({ prefix, room, rack, seq }).toLowerCase())) seq += 1
+  return panelLabel({ prefix, room, rack, seq })
+}
+// Panel labels used more than once among a building's panels: [{ label, ids }].
+export function duplicatePanelLabels(panels) {
+  const byKey = new Map()
+  for (const p of panels) {
+    const label = p.label ?? p.hostname
+    if (!label) continue
+    const key = String(label).toLowerCase()
+    byKey.set(key, { label: byKey.get(key)?.label ?? label, ids: [...(byKey.get(key)?.ids ?? []), String(p.id)] })
+  }
+  return [...byKey.values()].filter((e) => e.ids.length > 1)
+}
+
 export function portsOf(item, device) {
   if (item?.portMap) return expandPortMap(item.portMap)
   if (isPatchPanel(item, device)) return fallbackPanelPorts(device)
@@ -36,6 +70,8 @@ export function portsOf(item, device) {
 // Every port of a device with its state for one medium: free or occupied
 // (`occupiedKeys`, a Set of portKey values), compatible or not. The system
 // suggests; it never assigns (brief §5.4).
+// A panel side is also unavailable when another connection holds the port's
+// pair key (it uses the other side: front and rear belong to one connection).
 export function portOptions(ports, { media, occupiedKeys = new Set(), side = null }) {
   return ports.map((p) => ({
     id: p.id,
@@ -43,7 +79,7 @@ export function portOptions(ports, { media, occupiedKeys = new Set(), side = nul
     type: p.type,
     speed: p.speed ?? null,
     role: p.role,
-    occupied: occupiedKeys.has(portKey(p.id, side)),
+    occupied: occupiedKeys.has(portKey(p.id, side)) || (side != null && occupiedKeys.has(portKey(p.id, PAIR))),
     compatible: media ? portSuitsMedia(p.type, media) : true,
   }))
 }
@@ -133,6 +169,49 @@ export function routeTrace(conn, isPanel, nameOf = (id) => String(id)) {
   parts.push(at(conn.dest.deviceId, conn.dest.portId, sides.dest))
   return parts.join(' → ')
 }
+// --- One connection per panel port (M4b review) ----------------------------------
+
+// A panel port's front and rear belong to the SAME connection: one end-to-end
+// record with its hops, so the trace never fragments. The occupancy registry
+// keeps one `<port>#pair` row per panel port per connection; its unique index
+// makes a second connection on the other side impossible, even concurrently.
+// Legacy cabling outside the project (registry rows with source
+// `pre_occupied`) is exempt.
+export const PAIR = 'pair'
+export const otherSide = (side) => (side === 'front' ? 'rear' : side === 'rear' ? 'front' : null)
+
+// The pair keys a connection's bookings need (one per panel port).
+export function pairBookings(bookings) {
+  const seen = new Map()
+  for (const b of bookings) {
+    if (!b.side) continue
+    const key = `${b.deviceId}|${portKey(b.portId, PAIR)}`
+    if (!seen.has(key)) seen.set(key, { deviceId: b.deviceId, portId: b.portId, portKey: portKey(b.portId, PAIR) })
+  }
+  return [...seen.values()]
+}
+
+// Panel ports whose other side another connection already uses.
+// `occupancy`: registry rows [{ deviceId, portKey, connectionId, source }].
+export function pairConflicts(bookings, occupancy, { connectionId = null, nameOf = (id) => String(id), connectionName = () => 'another connection' } = {}) {
+  const out = []
+  for (const b of bookings) {
+    if (!b.side) continue
+    const otherKey = portKey(b.portId, otherSide(b.side))
+    const row = occupancy.find((o) => String(o.deviceId) === String(b.deviceId) && o.portKey === otherKey && o.source !== 'pre_occupied' && String(o.connectionId) !== String(connectionId))
+    if (row) {
+      out.push({
+        deviceId: b.deviceId,
+        portId: b.portId,
+        side: b.side,
+        otherConnectionId: String(row.connectionId),
+        message: `${nameOf(b.deviceId)} port ${b.portId}: its ${otherSide(b.side)} is already used by ${connectionName(String(row.connectionId))} — a panel port's front and rear belong to one connection; add this route to that connection as a hop instead`,
+      })
+    }
+  }
+  return out
+}
+
 // One hop with its sides: "PP-02 01 front | rear" (pass-through) or "PP-01 01 front | 02 front".
 export function hopText(hop, sides, panelName) {
   return samePort(hop.inPort, hop.outPort) ? `${panelName} ${hop.inPort} ${sides.inSide} | ${sides.outSide}` : `${panelName} ${hop.inPort} ${sides.inSide} | ${hop.outPort} ${sides.outSide}`
@@ -145,6 +224,8 @@ export const LLD_RULES = {
   'L-CABLE-ID': { severity: 'critical', title: 'Cable ID missing (mandatory once LLD is approved)' },
   'L-PLACEMENT': { severity: 'critical', title: 'Rack-mounted device not placed in a rack at an RU' },
   'L-HOP': { severity: 'critical', title: 'Patch-panel hop is not valid' },
+  'L-PANEL-PAIR': { severity: 'critical', title: "A panel port's front and rear belong to different connections" },
+  'L-PANEL-LABEL': { severity: 'critical', title: 'Patch-panel label not unique in the building' },
 }
 const lldFinding = (rule, objectType, objectId, message, suffix = '') => ({
   id: `${rule}:${objectType}:${objectId}${suffix ? `:${suffix}` : ''}`,
@@ -196,6 +277,25 @@ export function validateLld(design, ctx) {
     if ((c.hops ?? []).every((h) => deviceById.has(String(h.patchPanelId)))) {
       hopProblems(c, isPanelIn, (id) => name(deviceById.get(String(id)))).forEach((p, i) => findings.push(lldFinding('L-HOP', 'connection', c.id, `${name(a)} → ${name(b)}, ${p.message}`, `side-${p.seq}-${i}`)))
     }
+  }
+  // One connection per panel port: front and rear never split between two.
+  const holders = new Map()
+  for (const c of design.connections) {
+    if (!(c.hops ?? []).every((h) => deviceById.has(String(h.patchPanelId)))) continue
+    for (const bk of routeBookings(c, isPanelIn)) {
+      if (!bk.side) continue
+      const key = `${bk.deviceId}|${String(bk.portId).toLowerCase()}`
+      const entry = holders.get(key) ?? { deviceId: bk.deviceId, portId: bk.portId, ids: new Set() }
+      entry.ids.add(String(c.id))
+      holders.set(key, entry)
+    }
+  }
+  for (const e of holders.values()) {
+    if (e.ids.size > 1) findings.push(lldFinding('L-PANEL-PAIR', 'device', e.deviceId, `${name(deviceById.get(e.deviceId))} port ${e.portId}: front and rear are in ${e.ids.size} different connections — make it one connection with a hop`, String(e.portId).toLowerCase()))
+  }
+  // Panel labels unique in the building (the design's panels and surveyed ones).
+  for (const dup of duplicatePanelLabels(design.devices.filter((d) => isPanelIn(d.id)))) {
+    findings.push(lldFinding('L-PANEL-LABEL', 'device', dup.ids[0], `${dup.label} is used by ${dup.ids.length} patch panels in this building`, dup.label.toLowerCase()))
   }
   return findings.sort((x, y) => ['critical', 'warning', 'info'].indexOf(x.severity) - ['critical', 'warning', 'info'].indexOf(y.severity) || x.rule.localeCompare(y.rule))
 }

@@ -95,6 +95,17 @@ describe('Rackium Editor helpers', () => {
   })
 })
 
+describe('one connection per panel port (editor)', () => {
+  it("a panel port held by another connection is unavailable on both sides; the edited connection's own port stays free", () => {
+    const pp = { id: 'pp', isPanel: true, ports: [1, 2].map((n) => ({ id: `0${n}`, n, type: 'RJ45', role: 'access' })), occupied: [{ portKey: '01#front', connectionId: 'c1', source: 'connection' }, { portKey: '01#pair', connectionId: 'c1', source: 'pair' }] }
+    expect(portChoices(pp, { media: 'cat6a', side: 'rear' }).suggestion).toBe('02')
+    expect(portChoices(pp, { media: 'cat6a', side: 'rear', exceptConnectionId: 'c1' }).suggestion).toBe('01')
+    // Legacy cabling on the rear (no pair row) leaves the front usable.
+    const legacy = { ...pp, occupied: [{ portKey: '01#rear', connectionId: null, source: 'pre_occupied' }] }
+    expect(portChoices(legacy, { media: 'cat6a', side: 'front' }).suggestion).toBe('01')
+  })
+})
+
 describe('editor route sides', () => {
   it('patch cords on the front, trunks on the rear; the same sides when the route is drawn from the other end', () => {
     const byId = { e: { isPanel: false }, b: { isPanel: false }, p1: { isPanel: true }, p2: { isPanel: true } }

@@ -177,7 +177,7 @@ describe('Rack elevations: shared rack rules against surveyed gear and the desig
     // Patch panels and cable managers come from the catalogue; switches do not.
     expectStatus(await save('post', `${p.lld}/devices`, { buildingId: p.b001, catalogueKey: 'Cisco C9300-48UX', rackId: mainRack, ru: 30, face: 'front' }), 400)
     const cm = (await expectStatus(await save('post', `${p.lld}/devices`, { buildingId: p.b001, catalogueKey: 'Generic Cable Manager 1U', rackId: mainRack, ru: 30, face: 'front' }), 201)).body.device
-    expect(cm).toMatchObject({ label: 'CM-R01-01', ru: 30, category: 'cable_management' })
+    expect(cm).toMatchObject({ label: 'CM-TR-EG-01-R01-01', ru: 30, category: 'cable_management' })
     expectStatus(await save('post', `${p.lld}/devices`, { buildingId: p.b001, catalogueKey: PANEL, rackId: mainRack, ru: 30, face: 'front' }), 400)
   })
 })
@@ -192,7 +192,8 @@ describe('Rackium Editor: ports, patch-panel hops and the occupancy registry', (
     expect(ea).toMatchObject({ cableId: 'C-EA-1', hops: [{ seq: 1, patchPanelId: panel.id, inPort: '01', inSide: 'front', outPort: '02', outSide: 'front', segmentCableId: 'C-EA-1b', rackId: p.racks[1].id }] })
     const panelView = view.devices.find((x) => x.id === panel.id)
     expect(panelView.ports).toHaveLength(24)
-    expect(panelView.occupied.map((o) => o.portKey).sort()).toEqual(['01#front', '02#front'])
+    // Sides taken, plus one pair row per panel port (front and rear stay in this connection).
+    expect(panelView.occupied.map((o) => o.portKey).sort()).toEqual(['01#front', '01#pair', '02#front', '02#pair'])
     expect(view.devices.find((x) => x.role === 'edge').occupied.map((o) => o.portKey).sort()).toEqual(['gi1/0/1', 'te1/1/1'])
 
     // A port that does not exist on the model is refused.
@@ -207,7 +208,7 @@ describe('Rackium Editor: ports, patch-panel hops and the occupancy registry', (
     expectStatus(await save('post', `${p.lld}/connections`, { buildingId: p.b001, source: { deviceId: (await device('edge')).id, portId: 'Gi1/0/2' }, dest: { deviceId: (await device('ap')).id, portId: null }, media: 'cat6a', speed: '1G', hops: [{ patchPanelId: panel.id, inPort: '03', outPort: '01' }] }), 409)
     const second = expectStatus(await save('post', `${p.lld}/connections`, { buildingId: p.b001, source: { deviceId: (await device('edge')).id, portId: 'Gi1/0/2' }, dest: { deviceId: panel.id, portId: '03' }, media: 'cat6a', speed: '1G' }), 201)
     // A cable ending on a panel lands on its front.
-    expect((await occupancy({ connectionId: new mongoose.Types.ObjectId(second.body.connection.id) })).map((o) => o.portKey).sort()).toEqual(['03#front', 'gi1/0/2'])
+    expect((await occupancy({ connectionId: new mongoose.Types.ObjectId(second.body.connection.id) })).map((o) => o.portKey).sort()).toEqual(['03#front', '03#pair', 'gi1/0/2'])
     // A hop must be on a patch panel.
     expectStatus(await save('patch', `${p.lld}/connections/${second.body.connection.id}`, { hops: [{ patchPanelId: (await device('edge')).id, inPort: 'Gi1/0/3', outPort: 'Gi1/0/4' }] }), 400)
     // Deleting a connection frees its ports.
@@ -238,7 +239,8 @@ describe('Patch-panel sides by cable type (M4b review)', () => {
     const panel1 = (await expectStatus(await d.save('post', `${d.p.lld}/devices`, { buildingId: d.p.b001, catalogueKey: PANEL, rackId: d.p.racks[0].id, ru: 30, face: 'front' }), 201)).body.device
     return { panel1, panel2 }
   }
-  const bookedBy = async (connectionId) => (await occupancy({ connectionId: new mongoose.Types.ObjectId(connectionId) })).map((o) => `${o.deviceId}:${o.portKey}`).sort()
+  // Port sides booked (pair rows are covered by the one-connection-per-port tests).
+  const bookedBy = async (connectionId) => (await occupancy({ connectionId: new mongoose.Types.ObjectId(connectionId), source: { $ne: 'pair' } })).map((o) => `${o.deviceId}:${o.portKey}`).sort()
   async function routeBothWays(d, forward, backward) {
     const { p, save } = d
     const one = expectStatus(await save('post', `${p.lld}/connections`, { buildingId: p.b001, media: 'cat6a', speed: '1G', ...forward }), 201).body.connection
@@ -298,6 +300,71 @@ describe('Patch-panel sides by cable type (M4b review)', () => {
     expect(await occupancy({})).toHaveLength(before.length)
     // Correct sides, sent explicitly, are accepted.
     expectStatus(await d.save('post', `${d.p.lld}/connections`, { ...base, hops: [{ patchPanelId: panel2.id, inPort: '08', inSide: 'front', outPort: '08', outSide: 'rear' }, { patchPanelId: panel1.id, inPort: '08', inSide: 'rear', outPort: '08', outSide: 'front' }] }), 201)
+  })
+})
+
+describe('Panel labels and one connection per panel port (M4b review)', () => {
+  const addPanel = (d, rackId, ru, extra = {}) => d.save('post', `${d.p.lld}/devices`, { buildingId: d.p.b001, catalogueKey: PANEL, rackId, ru, face: 'front', ...extra })
+
+  it('default labels are room-qualified and unique per building; a repeated or unsafe custom label is refused', async () => {
+    const d = await started()
+    const [mainRack, secondRack] = d.p.racks.map((r) => r.id)
+    // Both rooms' first rack is R01: the labels still differ.
+    const a = expectStatus(await addPanel(d, mainRack, 30), 201).body.device
+    const b = expectStatus(await addPanel(d, secondRack, 30), 201).body.device
+    const c = expectStatus(await addPanel(d, mainRack, 29), 201).body.device
+    expect([a.label, b.label, c.label]).toEqual(['PP-TR-EG-01-R01-01', 'PP-TR-EG-02-R01-01', 'PP-TR-EG-01-R01-02'])
+    const dup = expectStatus(await addPanel(d, secondRack, 28, { label: 'pp-tr-eg-01-r01-01' }), 409)
+    expect(dup.body.error).toMatchObject({ code: 'label_in_use' })
+    expect(dup.body.error.message).toMatch(/unique per building/)
+    expectStatus(await addPanel(d, secondRack, 28, { label: 'PP 1/2' }), 400)
+    expect(expectStatus(await addPanel(d, secondRack, 28, { label: 'PP-CORE-CU' }), 201).body.device.label).toBe('PP-CORE-CU')
+    // A deleted panel's number is free again only if nothing else uses it.
+    expectStatus(await d.p.architect.delete(`${d.p.lld}/devices/${a.id}?baseRevision=${await d.rev()}`), 200)
+    expect(expectStatus(await addPanel(d, mainRack, 27), 201).body.device.label).toBe('PP-TR-EG-01-R01-01')
+    const val = (await d.p.architect.get(`${d.p.lld}/buildings/${d.p.b001}/validation`).expect(200)).body
+    expect(val.findings.filter((f) => f.rule === 'L-PANEL-LABEL')).toEqual([])
+  })
+
+  it("a panel port's front and rear belong to the same connection: a split is refused (400) — extend the connection with a hop instead", async () => {
+    const d = await started()
+    const [mainRack, secondRack] = d.p.racks.map((r) => r.id)
+    const near = expectStatus(await addPanel(d, secondRack, 30), 201).body.device
+    const far = expectStatus(await addPanel(d, mainRack, 30), 201).body.device
+    const edge = await d.device('edge')
+    const border = await d.device('border')
+    // A patch cord to the panel front, saved as its own connection.
+    const cord = expectStatus(await d.save('post', `${d.p.lld}/connections`, { buildingId: d.p.b001, media: 'cat6a', speed: '1G', cableId: 'CORD-11', source: { deviceId: edge.id, portId: 'Gi1/0/11' }, dest: { deviceId: near.id, portId: '11' } }), 201).body.connection
+    // A second connection on the same port's rear (a trunk) would fragment the trace.
+    const before = await occupancy({})
+    const split = expectStatus(await d.save('post', `${d.p.lld}/connections`, { buildingId: d.p.b001, media: 'cat6a', speed: '1G', source: { deviceId: near.id, portId: '11' }, dest: { deviceId: far.id, portId: '11' } }), 400)
+    expect(split.body.error.message).toBe(
+      `${near.label} port 11: its front is already used by connection CORD-11 (${edge.hostname} → ${near.label}) — a panel port's front and rear belong to one connection; add this route to that connection as a hop instead`
+    )
+    expect(await occupancy({})).toHaveLength(before.length)
+    // The fix: one end-to-end connection with the hops.
+    const whole = expectStatus(await d.save('patch', `${d.p.lld}/connections/${cord.id}`, { dest: { deviceId: border.id, portId: 'Te1/1/11' }, hops: [{ patchPanelId: near.id, inPort: '11', outPort: '11' }, { patchPanelId: far.id, inPort: '11', outPort: '11' }] }), 200).body.connection
+    expect(whole.hops.map((h) => [h.inSide, h.outSide])).toEqual([['front', 'rear'], ['rear', 'front']])
+    expect((await occupancy({ connectionId: new mongoose.Types.ObjectId(cord.id) })).map((o) => o.portKey).sort()).toEqual(['11#front', '11#front', '11#pair', '11#pair', '11#rear', '11#rear', 'gi1/0/11', 'te1/1/11'])
+    // The view marks the port as held for every other connection.
+    const nearView = (await d.view()).devices.find((x) => x.id === near.id)
+    expect(nearView.occupied.filter((o) => o.portKey === '11#pair')).toEqual([{ portKey: '11#pair', connectionId: cord.id, source: 'pair' }])
+  })
+
+  it('the pair row is the guarantee (a concurrent write on the other side is refused); legacy pre-occupied cabling is exempt', async () => {
+    const d = await started()
+    const [, secondRack] = d.p.racks.map((r) => r.id)
+    const near = expectStatus(await addPanel(d, secondRack, 30), 201).body.device
+    const edge = await d.device('edge')
+    const template = await mongoose.connection.db.collection('devices').findOne({ layer: 'lld' })
+    const rawRow = (portKey, extra) => ({ organisationId: template.organisationId, projectId: template.projectId, layer: 'lld', deviceId: new mongoose.Types.ObjectId(near.id), portId: portKey.split('#')[0], portKey, hopSeq: null, createdAt: new Date(), ...extra })
+    // As if another connection had committed its other-side booking a moment ago.
+    await mongoose.connection.db.collection('portoccupancies').insertOne(rawRow('12#pair', { connectionId: new mongoose.Types.ObjectId(), source: 'pair' }))
+    const raced = expectStatus(await d.save('post', `${d.p.lld}/connections`, { buildingId: d.p.b001, media: 'cat6a', speed: '1G', source: { deviceId: edge.id, portId: 'Gi1/0/12' }, dest: { deviceId: near.id, portId: '12' } }), 400)
+    expect(raced.body.error.message).toMatch(/port 12: its other side was just taken by another connection/)
+    // Legacy cabling outside the project on the rear of 13: the front stays usable.
+    await mongoose.connection.db.collection('portoccupancies').insertOne(rawRow('13#rear', { connectionId: null, source: 'pre_occupied' }))
+    expectStatus(await d.save('post', `${d.p.lld}/connections`, { buildingId: d.p.b001, media: 'cat6a', speed: '1G', source: { deviceId: edge.id, portId: 'Gi1/0/13' }, dest: { deviceId: near.id, portId: '13' } }), 201)
   })
 })
 

@@ -7,7 +7,7 @@ import { suggestNextCableId } from '@rackium/shared/cableId.js'
 import { roleInfo, resolveRoleCodes } from '@rackium/shared/hldRoles.js'
 import { buildHostname } from '@rackium/shared/naming.js'
 import { summariseFindings } from '@rackium/shared/hldRules.js'
-import { portKey, portsOf, isPatchPanel, validateLld, diffDesigns, reconcileWithHld, routeSides, routeBookings, hopProblems } from '@rackium/shared/lldDesign.js'
+import { portKey, portsOf, isPatchPanel, validateLld, diffDesigns, reconcileWithHld, routeSides, routeBookings, hopProblems, pairBookings, pairConflicts, nextPanelLabel } from '@rackium/shared/lldDesign.js'
 import { canApproveSubmission } from '@rackium/shared/policy.js'
 import { Device } from '../models/device.js'
 import { Connection } from '../models/connection.js'
@@ -283,11 +283,36 @@ const panelTest = (devices, cat) => (deviceId) => {
   return Boolean(d) && isPatchPanel(cat.item(d.catalogueKey), d)
 }
 async function takePorts(conn, layer, devices, cat, session) {
-  const rows = routeBookings(conn, panelTest(devices, cat)).map((b) => ({ ...b, portKey: portKey(b.portId, b.side), who: devices.get(b.deviceId) }))
+  const bookings = routeBookings(conn, panelTest(devices, cat))
+  const nameOf = (deviceId) => devices.get(String(deviceId))?.hostname ?? devices.get(String(deviceId))?.label ?? 'the panel'
+  // One connection per panel port: refuse a side whose other side another
+  // connection uses (legacy pre-occupied cabling is exempt).
+  const panelIds = [...new Set(bookings.filter((b) => b.side).map((b) => b.deviceId))]
+  if (panelIds.length) {
+    const others = await PortOccupancy.find({ layer, deviceId: { $in: panelIds.map(oid) }, connectionId: { $ne: conn._id } }).session(session).lean()
+    const connectionName = async (connectionId) => {
+      const other = await Connection.findById(connectionId).session(session).lean()
+      if (!other) return 'another connection'
+      return `connection ${other.cableId ?? '(no Cable ID)'} (${nameOf(other.source.deviceId)} → ${nameOf(other.dest.deviceId)})`
+    }
+    const found = pairConflicts(bookings, others, { connectionId: conn._id, nameOf })
+    if (found.length) {
+      const names = new Map()
+      for (const f of found) if (!names.has(f.otherConnectionId)) names.set(f.otherConnectionId, await connectionName(f.otherConnectionId))
+      const detailed = pairConflicts(bookings, others, { connectionId: conn._id, nameOf, connectionName: (cid) => names.get(cid) })
+      throw badRequest(detailed.map((f) => f.message).join('; '), { code: 'panel_port_split', conflicts: detailed.map(({ deviceId, portId, side, otherConnectionId }) => ({ deviceId, portId, side, otherConnectionId })) })
+    }
+  }
+  const rows = [
+    ...bookings.map((b) => ({ ...b, portKey: portKey(b.portId, b.side), who: devices.get(b.deviceId) })),
+    ...pairBookings(bookings).map((p) => ({ ...p, side: null, source: 'pair', hopSeq: null, pair: true, who: devices.get(p.deviceId) })),
+  ]
   for (const r of rows) {
     try {
       await PortOccupancy.create([{ layer, deviceId: oid(r.deviceId), portId: r.portId, portKey: r.portKey, connectionId: conn._id, hopSeq: r.hopSeq, source: r.source }], { session })
     } catch (err) {
+      // A pair row taken meanwhile: another connection just took this port's other side.
+      if (err.code === 11000 && r.pair) throw badRequest(`${nameOf(r.deviceId)} port ${r.portId}: its other side was just taken by another connection — a panel port's front and rear belong to one connection`, { code: 'panel_port_split' })
       if (err.code === 11000) throw conflict('port_in_use', `${r.portId}${r.portKey.includes('#') ? ` (${r.portKey.split('#')[1]})` : ''} on ${r.who?.hostname ?? r.who?.label ?? 'the device'} is already used by another connection`)
       throw err
     }
@@ -592,7 +617,7 @@ export function createLldService({ storage }) {
         floors: data.floors.map((f) => ({ id: String(f._id), token: f.token, name: f.name, order: f.order })),
         rooms: data.rooms.map((r) => ({ id: String(r._id), floorId: String(r.floorId), code: r.code, isMainRoom: Boolean(r.isMainRoom) })),
         racks: rackViews,
-        devices: views.map((d) => ({ ...d, inDesign: own.has(d.id), occupied: (occupancyByDevice.get(d.id) ?? []).map((o) => ({ portKey: o.portKey, connectionId: String(o.connectionId) })) })),
+        devices: views.map((d) => ({ ...d, inDesign: own.has(d.id), occupied: (occupancyByDevice.get(d.id) ?? []).map((o) => ({ portKey: o.portKey, connectionId: id(o.connectionId), source: o.source })) })),
         connections,
         cableIdSuggestion: suggestNextCableId(allIds.map((r) => r.cableKey)),
         versions: versions.map((v) => ({ id: String(v._id), number: v.number, label: v.label, frozen: v.frozen, branchId: id(v.branchId), counts: v.counts, createdAt: v.createdAt, createdBy: names.get(String(v.createdBy)) ?? null })),
@@ -691,8 +716,12 @@ export function createLldService({ storage }) {
         if (!item || item.kind !== 'device_model' || !['patch_panel', 'cable_management', 'accessory'].includes(item.category)) throw badRequest('The LLD adds patch panels, cable managers and accessories from the catalogue')
         const rack = data.racks.find((r) => String(r._id) === body.rackId)
         if (!rack) throw notFound('Rack not found in this building')
-        const count = data.devices.filter((d) => String(d.rackId) === body.rackId && d.category === item.category).length + 1
-        const label = body.label ?? `${item.category === 'patch_panel' ? 'PP' : 'CM'}-${rack.code}-${String(count).padStart(2, '0')}`
+        // Labels are unique in the building (rack codes repeat per room):
+        // default PP-<room>-<rack>-NN / CM-…, the next number not yet used.
+        const room = data.rooms.find((r) => String(r._id) === String(rack.roomId))
+        const used = [...data.existing, ...data.devices].flatMap((d) => [d.label, d.hostname]).filter(Boolean)
+        if (body.label && used.some((l) => l.toLowerCase() === body.label.toLowerCase())) throw conflict('label_in_use', `${body.label} is already used in this building — panel labels are unique per building`)
+        const label = body.label ?? nextPanelLabel({ prefix: item.category === 'patch_panel' ? 'PP' : 'CM', room: room?.code, rack: rack.code }, used)
         const device = new Device({ origin: 'planned', status: 'planned', layer, salId: building.salId, buildingId: building.id, roomId: rack.roomId, rackId: rack._id, ru: body.ru, heightU: item.heightU ?? 1, face: body.face, fullDepth: Boolean(item.fullDepth), mounting: item.mounting === '0U' ? '0U' : 'rack', label, model: item.model, catalogueKey: item.key, category: item.category })
         if (body.ru != null) assertPlacement(device, rack, data)
         await device.save({ session })

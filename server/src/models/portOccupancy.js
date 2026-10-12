@@ -15,7 +15,9 @@ const portOccupancySchema = new mongoose.Schema({
   portKey: { type: String, required: true },
   connectionId: { type: ObjectId, default: null },
   hopSeq: { type: Number, default: null },
-  source: { type: String, enum: ['connection', 'hop', 'pre_occupied'], required: true },
+  // 'pair': one row per panel port per connection (`<port>#pair`) — its unique
+  // index keeps a port's front and rear in ONE connection (shared/lldDesign.js).
+  source: { type: String, enum: ['connection', 'hop', 'pre_occupied', 'pair'], required: true },
   createdAt: { type: Date, default: () => new Date() },
 })
 

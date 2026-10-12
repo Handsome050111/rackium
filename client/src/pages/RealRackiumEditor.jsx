@@ -3,7 +3,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, AlertTriangle, RefreshCw, Plus, Trash2, Lightbulb, Save } from 'lucide-react'
 import RackElevation from '../components/RackElevation.jsx'
 import PortFace from '../components/PortFace.jsx'
-import { lldApi, portMapOf, portChoices, occupiedKeysOf, draftSides } from '../api/lldApi.js'
+import { lldApi, portMapOf, portChoices, draftSides } from '../api/lldApi.js'
 import { portKey, routeTrace } from '@rackium/shared/lldDesign.js'
 import { MEDIA_LABEL } from '@rackium/shared/lldModel.js'
 import { useMediaQuery } from '../lib/useMediaQuery.js'
@@ -93,8 +93,8 @@ export default function RealRackiumEditor() {
 
   const devices = useMemo(() => view?.devices ?? [], [view])
   const deviceById = useMemo(() => Object.fromEntries(devices.map((d) => [d.id, d])), [devices])
-  // Rack codes repeat per room (R01 in every room), so a panel is named with its room.
-  const panels = devices.filter((d) => d.isPanel).map((d) => ({ ...d, where: [view?.rooms.find((r) => r.id === d.roomId)?.code, d.rackCode].filter(Boolean).join(' / ') }))
+  // Panel labels are unique per building (PP-<room>-<rack>-NN).
+  const panels = devices.filter((d) => d.isPanel)
   const endDevices = devices.filter((d) => d.ports.length > 0)
   const rack = view?.racks.find((r) => r.id === rackId) ?? view?.racks[0] ?? null
   const inRack = new Set(devices.filter((d) => d.rackId === rack?.id).map((d) => d.id))
@@ -346,8 +346,9 @@ function Suggestion({ suggestion, current, onUse, editable }) {
 
 function EndEditor({ title, devices, device, portId, sfp, optics, media, connectionId, side, taken, editable, onChange }) {
   const { options, suggestion } = portChoices(device, { media, side, exceptConnectionId: connectionId, taken })
-  const used = new Set([...occupiedKeysOf(device, connectionId), ...taken])
-  const occupied = device ? device.ports.filter((p) => used.has(portKey(p.id, side))).map((p) => p.id) : []
+  // Taken on this side, or held by another connection on the other side
+  // (a panel port's front and rear belong to one connection).
+  const occupied = options.filter((o) => o.occupied).map((o) => o.id)
   const incompatible = options.filter((o) => !o.compatible).length
   return (
     <div className="min-w-0 space-y-2 rounded-xl border border-border bg-surface p-3" data-testid={`end-${title.toLowerCase()}`}>
@@ -448,7 +449,8 @@ function HopsEditor({ hops, sides, takenFor, panels, deviceById, media, connecti
                 <option value="">Choose…</option>
                 {panels.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.label} ({p.where})
+                    {p.label}
+                    {p.ru ? ` · RU${p.ru}` : ''}
                   </option>
                 ))}
               </select>

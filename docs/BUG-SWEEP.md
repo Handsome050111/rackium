@@ -397,3 +397,17 @@ drawn from. Found while changing it, each with a test:
   in side** of a single-panel hop. Suggestions now count the draft's own
   picks as taken. Tests: `client/src/api/m4b.api.test.js` (port choices),
   `e2e-real/lld.spec.js` (Suggested: 02).
+
+### M4b review round 2: panel labels and one connection per panel port
+
+- **Panel labels repeated across rooms** (`PP-R01-01` in every room's
+  first rack), so schedules and exports could not tell two panels apart.
+  Default labels are now `PP-<room>-<rack>-NN`, unique per building, and a
+  repeated custom label is refused. Tests: `shared/src/lldDesign.test.js`
+  (labels), `api.lld.test.js` "default labels are room-qualified …".
+- **A panel port's front and rear could be split over two connections**,
+  fragmenting the trace. Refused (400) in the shared check and the API, and
+  guarded by a pair row in the occupancy registry against racing saves;
+  legacy pre-occupied cabling stays exempt. Tests: `lldDesign.test.js`
+  ("one connection per panel port"), `api.lld.test.js` ("a split is
+  refused", "the pair row is the guarantee"), `client m4b.api.test.js`.
