@@ -10,6 +10,7 @@
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
     "test": "vitest run",
+    "clean:test-db": "node scripts/clean-test-db.mjs",
     "openapi": "node scripts/generate-openapi.js"
   },
   "dependencies": {
