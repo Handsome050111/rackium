@@ -5,7 +5,9 @@ import RackElevation from '../RackElevation.jsx'
 // Every rack in the building, view-only — this is the Visio rack-diagram
 // equivalent (brief v2.2 §3.7 Tab 2), but interactive and data-linked.
 // Editing stays in the Rackium Editor, reached from here.
-export default function RackElevationsTab({ rackElevations }) {
+// `editorPath(rackId)` (real mode) replaces the prototype editor route;
+// `renderExtra(entry)` adds real-mode controls under a rack.
+export default function RackElevationsTab({ rackElevations, editorPath, renderExtra }) {
   const { buildingId } = useParams()
   const navigate = useNavigate()
 
@@ -15,7 +17,9 @@ export default function RackElevationsTab({ rackElevations }) {
 
   return (
     <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-      {rackElevations.map(({ rack, room, floorName, placements, freeRuByFace }) => (
+      {rackElevations.map((entry) => {
+        const { rack, room, floorName, placements, freeRuByFace } = entry
+        return (
         <div key={rack.id} className="space-y-2">
           <div className="flex items-center justify-between gap-2 px-1">
             <div className="text-xs text-text-secondary">
@@ -23,7 +27,7 @@ export default function RackElevationsTab({ rackElevations }) {
             </div>
             <button
               type="button"
-              onClick={() => navigate(`/b/${buildingId}/lld/editor?rack=${rack.id}`)}
+              onClick={() => navigate(editorPath ? editorPath(rack.id) : `/b/${buildingId}/lld/editor?rack=${rack.id}`)}
               className="flex h-8 items-center gap-1.5 rounded-lg border border-border px-2.5 text-xs font-medium text-brand hover:border-brand"
             >
               Open in Rackium Editor
@@ -31,8 +35,10 @@ export default function RackElevationsTab({ rackElevations }) {
             </button>
           </div>
           <RackElevation rack={rack} placements={placements} mode="view" freeRuByFace={freeRuByFace} />
+          {renderExtra?.(entry)}
         </div>
-      ))}
+        )
+      })}
     </div>
   )
 }

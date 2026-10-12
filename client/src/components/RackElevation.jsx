@@ -3,6 +3,8 @@ import { useDraggable, useDroppable } from '@dnd-kit/core'
 import { useMediaQuery } from '../lib/useMediaQuery.js'
 
 const RU_PX = 20
+// Width of the RU-number column at the left of each face (Tailwind w-7).
+const RU_NUMBER_PX = 28
 
 const STATE_STYLE = {
   device: 'border-brand bg-brand/10 text-text',
@@ -48,7 +50,8 @@ function PlacementBlock({ placement, rackHeightU, draggable, isSelected, onSelec
     position: 'absolute',
     top,
     height,
-    left: 2,
+    // Clear of the RU-number column (RuRow's w-7), so numbers stay readable.
+    left: RU_NUMBER_PX + 2,
     right: 2,
     zIndex: isDragging ? 20 : isSelected ? 10 : 1,
     opacity: isDragging ? 0.35 : dimmed ? 0.4 : 1,
@@ -177,8 +180,9 @@ export default function RackElevation({
   permissionFor = () => true, // (placement) => boolean, e.g. gate device vs reserved vs blocked drag
   dropPreview = null, // { face, ruStart, ruEnd, valid }
   freeRuByFace, // { front: {availableRU, contiguousFreeRU}, rear: {...} } — pre-computed by the caller
+  compact = false, // one face at a time with a toggle, at any width (narrow side columns)
 }) {
-  const isWideEnoughForBothFaces = useMediaQuery('(min-width: 1024px)')
+  const isWideEnoughForBothFaces = useMediaQuery('(min-width: 1024px)') && !compact
   const [activeFace, setActiveFace] = useState('front')
   const editable = mode === 'edit'
 

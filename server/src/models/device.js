@@ -38,6 +38,12 @@ const deviceSchema = new mongoose.Schema({
   // HLD role (shared/hldRoles.js), set for planned devices (M4a) and for
   // existing gear the design uses. Null for survey-only items.
   role: { type: String, default: null },
+  // Design layer of a planned device (M4b): 'hld', 'lld' (the LLD working
+  // copy) or 'lld:<branchId>'. Null for existing (surveyed) gear, which every
+  // design shares, and for HLD devices created before M4b (treated as 'hld').
+  layer: { type: String, default: null },
+  // The HLD device an LLD device was copied from (reconciliation).
+  hldRef: { type: ObjectId, default: null },
   // PSUs configured on this device; defaults to the catalogue model's count (VAL-005).
   psuConfigured: { type: Number, default: null, min: 0 },
   // Existing gear starts in service [F5].
@@ -61,8 +67,10 @@ tenantScope(deviceSchema, { scope: 'project' })
 
 // DATA-MODEL §10.1: hostname unique per project, case-insensitive; MAC unique
 // per project (normalised). Both are optional for imported gear, hence partial.
+// M4b: per design layer — an LLD device keeps the hostname of the HLD device
+// it was copied from. New hostnames are generated against every layer.
 deviceSchema.index(
-  { projectId: 1, hostname: 1 },
+  { projectId: 1, layer: 1, hostname: 1 },
   { unique: true, collation: { locale: 'en', strength: 2 }, partialFilterExpression: { hostname: { $type: 'string' } } }
 )
 deviceSchema.index({ projectId: 1, 'installation.mac': 1 }, { unique: true, partialFilterExpression: { 'installation.mac': { $type: 'string' } } })

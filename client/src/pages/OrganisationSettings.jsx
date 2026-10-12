@@ -4,6 +4,7 @@ import { ACTIONS, ROLE_LABELS } from '@rackium/shared/policy.js'
 import { organisationApi } from '../api/organisationApi.js'
 import { useAuth } from '../lib/AuthContext.jsx'
 import NamingCodesSection from '../components/NamingCodesSection.jsx'
+import StockLengthsSection from '../components/StockLengthsSection.jsx'
 import { canIn } from '../lib/realRoles.js'
 
 function Section({ title, description, children }) {
@@ -126,6 +127,19 @@ export default function OrganisationSettings() {
             settings={settings}
             onSave={async (namingRoleCodes) => {
               const res = await organisationApi.updateSettings(orgId, { namingRoleCodes })
+              setSettings(res.settings)
+            }}
+          />
+        )}
+      </Section>
+
+      <Section title="Cable stock lengths" description="Suggested cable lengths in the LLD round up to the next stock length; longer runs need a custom length.">
+        {settings?.stockLengths && (
+          <StockLengthsSection
+            key={JSON.stringify(settings.stockLengths)}
+            settings={settings}
+            onSave={async (stockLengths) => {
+              const res = await organisationApi.updateSettings(orgId, { stockLengths })
               setSettings(res.settings)
             }}
           />

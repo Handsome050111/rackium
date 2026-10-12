@@ -130,6 +130,10 @@ describe('policy (v2.3 §4.3)', () => {
     expect(can(["architect"], ACTIONS.BLOCK_RU)).toBe(false)
     expect(can(["architect"], ACTIONS.IMPORT_SURVEY_INTO_HLD)).toBe(true)
     expect(can(["field_engineer"], ACTIONS.IMPORT_SURVEY_INTO_HLD)).toBe(false)
+    expect(can(['architect'], ACTIONS.RENAME_HOSTNAMES)).toBe(true)
+    expect(can(['pm'], ACTIONS.RENAME_HOSTNAMES)).toBe(true)
+    expect(can(['reviewer'], ACTIONS.RENAME_HOSTNAMES)).toBe(false)
+    expect(can(['field_engineer'], ACTIONS.RENAME_HOSTNAMES)).toBe(false)
   })
 
   it("CMO: Org Admin and PM import; only the PM assigns Unassigned devices (brief v2.3 §5.1)", () => {

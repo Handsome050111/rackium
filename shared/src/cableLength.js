@@ -56,8 +56,20 @@ function computeRawLength(situation, params) {
   return { meters: surveyedPathwayLength + CROSS_ROOM_SLACK_M, estimated: false }
 }
 
-function roundUpToStock(media, situation, meters) {
-  const list = media === 'cat6a' ? CAT6A_STOCK[situation] : FLAT_STOCK[media]
+// The brief's stock-length table (§6.3), the default of the organisation
+// setting `stockLengths` (configurable by the Org Admin): Cat6A per
+// situation, the other media one list each.
+export const DEFAULT_STOCK_LENGTHS = { cat6a: CAT6A_STOCK, ...FLAT_STOCK }
+
+function stockList(media, situation, table) {
+  const t = table ?? DEFAULT_STOCK_LENGTHS
+  const entry = t[media] ?? DEFAULT_STOCK_LENGTHS[media]
+  if (!entry) return null
+  return Array.isArray(entry) ? entry : (entry[situation] ?? null)
+}
+
+function roundUpToStock(media, situation, meters, table) {
+  const list = stockList(media, situation, table)
   if (!list) return { stockLength: null, customLengthRequired: true }
   const match = list.find((v) => v >= meters)
   if (match === undefined) return { stockLength: null, customLengthRequired: true }
@@ -69,7 +81,8 @@ function roundUpToStock(media, situation, meters) {
 // value; it is null when the situation is cross-room with no surveyed
 // pathway (estimated: true) or when no stock length is long enough
 // (customLengthRequired: true).
-export function computeSuggestedLength({ source, dest, media }) {
+// `stockLengths`: the organisation's table (DEFAULT_STOCK_LENGTHS shape); omitted = the default.
+export function computeSuggestedLength({ source, dest, media, stockLengths = null }) {
   const situation = determineSituation({
     sourceRackId: source.rackId,
     destRackId: dest.rackId,
@@ -89,10 +102,10 @@ export function computeSuggestedLength({ source, dest, media }) {
     return { situation, rawMeters: null, suggested: null, estimated: true, customLengthRequired: false }
   }
 
-  const { stockLength, customLengthRequired } = roundUpToStock(media, situation, rawMeters)
+  const { stockLength, customLengthRequired } = roundUpToStock(media, situation, rawMeters, stockLengths)
   return { situation, rawMeters, suggested: stockLength, estimated: false, customLengthRequired }
 }
 
-export function stockLengthsFor(media, situation) {
-  return media === 'cat6a' ? (CAT6A_STOCK[situation] ?? []) : (FLAT_STOCK[media] ?? [])
+export function stockLengthsFor(media, situation, stockLengths = null) {
+  return stockList(media, situation, stockLengths) ?? []
 }

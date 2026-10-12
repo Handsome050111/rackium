@@ -11,7 +11,8 @@ import { upstreamPath, downstreamLinks } from '@rackium/shared/lldModel.js'
 import { relevantIdsForSelection, applyConnectivityHighlight } from '@rackium/shared/lldConnectivityFlow.js'
 import { useMediaQuery } from '../../lib/useMediaQuery.js'
 
-export default function ConnectivityTab({ context }) {
+// `editorPath(rackId)` (real mode) replaces the prototype editor route.
+export default function ConnectivityTab({ context, editorPath }) {
   const { buildingId } = useParams()
   const navigate = useNavigate()
   const isPhone = useMediaQuery('(max-width: 767px)')
@@ -49,7 +50,7 @@ export default function ConnectivityTab({ context }) {
   const portGroups = useMemo(() => portSchedule.find((e) => e.device.id === selectedId)?.groups ?? [], [portSchedule, selectedId])
 
   function handleOpenEditor() {
-    if (selectedDevice?.rackId) navigate(`/b/${buildingId}/lld/editor?rack=${selectedDevice.rackId}`)
+    if (selectedDevice?.rackId) navigate(editorPath ? editorPath(selectedDevice.rackId) : `/b/${buildingId}/lld/editor?rack=${selectedDevice.rackId}`)
   }
 
   return (
@@ -78,7 +79,8 @@ export default function ConnectivityTab({ context }) {
             <DownstreamPanel device={selectedDevice} downstream={downstream} portGroups={portGroups} onOpenEditor={handleOpenEditor} />
             <NexAiAnalyserPanel
               topology={topology}
-              lldDeviceCount={context.entities.filter((e) => e.type === 'device').length}
+              lldDeviceCount={context.lldDeviceCount ?? context.entities.filter((e) => e.type === 'device').length}
+              hldDeviceCount={context.hldDeviceCount}
               hldChanged={context.hld.stale}
             />
           </>

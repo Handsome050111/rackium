@@ -16,7 +16,9 @@ import { Device } from '../models/device.js'
 import { cmoStatusByBuilding } from '../cmo/service.js'
 import { surveyStatusByBuilding } from '../survey/formService.js'
 import { hldStatusByBuilding } from '../hld/service.js'
+import { lldStatusByBuilding } from '../lld/service.js'
 import { SurveyTabRecord } from '../models/surveyTabRecord.js'
+import { LldDesign } from '../models/lldDesign.js'
 import { applyActivePhases } from '@rackium/shared/phaseGating.js'
 import { withTransaction } from '../db/transaction.js'
 import { runWithScope } from '../tenancy/scopeContext.js'
@@ -27,6 +29,7 @@ import { membershipsForUser } from '../auth/service.js'
 import { applyHierarchyPlan } from '../hierarchy/service.js'
 import { buildingsWithSal } from '../hierarchy/lookup.js'
 import { DEFAULT_ROLE_CODES, PROPOSED_ROLE_CODE_KEYS, resolveRoleCodes, duplicateRoleCodes } from '@rackium/shared/hldRoles.js'
+import { DEFAULT_STOCK_LENGTHS } from '@rackium/shared/cableLength.js'
 import { scopeView, membershipScopes } from '../access/scope.js'
 
 const { ObjectId } = mongoose.Types
@@ -74,7 +77,14 @@ export async function rolesIn(userId, organisationId, projectId = null) {
 function settingsView(org) {
   const raw = org.settings?.namingRoleCodes
   const stored = raw instanceof Map ? Object.fromEntries(raw) : raw ?? {}
-  return { architectsSeePrices: Boolean(org.settings?.architectsSeePrices), namingRoleCodes: resolveRoleCodes(stored), defaultRoleCodes: DEFAULT_ROLE_CODES, proposedRoleCodeKeys: PROPOSED_ROLE_CODE_KEYS }
+  return {
+    architectsSeePrices: Boolean(org.settings?.architectsSeePrices),
+    namingRoleCodes: resolveRoleCodes(stored),
+    defaultRoleCodes: DEFAULT_ROLE_CODES,
+    proposedRoleCodeKeys: PROPOSED_ROLE_CODE_KEYS,
+    stockLengths: org.settings?.stockLengths ?? DEFAULT_STOCK_LENGTHS,
+    defaultStockLengths: DEFAULT_STOCK_LENGTHS,
+  }
 }
 
 export function createOrganisationService({ mailer, auth }) {
@@ -277,6 +287,10 @@ export function createOrganisationService({ mailer, auth }) {
         if (clashes.length) throw badRequest(clashes.join('; '))
         org.set('settings.namingRoleCodes', merged)
       }
+      if (body.stockLengths !== undefined) {
+        org.set('settings.stockLengths', body.stockLengths)
+        org.markModified('settings.stockLengths')
+      }
       await org.save()
       const after = settingsView(org.toObject())
       const changes = [
@@ -284,6 +298,7 @@ export function createOrganisationService({ mailer, auth }) {
         ...Object.keys(after.namingRoleCodes)
           .filter((role) => before.namingRoleCodes[role] !== after.namingRoleCodes[role])
           .map((role) => ({ objectType: 'Organisation', objectId: String(org._id), field: `namingRoleCodes.${role}`, before: before.namingRoleCodes[role], after: after.namingRoleCodes[role] })),
+        ...(JSON.stringify(before.stockLengths) !== JSON.stringify(after.stockLengths) ? [{ objectType: 'Organisation', objectId: String(org._id), field: 'stockLengths', before: before.stockLengths, after: after.stockLengths }] : []),
       ]
       if (changes.length) {
         await recordAudit({
@@ -441,7 +456,7 @@ export function createOrganisationService({ mailer, auth }) {
         const scopes = membershipScopes(membership, isOrgAdmin)
         const buildings = await runWithScope({ organisationId, projectId: p._id }, async () => {
           const view = scopeView(scopes, await buildingsWithSal())
-          const [buildingRows, statusRows, cmoStatuses, surveyStatuses, hldStatuses] = await Promise.all([Building.find().lean(), PhaseStatus.find().lean(), cmoStatusByBuilding(), surveyStatusByBuilding(), hldStatusByBuilding()])
+          const [buildingRows, statusRows, cmoStatuses, surveyStatuses, hldStatuses, lldStatuses] = await Promise.all([Building.find().lean(), PhaseStatus.find().lean(), cmoStatusByBuilding(), surveyStatusByBuilding(), hldStatusByBuilding(), lldStatusByBuilding()])
           const statusByBuilding = new Map()
           for (const s of statusRows) {
             const key = String(s.buildingId)
@@ -449,7 +464,7 @@ export function createOrganisationService({ mailer, auth }) {
             statusByBuilding.get(key).set(s.phaseKey, s.status)
           }
           // CMO is computed from imported devices, not stored (same as the dashboard).
-          for (const [phaseKey, statuses] of [['cmo', cmoStatuses], ['survey', surveyStatuses], ['hld', hldStatuses]]) {
+          for (const [phaseKey, statuses] of [['cmo', cmoStatuses], ['survey', surveyStatuses], ['hld', hldStatuses], ['lld', lldStatuses]]) {
             for (const [buildingId, status] of statuses) {
               if (!statusByBuilding.has(buildingId)) statusByBuilding.set(buildingId, new Map())
               statusByBuilding.get(buildingId).set(phaseKey, status)
@@ -511,12 +526,13 @@ export function createOrganisationService({ mailer, auth }) {
       if (body.activePhaseKeys !== undefined) {
         // PhaseStatus and Blocker are project-scoped by the tenant plugin, so this
         // already reads only this project's rows — no need to join via buildings.
-        const [statusRows, blockerRows, hasCmoDevices, hasSurveyData, hasHldDevices] = await Promise.all([
+        const [statusRows, blockerRows, hasCmoDevices, hasSurveyData, hasHldDevices, hasLld] = await Promise.all([
           PhaseStatus.find({ status: { $ne: 'not_started' } }).select('phaseKey').lean(),
           Blocker.find({}).select('phaseKey').lean(),
           Device.exists({ origin: 'existing' }),
           SurveyTabRecord.exists({ hasData: true }),
           Device.exists({ origin: 'planned' }),
+          LldDesign.exists({}),
         ])
         const phasesWithData = new Set([...statusRows.map((r) => r.phaseKey), ...blockerRows.map((r) => r.phaseKey)])
         // Imported CMO devices are the CMO phase's data (its status is computed from them).
@@ -525,6 +541,8 @@ export function createOrganisationService({ mailer, auth }) {
         if (hasSurveyData) phasesWithData.add('survey')
         // Planned devices are the HLD's data (M4a).
         if (hasHldDevices) phasesWithData.add('hld')
+        // A started LLD is the LLD's data (M4b).
+        if (hasLld) phasesWithData.add('lld')
         const result = applyActivePhases({
           currentActivePhases: project.activePhases.map((a) => a.phaseKey),
           nextPhaseKeys: body.activePhaseKeys,

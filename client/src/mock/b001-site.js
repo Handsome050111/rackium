@@ -1,4 +1,5 @@
 import { buildHostname } from '@rackium/shared/naming.js'
+import { panelLabel } from '@rackium/shared/lldDesign.js'
 import { getCompatibleSfps } from './sfpCatalog.js'
 
 const HN = { country: 'DE', sal: 'ERL', campus: 'C01', building: 'B001' }
@@ -35,11 +36,11 @@ export const racks = [
 
 // Edge/AP rooms, in the order the five access rooms are numbered.
 const EDGE_ROOMS = [
-  { roomId: 'room-tr-eg-01', rackId: 'rack-tr-eg-01-r01', floor: 'EG', seq: 1 },
-  { roomId: 'room-tr-eg-02', rackId: 'rack-tr-eg-02-r01', floor: 'EG', seq: 2 },
-  { roomId: 'room-tr-1og-01', rackId: 'rack-tr-1og-01-r01', floor: '1.OG', seq: 1 },
-  { roomId: 'room-tr-1og-02', rackId: 'rack-tr-1og-02-r01', floor: '1.OG', seq: 2 },
-  { roomId: 'room-tr-2og-01', rackId: 'rack-tr-2og-01-r01', floor: '2.OG', seq: 1 },
+  { roomId: 'room-tr-eg-01', roomCode: 'TR-EG-01', rackId: 'rack-tr-eg-01-r01', floor: 'EG', seq: 1 },
+  { roomId: 'room-tr-eg-02', roomCode: 'TR-EG-02', rackId: 'rack-tr-eg-02-r01', floor: 'EG', seq: 2 },
+  { roomId: 'room-tr-1og-01', roomCode: 'TR-1OG-01', rackId: 'rack-tr-1og-01-r01', floor: '1.OG', seq: 1 },
+  { roomId: 'room-tr-1og-02', roomCode: 'TR-1OG-02', rackId: 'rack-tr-1og-02-r01', floor: '1.OG', seq: 2 },
+  { roomId: 'room-tr-2og-01', roomCode: 'TR-2OG-01', rackId: 'rack-tr-2og-01-r01', floor: '2.OG', seq: 1 },
 ]
 
 export const devices = [
@@ -105,21 +106,22 @@ export const devices = [
 ]
 
 export const patchPanels = [
-  { id: 'pp-ug1705-r01-cu', code: 'PP-CORE-CU', rackId: 'rack-ug1705-r01', ru: 30, heightU: 1, face: 'front', type: 'copper', ports: 24 },
-  { id: 'pp-ug1705-r01-fi', code: 'PP-CORE-FI', rackId: 'rack-ug1705-r01', ru: 29, heightU: 1, face: 'front', type: 'fibre', ports: 24 },
-  // PP-01..PP-10, two per edge room (copper then fibre), RU42/RU41 above
-  // the Edge switch at RU40 — matches render page 15's rack layout.
-  ...EDGE_ROOMS.flatMap(({ rackId }, i) => [
+  // Labels are room-qualified and unique per building: PP-<room>-<rack>-NN.
+  { id: 'pp-ug1705-r01-cu', code: panelLabel({ room: 'UG1705', rack: 'R01', seq: 1 }), rackId: 'rack-ug1705-r01', ru: 30, heightU: 1, face: 'front', type: 'copper', ports: 24 },
+  { id: 'pp-ug1705-r01-fi', code: panelLabel({ room: 'UG1705', rack: 'R01', seq: 2 }), rackId: 'rack-ug1705-r01', ru: 29, heightU: 1, face: 'front', type: 'fibre', ports: 24 },
+  // Two per edge room (copper -01 then fibre -02), RU42/RU41 above the Edge
+  // switch at RU40 — matches render page 15's rack layout.
+  ...EDGE_ROOMS.flatMap(({ rackId, roomCode }, i) => [
     {
       id: `pp-edge-${i + 1}-cu`,
-      code: `PP-${String(2 * i + 1).padStart(2, '0')}`,
+      code: panelLabel({ room: roomCode, rack: 'R01', seq: 1 }),
       rackId,
       ru: 42,
       heightU: 1,
       face: 'front',
       type: 'copper',
       ports: 24,
-      // PP-09 (TR-2OG-01) is fully patched from a prior deployment phase —
+      // The copper panel in TR-2OG-01 is fully patched from a prior deployment phase —
       // ports occupied by legacy cabling outside this project's scope, so
       // there's no full connection record for the far end. Used to
       // demonstrate a genuine patch-panel-capacity block in HLD validation
@@ -128,7 +130,7 @@ export const patchPanels = [
     },
     {
       id: `pp-edge-${i + 1}-fi`,
-      code: `PP-${String(2 * i + 2).padStart(2, '0')}`,
+      code: panelLabel({ room: roomCode, rack: 'R01', seq: 2 }),
       rackId,
       ru: 41,
       heightU: 1,

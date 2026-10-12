@@ -408,6 +408,33 @@ export function buildRegistry() {
   route('post', `${H}/submit`, 'Submit the HLD for approval (Architect): refused while any Critical finding is open; creates the version and the approval', { body: C.hldSubmitBody, status: 201, errors: { 409: err('Critical findings, stale revision or already submitted') } })
   route('post', `${H}/decision`, 'Approve or request changes (PM or Reviewer, never the submitter); approval freezes the version', { body: C.hldDecisionBody, errors: { 409: err('Not awaiting approval') } })
 
+  // --- M4b: LLD, Rackium Editor, versions and branches (stale writes are 409 stale_revision) ---
+  const L = '/api/v1/orgs/{orgId}/projects/{projectId}/lld'
+  const lstale = { 409: err('Stale revision, the LLD is submitted, or the branch is closed') }
+  const taken = { 409: err('Port or cable ID in use, or stale revision') }
+  route('get', `${L}/buildings/{buildingId}`, 'The LLD of a building (or one of its branches): racks with RU states, devices with ports and occupancy, connections with lengths, versions, branches, approvals, HLD baseline', { params: p({ buildingId: 1 }), query: C.lldViewQuery })
+  route('get', `${L}/buildings/{buildingId}/validation`, 'HLD rules plus the LLD checks (ports, cable IDs, RU placement, hops)', { params: p({ buildingId: 1 }), query: C.lldViewQuery })
+  route('get', `${L}/buildings/{buildingId}/reconciliation`, 'Side-by-side HLD vs LLD: devices and uplinks only in the HLD, only in the LLD, or changed', { params: p({ buildingId: 1 }) })
+  route('post', `${L}/start`, 'Start the LLD from the latest approved HLD (Architect): a working copy of its devices and uplinks', { body: C.lldStartBody, status: 201, errors: { 409: err('HLD not approved, or LLD already started') } })
+  route('post', `${L}/rebase`, 'Mark the LLD reviewed against the latest approved HLD (Architect)', { body: C.lldRebaseBody, errors: lstale })
+  route('post', `${L}/copy-from-hld`, 'Copy chosen HLD devices and uplinks into the LLD (Architect); no automatic re-sync', { body: C.lldCopyBody, errors: lstale })
+  route('post', `${L}/devices`, 'Add a patch panel, cable manager or accessory to a rack (Architect); rack rules enforced', { body: C.lldDeviceCreateBody, status: 201, errors: lstale })
+  route('put', `${L}/devices/{id}/placement`, 'Place or unplace a device by rack, RU and face (Architect); rack rules enforced', { params: p({ id: 1 }), body: C.lldPlacementBody, errors: lstale })
+  route('delete', `${L}/devices/{id}`, 'Delete an LLD device and its connections (Architect); ports released, cable IDs retired', { params: p({ id: 1 }), query: C.hldRevisionQuery, errors: lstale })
+  route('post', `${L}/connections`, 'Create a connection with ports, hops and cable IDs (Architect); registries written in one transaction', { body: C.lldConnectionCreateBody, status: 201, errors: taken })
+  route('patch', `${L}/connections/{id}`, 'Rackium Editor: ports, patch-panel hops, cable IDs, media, Engineer Selected length (Architect)', { params: p({ id: 1 }), body: C.lldConnectionUpdateBody, errors: taken })
+  route('delete', `${L}/connections/{id}`, 'Delete a connection (Architect); ports released, cable IDs retired', { params: p({ id: 1 }), query: C.hldRevisionQuery, errors: lstale })
+  route('post', `${L}/rename/preview`, 'Preview a hostname rename (Architect or PM): old → new, with problems', { body: C.lldRenamePreviewBody })
+  route('post', `${L}/rename`, 'Rename hostnames in one transaction with audit (Architect or PM); refused once the LLD is approved', { body: C.lldRenameBody, errors: { 409: err('Conflict, stale revision or change request required') } })
+  route('post', `${L}/versions`, 'Save a labelled version of the LLD or a branch (Architect)', { body: C.lldVersionBody, status: 201 })
+  route('get', `${L}/versions/diff`, 'Diff two versions (or the current design): devices and connections added, removed and changed', { query: C.lldDiffQuery })
+  route('post', `${L}/versions/{id}/restore`, 'Restore a version into the LLD or a branch (Architect); the version itself is unchanged', { params: p({ id: 1 }), body: C.lldRestoreBody, errors: lstale })
+  route('post', `${L}/branches`, 'Create a branch from the current LLD or a version (Architect)', { body: C.lldBranchBody, status: 201 })
+  route('post', `${L}/branches/{id}/promote`, 'Promote a branch: it replaces the main LLD (Architect); no merge', { params: p({ id: 1 }), body: C.lldBranchPromoteBody, errors: lstale })
+  route('post', `${L}/branches/{id}/discard`, 'Discard a branch (Architect)', { params: p({ id: 1 }), errors: lstale })
+  route('post', `${L}/submit`, 'Submit the LLD for approval (Architect): refused while any Critical finding is open', { body: C.lldSubmitBody, status: 201, errors: { 409: err('Critical findings, stale revision or already submitted') } })
+  route('post', `${L}/decision`, 'Approve or request changes on the LLD (PM or Reviewer, never the submitter); approval freezes the version', { body: C.lldDecisionBody, errors: { 409: err('Not awaiting approval') } })
+
   registry.registerPath({
     method: 'get',
     path: '/api/v1/orgs/{orgId}/projects/{projectId}/dashboard/buildings/{buildingId}',

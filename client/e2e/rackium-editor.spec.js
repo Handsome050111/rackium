@@ -27,7 +27,7 @@ test.describe('Rackium Editor', () => {
     await expect(page.getByText('Source · RU40')).toBeVisible()
     await page.click('button[title="Gi1/0/12"]')
 
-    await page.locator('button', { hasText: 'PP-01' }).click()
+    await page.locator('button', { hasText: 'PP-TR-EG-01-R01-01' }).click()
     await expect(page.getByText('Destination · RU42')).toBeVisible()
     await page.click('button[title="09"]')
 

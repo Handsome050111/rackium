@@ -4,7 +4,9 @@ import { AlertTriangle, GitCompare } from 'lucide-react'
 // "LLD based on HLD v[n]" (brief v2.3 §5.4). No automatic re-sync (D17):
 // when HLD has moved on, the Architect reviews what changed and then
 // explicitly re-baselines.
-export default function HldBaselineBanner({ hld, canEdit, onRebase }) {
+// `children` (real mode) replaces the change list with the side-by-side
+// HLD vs LLD reconciliation.
+export default function HldBaselineBanner({ hld, canEdit, onRebase, children }) {
   const [open, setOpen] = useState(false)
 
   return (
@@ -13,6 +15,7 @@ export default function HldBaselineBanner({ hld, canEdit, onRebase }) {
         <GitCompare size={14} className="text-brand" />
         <span data-testid="lld-hld-baseline" className="font-medium text-text">
           Based on HLD v{hld.basedOnVersion}
+          {hld.stale ? ' — HLD has changed' : ''}
         </span>
         {hld.status !== 'approved' && (
           <span className="rounded border border-status-amber/40 px-1.5 py-0.5 text-status-amber">
@@ -50,7 +53,8 @@ export default function HldBaselineBanner({ hld, canEdit, onRebase }) {
               )}
             </div>
           </div>
-          {open && (
+          {open && children}
+          {open && !children && (
             <ul className="mt-3 space-y-1 border-t border-status-amber/30 pt-3 text-xs text-text-secondary">
               {hld.changesSince.map((change) => (
                 <li key={change.version}>

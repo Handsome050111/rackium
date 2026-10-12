@@ -231,8 +231,8 @@ describe('tenantScope: M3a models', () => {
 
 // M3b models: every survey/file collection is tenant-scoped, so a missing
 // scope throws and another organisation's rows are invisible.
-describe('M3b and M4a models are tenant-scoped', async () => {
-  const project = ['pathway', 'ruState', 'surveyTabRecord', 'designFlag', 'file', 'upload', 'processedOp', 'connection', 'portOccupancy', 'cableIdRegistry', 'canvasPosition', 'hldDesign', 'designVersion', 'approval']
+describe('M3b, M4a and M4b models are tenant-scoped', async () => {
+  const project = ['pathway', 'ruState', 'surveyTabRecord', 'designFlag', 'file', 'upload', 'processedOp', 'connection', 'portOccupancy', 'cableIdRegistry', 'canvasPosition', 'hldDesign', 'designVersion', 'approval', 'lldDesign', 'designBranch']
   const organisation = ['surveyCustomField']
   const load = async (name) => Object.values(await import(`../src/models/${name}.js`)).find((v) => v?.modelName)
   for (const name of [...project, ...organisation]) {

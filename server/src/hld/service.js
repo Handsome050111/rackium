@@ -36,6 +36,10 @@ import { AppError, badRequest, conflict, forbidden, notFound } from '../http/err
 import { callerAccess, requireBuilding } from '../access/scope.js'
 
 const oid = (v) => new mongoose.Types.ObjectId(String(v))
+// The HLD's design layer (M4b). Rows from before M4b carry no layer; existing
+// (surveyed) devices carry none either and are shared by every design.
+export const HLD_LAYER = { $in: [null, 'hld'] }
+const inHld = (doc) => doc && (doc.layer == null || doc.layer === 'hld')
 const id = (v) => (v ? String(v) : null)
 const lower = (v) => String(v).trim().toLowerCase()
 
@@ -59,11 +63,11 @@ async function loadDesign(buildingId, projectId, session = null) {
   const floors = await Floor.find({ buildingId }).sort({ order: 1 }).session(session).lean()
   const rooms = await Room.find({ buildingId }).sort({ code: 1 }).session(session).lean()
   const racks = await Rack.find({ buildingId }).sort({ code: 1 }).session(session).lean()
-  const devices = await Device.find({ buildingId }).session(session).lean()
-  const connections = await Connection.find({ buildingId }).sort({ createdAt: 1 }).session(session).lean()
+  const devices = await Device.find({ buildingId, layer: HLD_LAYER }).session(session).lean()
+  const connections = await Connection.find({ buildingId, layer: HLD_LAYER }).sort({ createdAt: 1 }).session(session).lean()
   const positions = await CanvasPosition.find({ buildingId, designType: 'hld' }).session(session).lean()
   const pathwayRows = await Pathway.find().session(session).lean()
-  const occupancy = await PortOccupancy.find({ deviceId: { $in: devices.map((d) => d._id) } }, { deviceId: 1 }).session(session).lean()
+  const occupancy = await PortOccupancy.find({ layer: HLD_LAYER, deviceId: { $in: devices.map((d) => d._id) } }, { deviceId: 1 }).session(session).lean()
   const catalogue = await projectCatalogue(projectId)
   const pathways = pathwayRows.map((p) => ({ fromRoomId: String(p.roomLowId), toRoomId: String(p.roomHighId), routeStatus: p.routeStatus, distanceM: p.distanceM ?? null }))
   return { floors, rooms, racks, devices, connections, positions, pathways, catalogue, occupancy }
@@ -238,7 +242,7 @@ async function takePorts(conn, devices, session) {
     if (!end.portId) continue
     const device = devices.get(String(end.deviceId))
     try {
-      await PortOccupancy.create([{ deviceId: end.deviceId, portId: end.portId, portKey: lower(end.portId), connectionId: conn._id, source: 'connection' }], { session })
+      await PortOccupancy.create([{ layer: 'hld', deviceId: end.deviceId, portId: end.portId, portKey: lower(end.portId), connectionId: conn._id, source: 'connection' }], { session })
     } catch (err) {
       if (err.code === 11000) throw conflict('port_in_use', `${end.portId} on ${device?.hostname ?? device?.label ?? 'the device'} is already used by another connection`)
       throw err
@@ -249,7 +253,7 @@ async function takePorts(conn, devices, session) {
 async function registerCableId(conn, session) {
   if (!conn.cableId) return
   try {
-    await CableIdRegistry.create([{ cableId: conn.cableId, cableKey: lower(conn.cableId), ownerType: 'connection', connectionId: conn._id }], { session })
+    await CableIdRegistry.create([{ layer: 'hld', cableId: conn.cableId, cableKey: lower(conn.cableId), ownerType: 'connection', connectionId: conn._id }], { session })
   } catch (err) {
     if (err.code === 11000) throw conflict('cable_id_in_use', `Cable ID ${conn.cableId} is already used in this project (IDs are never reused)`)
     throw err
@@ -341,6 +345,7 @@ export function createHldService({ storage }) {
         {
           origin: 'planned',
           status: 'planned',
+          layer: 'hld',
           role,
           salId: building.salId,
           buildingId: building.id,
@@ -375,6 +380,7 @@ export function createHldService({ storage }) {
     if (String(body.source.deviceId) === String(body.dest.deviceId)) throw badRequest('An uplink joins two different devices')
     const doc = new Connection({
       buildingId: building.id,
+      layer: 'hld',
       source: { deviceId: body.source.deviceId, portId: portOf(devices.get(String(body.source.deviceId)), body.source.portId, cat) },
       dest: { deviceId: body.dest.deviceId, portId: portOf(devices.get(String(body.dest.deviceId)), body.dest.portId, cat) },
       media: body.media,
@@ -477,14 +483,14 @@ export function createHldService({ storage }) {
 
   async function deviceInScope(req, deviceId) {
     const device = mongoose.isValidObjectId(deviceId) ? await Device.findById(deviceId).lean() : null
-    if (!device || device.origin !== 'planned') throw notFound('Device not found')
+    if (!device || device.origin !== 'planned' || !inHld(device)) throw notFound('Device not found')
     await requireBuilding(req, device.buildingId)
     return device
   }
 
   async function connectionInScope(req, connectionId) {
     const conn = mongoose.isValidObjectId(connectionId) ? await Connection.findById(connectionId).lean() : null
-    if (!conn) throw notFound('Uplink not found')
+    if (!conn || !inHld(conn)) throw notFound('Uplink not found')
     await requireBuilding(req, conn.buildingId)
     return conn
   }
@@ -601,7 +607,7 @@ export function createHldService({ storage }) {
           await releaseConnection(c._id, session)
           await Connection.deleteOne({ _id: c._id }, { session })
         }
-        await PortOccupancy.deleteMany({ deviceId: existing._id }, { session })
+        await PortOccupancy.deleteMany({ layer: HLD_LAYER, deviceId: existing._id }, { session })
         await CanvasPosition.deleteMany({ objectType: 'device', objectId: existing._id }, { session })
         await Device.deleteOne({ _id: existing._id }, { session })
         await recordAudit({ organisationId: req.org.id, projectId: req.project.id, buildingId: String(existing.buildingId), phaseKey: 'hld', actor: userActor(actor.userId, actor.role), action: 'hld.device.deleted', objectType: 'Device', objectId: existing._id, changeType: 'design_intent', source: 'ui', comment: `${existing.hostname ?? existing.label} and ${conns.length} uplink(s)`, session })
@@ -686,7 +692,7 @@ export function createHldService({ storage }) {
       const length = lengthOf(draft, deviceById, rackPos, data.pathways)
       const occupied = async (end) => {
         if (!end.portId) return false
-        const row = await PortOccupancy.findOne({ deviceId: oid(end.deviceId), portKey: lower(end.portId) }).lean()
+        const row = await PortOccupancy.findOne({ layer: HLD_LAYER, deviceId: oid(end.deviceId), portKey: lower(end.portId) }).lean()
         return Boolean(row && String(row.connectionId) !== String(body.connectionId ?? ''))
       }
       const portsFree = { source: !(await occupied(draft.source)), dest: !(await occupied(draft.dest)) }
@@ -790,7 +796,7 @@ export function createHldService({ storage }) {
 export async function hldStatusByBuilding(session = null) {
   const designs = await HldDesign.find({}, { buildingId: 1, state: 1 }).session(session).lean()
   // (find, not distinct: the tenant plugin scopes find, not distinct.)
-  const withDevices = new Set((await Device.find({ origin: 'planned' }, { buildingId: 1 }).session(session).lean()).map((d) => String(d.buildingId)))
+  const withDevices = new Set((await Device.find({ origin: 'planned', layer: HLD_LAYER }, { buildingId: 1 }).session(session).lean()).map((d) => String(d.buildingId)))
   const out = new Map()
   for (const d of designs) {
     const key = String(d.buildingId)
