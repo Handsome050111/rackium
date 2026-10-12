@@ -169,6 +169,14 @@ const itemShape = {
   compatibleSfps: partKeyList,
   compatiblePsus: partKeyList,
   compatibleModules: partKeyList,
+  // M5a (BOM): a stock cable is priced per metre of its medium, never below a
+  // minimum (DATA-MODEL §4.7 `stock`); the BOM picks its length (§6.3).
+  stock: z
+    .object({ media: z.enum(['cat6a', 'os2', 'om4']), pricePerMetreMinor: z.number().int().min(0).max(1_000_000), minimumMinor: z.number().int().min(0).max(1_000_000).default(0) })
+    .nullable()
+    .default(null),
+  // M5a (§6.7): a power cord's connector pair, e.g. "C13/C14" or "Schuko/C13".
+  powerCord: z.object({ connectorPair: z.string().trim().min(3).max(40) }).nullable().default(null),
   // Integer minor units (DATA-MODEL §0). Null = not priced yet, which the BOM
   // already treats as a calculated blocker (DATA-MODEL §5.10).
   unitPriceMinor: z.number().int().min(0).max(100_000_000_00).nullable().default(null),
@@ -192,6 +200,7 @@ function itemRules(item, ctx) {
   }
   if (item.requiresDualPsu && (item.psuCount ?? 0) < 2) ctx.addIssue({ code: 'custom', path: ['requiresDualPsu'], message: 'A model that requires dual PSUs needs at least 2 PSU slots' })
   if (item.kind === 'optic' && !item.mediaSpeed) ctx.addIssue({ code: 'custom', path: ['mediaSpeed'], message: 'An optic needs a media, speed and reach' })
+  if (item.kind === 'stock_cable' && !item.stock) ctx.addIssue({ code: 'custom', path: ['stock'], message: 'A stock cable needs a medium and a price per metre' })
   if (item.servonProductCode && !item.servonAvailable) ctx.addIssue({ code: 'custom', path: ['servonProductCode'], message: 'A SERVON code needs "SERVON available" set' })
   if (item.eosDate && item.eolDate && item.eolDate < item.eosDate) ctx.addIssue({ code: 'custom', path: ['eolDate'], message: 'End of life cannot be before end of sale' })
 }

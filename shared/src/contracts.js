@@ -222,7 +222,8 @@ export const roomSurveyBody = z
   })
   .refine((v) => Object.keys(v).length > 0, { message: 'Provide at least one survey fact' })
 
-const sockets = z.object({ totalSockets: nonNegInt, freeSockets: nonNegInt }).nullable()
+// socketType (M5a, brief §6.7): the PDU socket decides the power cord.
+const sockets = z.object({ totalSockets: nonNegInt, freeSockets: nonNegInt, socketType: z.enum(['C13', 'C19']).nullable().optional() }).nullable()
 export const rackFactsBody = z.object({
   details: z
     .object({
@@ -583,3 +584,81 @@ export const lldBranchBody = z.object({ buildingId: objectId, name: z.string().t
 export const lldBranchPromoteBody = z.object({ baseRevision })
 export const lldSubmitBody = z.object({ buildingId: objectId, baseRevision })
 export const lldDecisionBody = z.object({ buildingId: objectId, decision: z.enum(['approved', 'changes_requested']), comment: z.string().trim().max(2000).optional() })
+
+// --- M5a: BOM, Solution Package, client approval, change requests ----------
+const minutes = z.number().int().min(0).max(24 * 60)
+export const commercialSettingsBody = z
+  .object({
+    marginPercent: z.number().min(0).max(500).optional(),
+    resourceMinutes: z.record(z.string().regex(/^[a-z-]{2,40}$/), minutes).optional(),
+    powerCordStandard: z.object({ label: z.string().trim().min(1).max(80), connectorPair: z.string().trim().min(3).max(40) }).nullable().optional(),
+  })
+  .refine((b) => Object.keys(b).length > 0, { message: 'Nothing to update' })
+
+const isoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use a date (YYYY-MM-DD)')
+const entryId = z.string().trim().min(1).max(40)
+export const addressingEntry = z.object({
+  id: entryId,
+  label: z.string().trim().max(80).default(''),
+  vlanId: z.union([z.number().int(), z.literal('')]).default(''),
+  cidr: z.string().trim().max(43).default(''),
+  gateway: z.string().trim().max(39).default(''),
+})
+export const kvPair = z.object({ id: entryId, key: z.string().trim().max(120).default(''), value: z.string().trim().max(2000).default('') })
+export const requiredInputGroupBody = z
+  .object({
+    buildingId: objectId,
+    ownerId: objectId.nullable().optional(),
+    dueDate: isoDay.nullable().optional(),
+    addressingEntries: z.array(addressingEntry).max(200).optional(),
+    kvPairs: z.array(kvPair).max(100).optional(),
+    baseRevision,
+  })
+  .refine((b) => ['ownerId', 'dueDate', 'addressingEntries', 'kvPairs'].some((k) => b[k] !== undefined), { message: 'Nothing to update' })
+export const acceptWarningBody = z.object({ buildingId: objectId, areaKey: z.string().trim().min(1).max(40), baseRevision })
+
+// Share links (PM): password optional (generated when blank), expiry 1–30 days.
+const sharePassword = z.string().min(8, 'At least 8 characters').max(128)
+export const shareLinkCreateBody = z.object({ buildingId: objectId, password: sharePassword.optional(), expiryDays: z.number().int().min(1).max(30).default(14) })
+export const shareLinkExtendBody = z.object({ days: z.number().int().min(1).max(30) })
+export const publicViewBody = z.object({ password: z.string().min(1).max(128) })
+export const publicDecisionBody = z
+  .object({
+    password: z.string().min(1).max(128),
+    decision: z.enum(['approved', 'changes_requested', 'rejected']),
+    name: z.string().trim().min(1, 'Your name is required').max(120),
+    role: z.string().trim().max(120).default(''),
+    comments: z.string().trim().max(4000).default(''),
+    termsAccepted: z.literal(true, { message: 'Confirm you have reviewed the package and may decide on it' }),
+    // A drawn signature as a PNG data URL (optional, ≤ 300 KB).
+    signature: z.string().regex(/^data:image\/png;base64,[A-Za-z0-9+/=]+$/).max(400_000).nullable().optional(),
+  })
+  .refine((b) => b.decision === 'approved' || b.comments.length > 0, { message: 'Say what needs to change', path: ['comments'] })
+
+// Procurement (PM, after the procurement BOM is approved).
+export const bomApproveBody = z.object({ buildingId: objectId })
+export const procurementLineBody = z
+  .object({
+    buildingId: objectId,
+    lineKey: z.string().trim().min(1).max(300),
+    status: z.enum(['not_ordered', 'quotation_requested', 'quoted', 'ordered', 'shipped', 'delivered']).optional(),
+    vendor: z.string().trim().max(120).nullable().optional(),
+    poNumber: z.string().trim().max(60).nullable().optional(),
+    expectedDelivery: isoDay.nullable().optional(),
+    actualDelivery: isoDay.nullable().optional(),
+    notes: z.string().trim().max(1000).nullable().optional(),
+    version: z.number().int().min(0),
+  })
+  .refine((b) => ['status', 'vendor', 'poNumber', 'expectedDelivery', 'actualDelivery', 'notes'].some((k) => b[k] !== undefined), { message: 'Nothing to update' })
+
+// Change requests.
+export const changeRequestCreateBody = z.object({
+  buildingId: objectId,
+  title: z.string().trim().min(1).max(120),
+  description: z.string().trim().max(4000).default(''),
+  reason: z.string().trim().max(2000).default(''),
+})
+export const changeRequestUpdateBody = z
+  .object({ title: z.string().trim().min(1).max(120).optional(), description: z.string().trim().max(4000).optional(), reason: z.string().trim().max(2000).optional(), affectedItems: z.array(z.string().trim().min(1).max(200)).max(200).optional() })
+  .refine((b) => Object.keys(b).length > 0, { message: 'Nothing to update' })
+export const changeRequestSendBody = z.object({ password: sharePassword.optional(), expiryDays: z.number().int().min(1).max(30).default(14) })

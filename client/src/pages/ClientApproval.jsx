@@ -1,25 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { Lock, CheckCircle2, AlertTriangle, XCircle, FileCheck2 } from 'lucide-react'
-import Logo from '../components/Logo.jsx'
-import SignaturePad from '../components/SignaturePad.jsx'
+import { ApprovalShell as Shell, Stat, DecisionForm } from '../components/clientApproval/ApprovalParts.jsx'
 import { getBuilding } from '../api/index.js'
 import { getShareLinkInfo, checkSharePassword, getClientDecision } from '../api/shareLink.js'
 import { getSolutionPackageContext, clientApprove, clientRequestChanges, clientReject } from '../api/solutionPackageDesign.js'
 import { getHandoverContext, clientAcceptHandover, clientRequestHandoverChanges, clientRejectHandover } from '../api/handoverDesign.js'
 
 const inputClass = 'h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm text-text focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20'
-
-function Shell({ children }) {
-  return (
-    <div className="flex min-h-screen items-start justify-center bg-surface-muted px-4 py-10 sm:py-16">
-      <div className="w-full max-w-2xl space-y-6">
-        <Logo />
-        {children}
-      </div>
-    </div>
-  )
-}
 
 const KIND_LABEL = { 'solution-package': 'Solution Package', handover: 'Handover' }
 
@@ -129,7 +117,7 @@ export default function ClientApproval() {
   return (
     <Shell>
       {kind === 'handover' ? <HandoverSummary building={building} context={context} /> : <PackageSummary building={building} context={context} />}
-      <DecisionForm token={token} kind={kind} decisionFns={decisionFns} onSubmitted={handleDecisionSubmitted} />
+      <DecisionForm token={token} packageLabel={KIND_LABEL[kind] ?? 'package'} approveLabel={kind === 'handover' ? 'Accept' : 'Approve'} decisionFns={decisionFns} onSubmitted={handleDecisionSubmitted} />
     </Shell>
   )
 }
@@ -220,94 +208,3 @@ function HandoverSummary({ building, context }) {
   )
 }
 
-function Stat({ value, label, tone = 'text-text' }) {
-  return (
-    <div className="rounded-lg border border-border px-3 py-2">
-      <div className={`text-base font-bold ${tone}`}>{value}</div>
-      <div className="text-[11px] text-text-secondary">{label}</div>
-    </div>
-  )
-}
-
-function DecisionForm({ token, kind, decisionFns, onSubmitted }) {
-  const [name, setName] = useState('')
-  const [role, setRole] = useState('')
-  const [comments, setComments] = useState('')
-  const [accepted, setAccepted] = useState(false)
-  const [hasSignature, setHasSignature] = useState(false)
-  const [error, setError] = useState(null)
-  const [submitting, setSubmitting] = useState(null)
-
-  async function submit(action) {
-    if (!name.trim()) return setError('Your name is required.')
-    if (!accepted) return setError('Please confirm you have reviewed the package.')
-    setError(null)
-    setSubmitting(action)
-    const fn = action === 'approved' ? decisionFns.approve : action === 'rejected' ? decisionFns.reject : decisionFns.requestChanges
-    const result = await fn(token, { name, role, comments, acceptedTerms: accepted, hasSignature })
-    setSubmitting(null)
-    if (!result.ok) return setError(result.error)
-    onSubmitted(result)
-  }
-
-  const approveLabel = kind === 'handover' ? 'Accept' : 'Approve'
-  const packageLabel = KIND_LABEL[kind] ?? 'package'
-
-  return (
-    <div className="space-y-4 rounded-xl border border-border bg-surface p-6">
-      <div className="text-sm font-semibold text-text">Your decision</div>
-
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <label className="space-y-1">
-          <span className="text-xs text-text-secondary">Name</span>
-          <input value={name} onChange={(e) => setName(e.target.value)} className={inputClass} placeholder="Your full name" />
-        </label>
-        <label className="space-y-1">
-          <span className="text-xs text-text-secondary">Role</span>
-          <input value={role} onChange={(e) => setRole(e.target.value)} className={inputClass} placeholder="e.g. IT Director" />
-        </label>
-      </div>
-
-      <label className="block space-y-1">
-        <span className="text-xs text-text-secondary">Comments</span>
-        <textarea value={comments} onChange={(e) => setComments(e.target.value)} rows={3} className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text focus:border-brand focus:outline-none" />
-      </label>
-
-      <SignaturePad onChange={setHasSignature} />
-
-      <label className="flex items-center gap-2 text-xs text-text">
-        <input type="checkbox" checked={accepted} onChange={(e) => setAccepted(e.target.checked)} />
-        I confirm I have reviewed this {packageLabel} and am authorised to provide this decision.
-      </label>
-
-      {error && <p className="text-xs text-status-red">{error}</p>}
-
-      <div className="flex flex-col gap-2 sm:flex-row">
-        <button
-          type="button"
-          onClick={() => submit('approved')}
-          disabled={Boolean(submitting)}
-          className="h-10 flex-1 rounded-lg bg-status-green text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {approveLabel}
-        </button>
-        <button
-          type="button"
-          onClick={() => submit('changes_requested')}
-          disabled={Boolean(submitting)}
-          className="h-10 flex-1 rounded-lg border border-status-amber/40 text-sm font-medium text-status-amber hover:bg-status-amber/5 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          Request changes
-        </button>
-        <button
-          type="button"
-          onClick={() => submit('rejected')}
-          disabled={Boolean(submitting)}
-          className="h-10 flex-1 rounded-lg border border-status-red/40 text-sm font-medium text-status-red hover:bg-status-red/5 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          Reject
-        </button>
-      </div>
-    </div>
-  )
-}

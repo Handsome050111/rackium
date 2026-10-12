@@ -881,6 +881,53 @@ The Editor's suggestions and port faces treat a port held by another connection 
 
 **Not in M4b:** change requests (M5), real-time presence, merging branches, LLD for HLD changes made after LLD approval other than by reconciliation, and installed lengths (deployment).
 
+**M5a amendment — stable ids through a branch.** Branch copies now record `originId` on devices as well as connections. The diff of a branch against the main LLD and a promotion both use the main design's ids: a promoted branch's records come back under their original ids, so a device or cable keeps its identity (procurement lines, the BOM's comparison with its approved version and the CMDB rely on it).
+
+### 5.15 BOM, Solution Package, client approval and change requests as built in M5a (brief §5.5, §5.6, §6.7)
+
+Decisions marked ★ are interpretations — proposed, to confirm.
+
+**Draft BOM** (`shared/bomCalc.js`, recalculated on every read; §4.10). From the main LLD, or the HLD before the LLD starts. Every line has a **source tag** (Survey / HLD / LLD) and a **reason** (basis); "Draft" until the client approves the Solution Package.
+- Serialised items (switch, router, firewall, AP, WLC, server, UPS, PDU, probe): **one line per device**, key `device:<id>`. WAN/SP connections and remote sites are not procured.
+- Consumables, aggregated by key: optics (**one per link end**), uplink modules (`needsUplinkModule`), PSUs (configured count), power cords, cables, stack/DAC cables, cage-nut sets, patch panels, cable managers and accessories.
+- **Cables ★:** one cable per route segment. The connection's Engineer Selected (else Suggested) length goes to its main cable — the first panel-to-panel trunk, or the first segment when there is none — and every other segment is a patch cord at the shortest stock length of its medium. A cable without a length yet is listed as "Length pending" and not priced.
+- **Cage nuts ★:** one set of 4 per RU of rack-mounted gear; the type is the rack's surveyed cage-nut type (default M6).
+- **Power cords** (`shared/powerCords.js`, §6.7, §4.9): one per configured PSU (at least one) of each rack-mounted device with a power inlet, chosen in order: the project's **customer standard** → the rack's **PDU socket** (survey: `mountingPower.pduA|pduB.socketType`, C13 or C19, new), matched to the device inlet (C13 → C13/C14, C19 → C19/C20) → the **country plug table** (15 placeholder rows until Technonex supplies it). Cord length = `organisations.settings.cordLengthDefaultM`. The organisation-level default standard of §4.9 is not built ★.
+- **Reconciliation** with the design: serialised devices, optics (link ends) and cables (route segments) — BOM count against design count.
+- **Pricing:** catalogue `unitPriceMinor` × quantity; stock cables `stock.pricePerMetreMinor` × length, never below `stock.minimumMinor` (catalogue items gained `stock` and `powerCord`; the seed gained placeholder Cat6A/OS2/OM4 cords, C13/C14, C19/C20 and Schuko/C13 power cords and an M6 cage-nut set). A line without a price, or priced in another currency than the organisation's, is flagged "Not priced" and left out of the totals. Margin % (project setting, PM) gives the sell total. Prices are removed server-side unless the caller may see them (§4.3, the Architect setting).
+- **Client export ★:** the PM chooses *sell prices* (catalogue price plus margin, the margin itself never shown) or *no prices*. Internal export: every line with source, reason, prices (when allowed) and procurement facts.
+
+**`projectSettings`** (§3.9, M5a subset; one per project): `marginPercent` (default 15) · `resourceMinutes` (task → minutes, defaults from `RESOURCE_TASKS`) · `powerCordStandard` (`{ label, connectorPair }` or null). PM only; audited (`settings.updated`).
+
+**Procurement BOM.** After the client approves the Solution Package, the PM approves the procurement BOM (D21): a frozen `designVersions` row (`designType: bom`) with the lines, and an `approvals` row (gate `bom_pm`, approved). `bomDesigns` (one per building) points at it. Only then do procurement fields unlock. When a later change request changes the BOM, the BOM shows "Changed since approval" with the changed lines and the PM re-approves ★; lines a change removed keep their procurement facts and are listed separately.
+
+**`procurementLines`** (§4.10 as built ★): one row per BOM line key (`device:<id>` or the consumable key) with `lineType`, `status`, `vendor`, `poNumber`, `expectedDelivery`, `actualDelivery`, `notes`, `version` (optimistic; a stale edit is 409 `stale_line`). Statuses **Not ordered → Quotation requested → Quoted → Ordered → Shipped → Delivered** (`shared/procurement.js`) ★: forward one step, or straight to Ordered from Not ordered or Quoted; one step back before ordering; never back after Ordered; Ordered needs a PO number, Delivered the actual delivery date. Every change is audited (`procurement.line.updated`, field by field). PM only. Consumable quantities ordered/delivered per §4.10 are not split out yet ★.
+
+**Solution Package** (`shared/solutionPackage.js`; §5.5). `solutionPackages` (one per building): `state` (`draft` / `awaiting_client` / `approved` / `changes_requested` / `rejected`) · `revision` (stale saves refused) · `groups[]` (the 12 Required Input groups: `key`, `ownerId` — a project member — `dueDate`, `addressingEntries[]` for group 1, `kvPairs[]` for 2–12) · `acceptedWarnings[]` (`areaKey`, `text`, `acceptedBy`, name, role, `acceptedAt`) · `pendingApprovalId` · `latestApprovedVersionId`.
+- Calculated: the 18 sections' completeness and status; group status (group 1: valid CIDR, VLAN 1–4094, no duplicate VLAN, no overlap); validation areas (source-data reconciliation, design validation, ports/cabling, BOM pricing, and the input-backed areas); the Bill of Resources (task quantities × PM-set minutes, hours per room and total, no labour cost).
+- **Warnings ★:** an area short of passing is a warning the Architect or PM may accept (who, role and when recorded); the design-validation area with a Critical finding is never acceptable.
+- **Ready for the client** when the HLD and LLD are approved, all 12 groups are complete, there is no Critical finding and every warning area is accepted. Editing is refused while the package is with the client or approved.
+
+**Client approval by share link** (§5.5, §5.9). The PM submits: a `designVersions` row (`solution_package`, snapshot of sections, groups, accepted warnings and BOM lines), a pending `approvals` row (gate `sp_client`) and a **share link**:
+- token = 32 random bytes (base64url), shown once; only its SHA-256 is stored. Password: the PM's (8+ characters) or a generated 12-character one, shown once; argon2id hash only.
+- `shareLinks` (tenant-scoped) as §5.5, plus `kind` (`solution_package` / `change_request`), `approvalId`, `changeRequestId`, `decidedAt`, `failedAttempts`, `lockedUntil`. **`shareLinkIndex` ★** (global, content-free): token hash → organisation, project and link id, so a token-only public link finds its tenant scope; everything else is read inside that scope.
+- Public API (`/api/v1/public/share-links/:token`, no login, IP rate-limited): status (no content), view and decision, each re-checking the password. **Five wrong passwords lock the link for 15 minutes**, even for the right password. Expiry is checked at view and again inside the decision's transaction; an expired link records nothing and the approval stays pending. A link is single-use (claimed in the decision's transaction).
+- The PM extends (1–30 days from now, each extension recorded and audited) or revokes (the approval becomes `expired`, the package returns to draft).
+- The decision (Approve / Request changes / Reject; comment required for the last two) records the client's name and role and the share link id (`approvals.client`), comments, the acceptance checkbox and the optional drawn signature (PNG ≤ 300 KB, a `files` row attached to the approval, category `signature`) on the approval, and an audit entry with actor `client_link` (`changeType: client_decision`).
+- **Approve:** in one transaction the package version freezes, the HLD and LLD freeze (`frozen`, `frozenAt`, `frozenByApprovalId` on `hldDesigns`/`lldDesigns`) and procurement can be approved; phase statuses follow (Solution Package approved, BOM no longer Draft). **Request changes / Reject:** the package records the decision and the LLD returns to In progress.
+
+**Freeze ★.** A frozen HLD or LLD refuses every direct change (409 `change_request_required`): edits, branches, restore, rename, submit. The only way in is a change request.
+
+**Change requests** (`changeRequests`; §5.9 `changeRequestOf` as `approvals.changeRequestId`) ★: `number` (per building), `title`, `description`, `reason`, `affectedItems[]`, `status` (`draft` → `submitted` → `awaiting_client` → `approved` | `changes_requested` (editable again) | `rejected`; or `withdrawn`), `branchId`, `baseLldVersionId`, `impact` (captured at submit), `approvalId`, `resultingVersionId`.
+- Opened by the Architect once the LLD has an approved version. It creates an LLD branch (`designBranches.changeRequestId`) that only it edits — **a hostname rename after approval is done on that branch**. A change-request branch is never promoted or discarded directly, and is locked once submitted.
+- Its **design diff** (main LLD → branch, on the main ids) and **BOM impact** (line quantities before → after, cost before/after) are live while drafting and captured at submit. Submitting needs at least one design change; affected items default to what the diff names.
+- The PM sends it to the client through the same share-link flow (one change request with the client per building at a time). **Approve:** the branch is applied to the frozen LLD (records keep their ids), a new approved, frozen LLD version is saved (label `CR-n …`), the LLD stays frozen. **Reject / withdraw:** the branch is discarded. History is listed against the package.
+- HLD changes after the freeze are not covered yet ★.
+
+**Phase statuses.** Solution Package: from its state (`in_progress` once inputs are edited). BOM: `in_progress` with sub-label "Draft" until the package is approved, `approved` once the PM approved the procurement BOM.
+
+**Not in M5a:** PDF/Word export (document engine, M6), the organisation-level cord standard, consumable ordered/delivered quantities, device status moves on ordering, change requests on the HLD, sp_internal review gate.
+
 ---
 
 ## 6. Calculated values (never stored)

@@ -17,6 +17,8 @@ import { cmoStatusByBuilding } from '../cmo/service.js'
 import { surveyStatusByBuilding } from '../survey/formService.js'
 import { hldStatusByBuilding } from '../hld/service.js'
 import { lldStatusByBuilding } from '../lld/service.js'
+import { spStatusByBuilding } from '../delivery/solutionPackage.js'
+import { bomStatusByBuilding } from '../delivery/bom.js'
 import { SurveyTabRecord } from '../models/surveyTabRecord.js'
 import { LldDesign } from '../models/lldDesign.js'
 import { applyActivePhases } from '@rackium/shared/phaseGating.js'
@@ -456,7 +458,7 @@ export function createOrganisationService({ mailer, auth }) {
         const scopes = membershipScopes(membership, isOrgAdmin)
         const buildings = await runWithScope({ organisationId, projectId: p._id }, async () => {
           const view = scopeView(scopes, await buildingsWithSal())
-          const [buildingRows, statusRows, cmoStatuses, surveyStatuses, hldStatuses, lldStatuses] = await Promise.all([Building.find().lean(), PhaseStatus.find().lean(), cmoStatusByBuilding(), surveyStatusByBuilding(), hldStatusByBuilding(), lldStatusByBuilding()])
+          const [buildingRows, statusRows, cmoStatuses, surveyStatuses, hldStatuses, lldStatuses, spStatuses, bomStatuses] = await Promise.all([Building.find().lean(), PhaseStatus.find().lean(), cmoStatusByBuilding(), surveyStatusByBuilding(), hldStatusByBuilding(), lldStatusByBuilding(), spStatusByBuilding(), bomStatusByBuilding()])
           const statusByBuilding = new Map()
           for (const s of statusRows) {
             const key = String(s.buildingId)
@@ -464,7 +466,7 @@ export function createOrganisationService({ mailer, auth }) {
             statusByBuilding.get(key).set(s.phaseKey, s.status)
           }
           // CMO is computed from imported devices, not stored (same as the dashboard).
-          for (const [phaseKey, statuses] of [['cmo', cmoStatuses], ['survey', surveyStatuses], ['hld', hldStatuses], ['lld', lldStatuses]]) {
+          for (const [phaseKey, statuses] of [['cmo', cmoStatuses], ['survey', surveyStatuses], ['hld', hldStatuses], ['lld', lldStatuses], ['solution-package', spStatuses], ['bom', bomStatuses]]) {
             for (const [buildingId, status] of statuses) {
               if (!statusByBuilding.has(buildingId)) statusByBuilding.set(buildingId, new Map())
               statusByBuilding.get(buildingId).set(phaseKey, status)

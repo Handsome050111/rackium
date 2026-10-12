@@ -10,9 +10,13 @@ const decisionSchema = new mongoose.Schema(
   {
     value: { type: String, enum: ['approved', 'changes_requested', 'rejected'], required: true },
     decidedAt: { type: Date, required: true },
-    decidedBy: { type: ObjectId, required: true },
+    // A user for internal gates; null for a client decision (see client).
+    decidedBy: { type: ObjectId, default: null },
     decidedByRole: { type: String, default: null },
     comments: { type: String, default: null },
+    // Client gates (M5a): the acceptance checkbox and the optional drawn signature.
+    termsAccepted: { type: Boolean, default: null },
+    signatureFileId: { type: ObjectId, default: null },
   },
   { _id: false }
 )
@@ -27,6 +31,13 @@ const approvalSchema = new mongoose.Schema({
   status: { type: String, enum: ['pending', 'approved', 'changes_requested', 'rejected', 'expired'], default: 'pending' },
   reviewerId: { type: ObjectId, default: null },
   decision: { type: decisionSchema, default: null },
+  // Client gates: who decided through which share link (a client is not a user).
+  client: {
+    type: new mongoose.Schema({ name: String, role: { type: String, default: null }, shareLinkId: ObjectId }, { _id: false }),
+    default: null,
+  },
+  // change_request gate: the change request it decides (DATA-MODEL §5.9 changeRequestOf).
+  changeRequestId: { type: ObjectId, default: null },
 })
 
 approvalSchema.__modelName = 'Approval'

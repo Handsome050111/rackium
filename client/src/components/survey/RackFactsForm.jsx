@@ -9,6 +9,11 @@ const SIDE = [
   { value: 'not_accessible', label: 'Not accessible' },
 ]
 
+const SOCKETS = [
+  { value: 'C13', label: 'C13' },
+  { value: 'C19', label: 'C19' },
+]
+
 const GROUPS = [
   {
     key: 'details',
@@ -32,8 +37,10 @@ const GROUPS = [
       { key: 'mountingRails', label: 'Mounting rails' },
       { key: 'pduA.totalSockets', label: 'PDU-A sockets', number: true },
       { key: 'pduA.freeSockets', label: 'PDU-A free', number: true },
+      { key: 'pduA.socketType', label: 'PDU-A socket type', options: SOCKETS },
       { key: 'pduB.totalSockets', label: 'PDU-B sockets', number: true },
       { key: 'pduB.freeSockets', label: 'PDU-B free', number: true },
+      { key: 'pduB.socketType', label: 'PDU-B socket type', options: SOCKETS },
     ],
   },
   {

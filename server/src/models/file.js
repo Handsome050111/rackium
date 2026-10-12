@@ -11,7 +11,8 @@ const fileSchema = new mongoose.Schema({
   buildingId: { type: ObjectId, required: true, index: true },
   attachedTo: {
     // designVersion: the JSON snapshot of a design version (category data_snapshot, M4a).
-    type: { type: String, enum: ['surveyTabRecord', 'room', 'rack', 'pathway', 'designVersion'], required: true },
+    // approval: a client's drawn signature (category signature, M5a).
+    type: { type: String, enum: ['surveyTabRecord', 'room', 'rack', 'pathway', 'designVersion', 'approval'], required: true },
     id: { type: ObjectId, required: true },
   },
   category: { type: String, required: true },

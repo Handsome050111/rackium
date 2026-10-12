@@ -59,6 +59,13 @@ export const ACTIONS = {
   IMPORT_SURVEY_INTO_HLD: 'import_survey_into_hld',
   // DATA-MODEL §7: an explicit hostname rename (preview, then apply) — M4b.
   RENAME_HOSTNAMES: 'rename_hostnames',
+  // M5a, brief v2.3 §5.5–§5.6: the Solution Package's Required Inputs and
+  // accepted warnings (Architect or PM); the PM's commercial and resource
+  // standards (margin, Bill of Resources minutes, power-cord standard);
+  // change requests drafted and submitted by the Architect.
+  EDIT_SOLUTION_PACKAGE: 'edit_solution_package',
+  SET_COMMERCIAL_STANDARDS: 'set_commercial_standards',
+  MANAGE_CHANGE_REQUESTS: 'manage_change_requests',
 }
 
 // Who may perform each action. An Org Admin's organisation-level role grants
@@ -93,6 +100,9 @@ const MATRIX = {
   [ACTIONS.BLOCK_RU]: ['org_admin', 'pm'],
   [ACTIONS.IMPORT_SURVEY_INTO_HLD]: ['architect', 'pm'],
   [ACTIONS.RENAME_HOSTNAMES]: ['architect', 'pm'],
+  [ACTIONS.EDIT_SOLUTION_PACKAGE]: ['architect', 'pm'],
+  [ACTIONS.SET_COMMERCIAL_STANDARDS]: ['pm'],
+  [ACTIONS.MANAGE_CHANGE_REQUESTS]: ['architect'],
 }
 
 // Roles a user may hold at each level. Invitations and memberships are

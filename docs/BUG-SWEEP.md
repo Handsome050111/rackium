@@ -411,3 +411,50 @@ drawn from. Found while changing it, each with a test:
   legacy pre-occupied cabling stays exempt. Tests: `lldDesign.test.js`
   ("one connection per panel port"), `api.lld.test.js` ("a split is
   refused", "the pair row is the guarantee"), `client m4b.api.test.js`.
+
+## Part 7: M5a — BOM, Solution Package, client approval and change requests
+
+Found and fixed while building and testing M5a, each with a test:
+
+- **Branch copies took new ids, so a branch looked entirely different from
+  its main design** (existing since M4b): the main-vs-branch diff listed every
+  device and cable as removed and re-added, and promoting a branch replaced
+  every id — which would orphan procurement lines and make the BOM look
+  completely changed after a change request. Devices now record `originId`
+  like connections; diffs and promotion use the main ids. Tests:
+  `api.lld.test.js` (branch diff shows only the real change; ids survive the
+  promotion), `api.m5a.test.js` (CR impact lists only the changed cable).
+- **The BOM saw no prices**: the design's catalogue is read without prices,
+  so every line was "Not priced". The BOM now reads prices and strips them
+  per caller. Test: `api.m5a.test.js` (Draft BOM prices for the PM, none for
+  the Architect, Field Engineer and Viewer).
+- **New catalogue fields were dropped on read** (`stock`, `powerCord`), so
+  cables and cords could not be matched. Test: same, plus the power-cord test.
+- **A PDU socket type would have become 0** in the rack survey form (the PDU
+  fields were all treated as counts) and was dropped when the counts changed.
+  Test: `client/src/api/m3b.api.test.js` (factPatch).
+- **A quick second edit in a Required Inputs list wiped the first**: each
+  save sent the whole list built from what was on screen, so a VLAN saved a
+  moment earlier was overwritten by the CIDR save. List edits now apply to
+  the latest loaded package when the queued save runs. Tests:
+  `client/src/api/m5a.api.test.js` (editList), `e2e-real/m5a.spec.js`
+  (group 1 typed in the browser).
+- **A pending-length cable was flagged "Not priced in the catalogue"**; it
+  now says "Length pending". Test: `api.m5a.test.js` (price notes).
+- **The public page looked the project up organisation-wide** (the project
+  model is organisation-scoped), so with several projects it could name the
+  wrong one. It now loads the link's own project. Test: `api.m5a.test.js`
+  (hashed secrets: another project of the organisation comes first).
+- **Test runs left their in-memory databases on disk** (since M1): 85
+  `mongo-mem-*` folders (16 GB) in the system temp folder filled drive C:,
+  after which `mongod` could not start and every API test was reported as
+  *skipped*, not failed. Two causes: Playwright force-kills the real-mode e2e
+  server on Windows, so it never stopped its database; and a crashed or
+  interrupted Vitest worker never ran its `afterAll`. Databases now live under
+  `<temp>/rackium-test-db/run-*`, are stopped with the library's forced
+  cleanup, are removed by a Vitest global setup/teardown and a Playwright
+  global teardown (which shuts the e2e server down cleanly first), and runs
+  that died are swept at the start of the next run (only when their process
+  has gone). `npm run clean:test-db` does the same by hand. Tests:
+  `server/test/testDbCleanup.test.js`,
+  `client/playwright-support/globalTeardown.test.mjs`.

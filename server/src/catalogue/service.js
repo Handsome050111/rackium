@@ -54,6 +54,9 @@ function toItem(doc, { showPrices }) {
     compatibleSfps: doc.compatibleSfps ?? [],
     compatiblePsus: doc.compatiblePsus ?? [],
     compatibleModules: doc.compatibleModules ?? [],
+    // M5a: a stock cable's medium and per-metre price (hidden with the other prices); a cord's connector pair.
+    stock: doc.stock?.media ? { media: doc.stock.media, pricePerMetreMinor: showPrices ? doc.stock.pricePerMetreMinor ?? null : null, minimumMinor: showPrices ? doc.stock.minimumMinor ?? 0 : null } : null,
+    powerCord: doc.powerCord?.connectorPair ? { connectorPair: doc.powerCord.connectorPair } : null,
     unitPriceMinor: showPrices ? doc.unitPriceMinor ?? null : null,
     currency: showPrices ? doc.currency ?? null : null,
     priceHidden: !showPrices,
@@ -79,8 +82,10 @@ async function visibleDocs(projectId) {
 
 // The project's resolved catalogue (most specific layer per key), without
 // prices — what the HLD places devices from and validates against (M4a).
-export async function projectCatalogue(projectId) {
-  return resolveCatalogueLayers((await visibleDocs(projectId)).map((d) => toItem(d, { showPrices: false })))
+// Prices are left out unless asked for: the BOM prices its lines with them and
+// strips them again for callers who may not see prices.
+export async function projectCatalogue(projectId, { showPrices = false } = {}) {
+  return resolveCatalogueLayers((await visibleDocs(projectId)).map((d) => toItem(d, { showPrices })))
 }
 
 function duplicateKeyError(err, key) {

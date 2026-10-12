@@ -214,12 +214,14 @@ async function staleError(design, baseRevision) {
 // approval or a change request starts a new draft.
 async function claimRevision(buildingId, baseRevision, actor, session) {
   const updated = await HldDesign.findOneAndUpdate(
-    { buildingId, revision: baseRevision, state: { $ne: 'awaiting_approval' } },
+    { buildingId, revision: baseRevision, state: { $ne: 'awaiting_approval' }, frozen: { $ne: true } },
     { $inc: { revision: 1 }, $set: { state: 'draft', lastEditedAt: new Date(), lastEditedBy: actor.userId } },
     { session, returnDocument: 'after' }
   )
   if (updated) return updated
   const current = await HldDesign.findOne({ buildingId }).session(session)
+  // Frozen by the Solution Package approval (M5a).
+  if (current?.frozen) throw conflict('change_request_required', 'The design is frozen by the Solution Package approval — changes go through a change request')
   if (current?.state === 'awaiting_approval') throw conflict('hld_submitted', 'The HLD is submitted for approval — it can be edited again once a PM or Reviewer decides')
   throw await staleError(current, baseRevision)
 }
@@ -710,6 +712,7 @@ export function createHldService({ storage }) {
     async submit(req, { buildingId, baseRevision }, actor) {
       const building = await requireBuilding(req, buildingId)
       const design = await designOf(building.id)
+      if (design.frozen) throw conflict('change_request_required', 'The design is frozen by the Solution Package approval — changes go through a change request')
       if (design.state === 'awaiting_approval') throw conflict('hld_submitted', 'The HLD is already submitted for approval')
       if (design.revision !== baseRevision) throw await staleError(design, baseRevision)
       const data = await loadDesign(building.id, req.project.id)

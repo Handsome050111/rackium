@@ -3,7 +3,8 @@ import { Eraser } from 'lucide-react'
 
 // Optional drawn signature (brief Step 7: "optional drawn signature").
 // Plain canvas, mouse + touch, no library needed for this.
-export default function SignaturePad({ onChange }) {
+// `onDataUrl` (real mode) receives the drawing as a PNG data URL, or null when cleared.
+export default function SignaturePad({ onChange, onDataUrl }) {
   const canvasRef = useRef(null)
   const drawing = useRef(false)
   const [hasStrokes, setHasStrokes] = useState(false)
@@ -41,6 +42,7 @@ export default function SignaturePad({ onChange }) {
   }
 
   function end() {
+    if (drawing.current && hasStrokes) onDataUrl?.(canvasRef.current.toDataURL('image/png'))
     drawing.current = false
   }
 
@@ -49,6 +51,7 @@ export default function SignaturePad({ onChange }) {
     canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height)
     setHasStrokes(false)
     onChange?.(false)
+    onDataUrl?.(null)
   }
 
   return (

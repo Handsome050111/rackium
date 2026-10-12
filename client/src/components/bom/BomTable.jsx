@@ -1,17 +1,19 @@
-import { CheckCircle2, Clock, Ban } from 'lucide-react'
+import { CheckCircle2, Clock, Ban, AlertTriangle } from 'lucide-react'
 import { PROCUREMENT_STATUSES } from '../../api/bomDesign.js'
 
 const CATEGORY_ORDER = ['Network devices', 'Optics & fibre', 'Cables', 'Power & accessories']
 
-const STATUS_ICON = { Suggested: CheckCircle2, Calculated: CheckCircle2, 'Compatibility check': Clock, 'Not required': Ban }
-const STATUS_COLOR = { Suggested: 'text-status-green', Calculated: 'text-status-green', 'Compatibility check': 'text-status-amber', 'Not required': 'text-text-secondary' }
+const STATUS_ICON = { Suggested: CheckCircle2, Calculated: CheckCircle2, 'Compatibility check': Clock, 'Not required': Ban, 'Not priced': AlertTriangle }
+const STATUS_COLOR = { Suggested: 'text-status-green', Calculated: 'text-status-green', 'Compatibility check': 'text-status-amber', 'Not required': 'text-text-secondary', 'Not priced': 'text-status-amber' }
 
 function money(n, currency) {
   if (n == null) return '—'
   return `${currency} ${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
-export default function BomTable({ lines, currency, canSeePricing, canEditVendor, procurementLocked, onSetVendor, onSetProcurement }) {
+// Real mode (M5a): `showSource` adds the Survey/HLD/LLD source tag column;
+// `renderProcurement(line)` replaces the prototype's procurement cell.
+export default function BomTable({ lines, currency, canSeePricing, canEditVendor, procurementLocked, onSetVendor, onSetProcurement, showSource = false, renderProcurement }) {
   const byCategory = CATEGORY_ORDER.map((cat) => ({ cat, lines: lines.filter((l) => l.category === cat) })).filter((g) => g.lines.length > 0)
 
   return (
@@ -19,7 +21,7 @@ export default function BomTable({ lines, currency, canSeePricing, canEditVendor
       <table className="w-full min-w-max text-left text-xs">
         <thead>
           <tr className="border-b border-border bg-surface-muted text-text-secondary">
-            {['#', 'Item / Specification', 'Basis', 'Qty', 'Unit', 'Status', 'Vendor', ...(canSeePricing ? ['Unit price', 'Line total'] : []), 'Procurement'].map((h) => (
+            {['#', 'Item / Specification', ...(showSource ? ['Source'] : []), 'Basis', 'Qty', 'Unit', 'Status', 'Vendor', ...(canSeePricing ? ['Unit price', 'Line total'] : []), 'Procurement'].map((h) => (
               <th key={h} className="whitespace-nowrap px-3 py-2 font-medium">
                 {h}
               </th>
@@ -37,6 +39,8 @@ export default function BomTable({ lines, currency, canSeePricing, canEditVendor
               procurementLocked={procurementLocked}
               onSetVendor={onSetVendor}
               onSetProcurement={onSetProcurement}
+              showSource={showSource}
+              renderProcurement={renderProcurement}
             />
           ))}
         </tbody>
@@ -45,11 +49,11 @@ export default function BomTable({ lines, currency, canSeePricing, canEditVendor
   )
 }
 
-function GroupRows({ group, currency, canSeePricing, canEditVendor, procurementLocked, onSetVendor, onSetProcurement }) {
+function GroupRows({ group, currency, canSeePricing, canEditVendor, procurementLocked, onSetVendor, onSetProcurement, showSource, renderProcurement }) {
   return (
     <>
       <tr className="border-b border-border bg-brand/5">
-        <td colSpan={canSeePricing ? 10 : 8} className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-brand">
+        <td colSpan={(canSeePricing ? 10 : 8) + (showSource ? 1 : 0)} className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-brand">
           {group.cat}
         </td>
       </tr>
@@ -62,6 +66,7 @@ function GroupRows({ group, currency, canSeePricing, canEditVendor, procurementL
               <div className="font-medium text-text">{line.item}</div>
               <div className="text-[11px] text-text-secondary">{line.spec}</div>
             </td>
+            {showSource && <td className="whitespace-nowrap px-3 py-1.5"><span className="rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-text-secondary">{line.source}</span></td>}
             <td className="px-3 py-1.5 text-text-secondary">{line.basis}</td>
             <td className="whitespace-nowrap px-3 py-1.5 font-medium text-text">{line.qty}</td>
             <td className="whitespace-nowrap px-3 py-1.5 text-text-secondary">{line.unit}</td>
@@ -76,12 +81,12 @@ function GroupRows({ group, currency, canSeePricing, canEditVendor, procurementL
             </td>
             {canSeePricing && (
               <>
-                <td className="whitespace-nowrap px-3 py-1.5 text-text-secondary">{money(line.unitPrice, currency)}</td>
+                <td className="whitespace-nowrap px-3 py-1.5 text-text-secondary" title={line.priceNote ?? undefined}>{money(line.unitPrice, currency)}</td>
                 <td className="whitespace-nowrap px-3 py-1.5 font-medium text-text">{money(line.lineTotal, currency)}</td>
               </>
             )}
             <td className="whitespace-nowrap px-3 py-1.5">
-              <ProcurementCell line={line} locked={procurementLocked} onSet={onSetProcurement} />
+              {renderProcurement ? renderProcurement(line) : <ProcurementCell line={line} locked={procurementLocked} onSet={onSetProcurement} />}
             </td>
           </tr>
         )

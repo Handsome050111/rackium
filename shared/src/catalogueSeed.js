@@ -194,4 +194,13 @@ export const SEEDED_CATALOGUE = [
   optic('STACK-CABLE', 'stack', '10G', 3, 40),
   cisco({ kind: 'consumable', category: 'accessory', model: 'C9300-NM-8X', description: '8 x 10G SFP+ network module', unitPriceMinor: 78000 }),
   cisco({ kind: 'consumable', category: 'accessory', model: 'PWR-C1-715WAC', description: '715 W AC power supply', unitPriceMinor: 31000 }),
+  // M5a: what the BOM needs to price cables, cords and cage nuts (placeholder
+  // prices from the prototype's mock catalogue, unchanged).
+  generic({ kind: 'stock_cable', category: 'cable', model: 'Cat6A patch cord', description: 'Cat6A S/FTP patch cord, stock lengths', stock: { media: 'cat6a', pricePerMetreMinor: 150, minimumMinor: 500 } }),
+  generic({ kind: 'stock_cable', category: 'cable', model: 'OS2 fibre patch cord', description: 'OS2 single-mode LC-LC duplex', stock: { media: 'os2', pricePerMetreMinor: 120, minimumMinor: 900 } }),
+  generic({ kind: 'stock_cable', category: 'cable', model: 'OM4 fibre patch cord', description: 'OM4 multimode LC-LC duplex', stock: { media: 'om4', pricePerMetreMinor: 140, minimumMinor: 900 } }),
+  generic({ kind: 'consumable', category: 'cable', model: 'Power cord C13/C14', description: 'IEC C13 to C14 (PDU)', powerCord: { connectorPair: 'C13/C14' }, unitPriceMinor: 600 }),
+  generic({ kind: 'consumable', category: 'cable', model: 'Power cord C19/C20', description: 'IEC C19 to C20 (PDU)', powerCord: { connectorPair: 'C19/C20' }, unitPriceMinor: 900 }),
+  generic({ kind: 'consumable', category: 'cable', model: 'Power cord Schuko/C13', description: 'CEE 7/4 (Schuko) to C13', powerCord: { connectorPair: 'Schuko/C13' }, unitPriceMinor: 700 }),
+  generic({ kind: 'consumable', category: 'cage_nut', model: 'M6 cage-nut set', description: 'Cage nut, screw and washer (set of 4)', unitPriceMinor: 360 }),
 ]

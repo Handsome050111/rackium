@@ -79,7 +79,10 @@ export default function RealLld() {
   const isArchitect = !readOnly && has('architect')
   const canEdit = isArchitect && !isPhone
   const locked = view?.design?.state === 'awaiting_approval' && !branchId
-  const editable = canEdit && !locked
+  // Frozen by the Solution Package approval (M5a): only a change request's
+  // branch is edited (the server refuses it once the change is submitted).
+  const frozen = Boolean(view?.frozen) && !view?.changeRequestBranch
+  const editable = canEdit && !locked && !frozen
   const latest = view?.approvals?.[0] ?? null
   const ownSubmission = latest?.status === 'pending' && latest.submittedById === user?.id
   const canReview = !readOnly && (has('pm') || has('reviewer')) && !ownSubmission
@@ -221,6 +224,13 @@ export default function RealLld() {
         {view.renameLocked && <span className="text-xs text-text-secondary">Hostnames are fixed after LLD approval — renaming needs a change request.</span>}
       </div>
 
+      {view.frozen && (
+        <p className="rounded-xl border border-border bg-surface-muted px-3 py-2 text-xs text-text-secondary" data-testid="lld-frozen">
+          {view.changeRequestBranch
+            ? "This is a change request's branch: its changes reach the frozen LLD when the client approves the change."
+            : 'Frozen by the Solution Package approval — every change goes through a change request (Solution Package → Change requests).'}
+        </p>
+      )}
       {view.branch && (
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-brand/40 bg-brand/5 px-3 py-2 text-xs text-brand" data-testid="lld-branch-banner">
           <GitBranch size={14} strokeWidth={2} />
@@ -261,7 +271,7 @@ export default function RealLld() {
         <LldReconciliation reconciliation={reconciliation} editable={editable && !branchId} onCopy={(ids) => write((rev) => lldApi.copyFromHld(orgId, projectId, { buildingId, hldDeviceIds: [], hldConnectionIds: [], ...ids, baseRevision: rev }))} />
       </HldBaselineBanner>
 
-      {!branchId && (
+      {!branchId && !view.frozen && (
         <>
           <HldWorkflowControls
             status={view.status}

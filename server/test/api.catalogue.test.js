@@ -97,7 +97,11 @@ describe('browsing', () => {
     expect(await q('category=patch_panel&minPorts=48')).toEqual(['Cat6A Patch Panel 48-port'])
     expect(await q('poe=true')).toEqual(['C9300-48UX'])
     expect(await q('speed=40G')).toEqual(['SFP-40G-SR4'])
-    expect(await q('vendor=Generic&group=passive')).toHaveLength(4)
+    // M5a added the stock cables, power cords and cage nuts the BOM prices.
+    expect(await q('vendor=Generic&group=passive')).toEqual([
+      'Cable Manager 1U', 'Cat6A Patch Panel 24-port', 'Cat6A Patch Panel 48-port', 'Cat6A patch cord', 'LC Fibre Patch Panel 24-port',
+      'M6 cage-nut set', 'OM4 fibre patch cord', 'OS2 fibre patch cord', 'Power cord C13/C14', 'Power cord C19/C20', 'Power cord Schuko/C13',
+    ].sort())
     await admin.agent.get(`${cat(admin.orgId)}?group=toasters`).expect(400)
   })
 })
