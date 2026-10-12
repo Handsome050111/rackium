@@ -75,7 +75,7 @@ function CableRow({ row, editable, onAssignCableId, onSetEngineerSelected, cable
         <CableIdCell row={row} editable={editable} onAssign={onAssignCableId} suggestion={cableIdSuggestion} />
       </td>
       <td className="whitespace-nowrap px-3 py-1.5 text-text-secondary">{row.source.label}</td>
-      <td className="whitespace-nowrap px-3 py-1.5 text-text-secondary">
+      <td className="whitespace-nowrap px-3 py-1.5 text-text-secondary" title={row.trace}>
         {row.horizontalTbd ? <span className="italic">{DEPLOYMENT_PLACEHOLDER}</span> : row.hops.length === 0 ? 'Direct' : row.hops.map((h) => h.label).join(' → ')}
       </td>
       <td className="whitespace-nowrap px-3 py-1.5 text-text-secondary">{row.dest.label}</td>

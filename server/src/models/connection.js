@@ -20,6 +20,10 @@ const hopSchema = new mongoose.Schema(
     rackId: { type: ObjectId, default: null },
     ru: { type: Number, default: null },
     segmentCableId: { type: String, default: null },
+    // The panel sides the hop's two cables land on, set by cable type:
+    // device↔panel (patch cord) → front, panel↔panel (trunk) → rear.
+    inSide: { type: String, enum: ['front', 'rear', null], default: null },
+    outSide: { type: String, enum: ['front', 'rear', null], default: null },
   },
   { _id: false }
 )

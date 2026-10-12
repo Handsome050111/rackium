@@ -7,7 +7,7 @@ import { suggestNextCableId } from '@rackium/shared/cableId.js'
 import { roleInfo, resolveRoleCodes } from '@rackium/shared/hldRoles.js'
 import { buildHostname } from '@rackium/shared/naming.js'
 import { summariseFindings } from '@rackium/shared/hldRules.js'
-import { portKey, portsOf, isPatchPanel, validateLld, diffDesigns, reconcileWithHld } from '@rackium/shared/lldDesign.js'
+import { portKey, portsOf, isPatchPanel, validateLld, diffDesigns, reconcileWithHld, routeSides, routeBookings, hopProblems } from '@rackium/shared/lldDesign.js'
 import { canApproveSubmission } from '@rackium/shared/policy.js'
 import { Device } from '../models/device.js'
 import { Connection } from '../models/connection.js'
@@ -165,7 +165,7 @@ function connectionView(c, length) {
     destSfpCode: c.destSfpCode ?? null,
     viaPatchPanel: Boolean(c.viaPatchPanel),
     cableId: c.cableId ?? null,
-    hops: (c.hops ?? []).map((h) => ({ seq: h.seq, patchPanelId: String(h.patchPanelId), inPort: h.inPort, outPort: h.outPort, segmentCableId: h.segmentCableId ?? null, roomId: id(h.roomId), rackId: id(h.rackId), ru: h.ru ?? null })),
+    hops: (c.hops ?? []).map((h) => ({ seq: h.seq, patchPanelId: String(h.patchPanelId), inPort: h.inPort, inSide: h.inSide ?? null, outPort: h.outPort, outSide: h.outSide ?? null, segmentCableId: h.segmentCableId ?? null, roomId: id(h.roomId), rackId: id(h.rackId), ru: h.ru ?? null })),
     lengths: { suggestedM: length.suggestedM, engineerSelectedM: engineer, effectiveM: engineer ?? length.suggestedM, installedM: c.lengths?.installedM ?? null },
     length,
     status: c.status,
@@ -222,7 +222,7 @@ function snapshotOf(data) {
         destSfpCode: c.destSfpCode ?? null,
         viaPatchPanel: Boolean(c.viaPatchPanel),
         cableId: c.cableId ?? null,
-        hops: (c.hops ?? []).map((h) => ({ seq: h.seq, patchPanelId: String(h.patchPanelId), inPort: h.inPort, outPort: h.outPort, segmentCableId: h.segmentCableId ?? null, roomId: id(h.roomId), rackId: id(h.rackId), ru: h.ru ?? null })),
+        hops: (c.hops ?? []).map((h) => ({ seq: h.seq, patchPanelId: String(h.patchPanelId), inPort: h.inPort, inSide: h.inSide ?? null, outPort: h.outPort, outSide: h.outSide ?? null, segmentCableId: h.segmentCableId ?? null, roomId: id(h.roomId), rackId: id(h.rackId), ru: h.ru ?? null })),
         lengths: { engineerSelectedM: c.lengths?.engineerSelectedM ?? null },
       })),
     },
@@ -274,22 +274,19 @@ function validPort(device, portId, cat) {
 
 // Every port a connection takes: its ends (a panel end is the front) and
 // each hop (rear in, front out). One registry row each; a clash aborts.
+// Every port a connection takes (shared/lldDesign.js routeBookings): device
+// ports, and panel ports on the side their cable type sets — a patch cord
+// (device↔panel) on the front, a trunk (panel↔panel) on the rear. One
+// registry row each; a clash aborts the transaction.
+const panelTest = (devices, cat) => (deviceId) => {
+  const d = devices.get(String(deviceId))
+  return Boolean(d) && isPatchPanel(cat.item(d.catalogueKey), d)
+}
 async function takePorts(conn, layer, devices, cat, session) {
-  const rows = []
-  for (const side of ['source', 'dest']) {
-    const end = conn[side]
-    if (!end.portId) continue
-    const device = devices.get(String(end.deviceId))
-    rows.push({ deviceId: end.deviceId, portId: end.portId, portKey: portKey(end.portId, isPatchPanel(cat.item(device?.catalogueKey), device) ? 'front' : null), source: 'connection', hopSeq: null, who: device })
-  }
-  for (const hop of conn.hops ?? []) {
-    const panel = devices.get(String(hop.patchPanelId))
-    rows.push({ deviceId: hop.patchPanelId, portId: hop.inPort, portKey: portKey(hop.inPort, 'rear'), source: 'hop', hopSeq: hop.seq, who: panel })
-    rows.push({ deviceId: hop.patchPanelId, portId: hop.outPort, portKey: portKey(hop.outPort, 'front'), source: 'hop', hopSeq: hop.seq, who: panel })
-  }
+  const rows = routeBookings(conn, panelTest(devices, cat)).map((b) => ({ ...b, portKey: portKey(b.portId, b.side), who: devices.get(b.deviceId) }))
   for (const r of rows) {
     try {
-      await PortOccupancy.create([{ layer, deviceId: r.deviceId, portId: r.portId, portKey: r.portKey, connectionId: conn._id, hopSeq: r.hopSeq, source: r.source }], { session })
+      await PortOccupancy.create([{ layer, deviceId: oid(r.deviceId), portId: r.portId, portKey: r.portKey, connectionId: conn._id, hopSeq: r.hopSeq, source: r.source }], { session })
     } catch (err) {
       if (err.code === 11000) throw conflict('port_in_use', `${r.portId}${r.portKey.includes('#') ? ` (${r.portKey.split('#')[1]})` : ''} on ${r.who?.hostname ?? r.who?.label ?? 'the device'} is already used by another connection`)
       throw err
@@ -376,9 +373,29 @@ async function writeConnection(doc, body, { layer, data, isNew }, session) {
       const panel = devices.get(String(h.patchPanelId))
       if (!panel || !isPatchPanel(cat.item(panel.catalogueKey), panel)) throw badRequest(`Hop ${i + 1}: not a patch panel of this building`)
       const rack = data.racks.find((r) => String(r._id) === String(panel.rackId))
-      return { seq: i + 1, patchPanelId: panel._id, inPort: validPort(panel, h.inPort, cat), outPort: validPort(panel, h.outPort, cat), segmentCableId: h.segmentCableId ? h.segmentCableId.trim() : null, roomId: rack?.roomId ?? panel.roomId ?? null, rackId: panel.rackId ?? null, ru: panel.ru ?? null }
+      return { seq: i + 1, patchPanelId: panel._id, inPort: validPort(panel, h.inPort, cat), inSide: h.inSide ?? null, outPort: validPort(panel, h.outPort, cat), outSide: h.outSide ?? null, segmentCableId: h.segmentCableId ? h.segmentCableId.trim() : null, roomId: rack?.roomId ?? panel.roomId ?? null, rackId: panel.rackId ?? null, ru: panel.ru ?? null }
     })
   }
+  // Sides come from the cable types along the route; a side the client sent
+  // that disagrees, or front/rear used inconsistently, is refused.
+  const isPanel = panelTest(devices, cat)
+  // Only sides sent with this write are checked; stored ones are re-derived
+  // (an end that changed may change them).
+  const route = {
+    source: doc.source,
+    dest: doc.dest,
+    hops: doc.hops.map((h) => {
+      const hop = h.toObject ? h.toObject() : { ...h }
+      return body.hops !== undefined ? hop : { ...hop, inSide: null, outSide: null }
+    }),
+  }
+  const problems = hopProblems(route, isPanel, (pid) => devices.get(String(pid))?.label ?? devices.get(String(pid))?.hostname ?? 'panel')
+  if (problems.length) throw badRequest(problems.map((p) => p.message).join('; '), { problems })
+  const sides = routeSides(route, isPanel)
+  doc.hops.forEach((h, i) => {
+    h.inSide = sides.hops[i].inSide
+    h.outSide = sides.hops[i].outSide
+  })
   doc.updatedAt = new Date()
   await doc.save({ session })
   if (!isNew) await PortOccupancy.deleteMany({ layer, connectionId: doc._id }, { session })

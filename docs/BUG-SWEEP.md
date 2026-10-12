@@ -377,3 +377,23 @@ Found and fixed while building and testing M4b, each with a test:
 - **A patch-panel hop's suggestion button sat inside the port select's
   label** (invalid nesting: a click also activated the select). Moved out.
   Covered by `e2e-real/lld.spec.js` (hop suggestions).
+
+### M4b review round: patch-panel sides by cable type
+
+The panel side was direction-based (a hop came in at the rear, left at the
+front). It is now set by cable type: patch cords (device↔panel) on the
+front, trunks (panel↔panel) on the rear, the same whichever end the route is
+drawn from. Found while changing it, each with a test:
+
+- **Direction-based sides booked different ports for the same physical
+  route drawn from the other end**, so a route redrawn in reverse could pass
+  or clash differently. Sides now come from the neighbours only. Tests:
+  `shared/src/lldDesign.test.js` (two-panel and single-panel routes both
+  ways), `api.lld.test.js` "Patch-panel sides by cable type".
+- **A pass-through hop could use the front of one port and the rear of
+  another**, which do not connect. Refused (and `L-HOP` in validation).
+  Tests: same files, "refused: … front and rear of different ports".
+- **The Editor's out-port suggestion offered the port just picked for the
+  in side** of a single-panel hop. Suggestions now count the draft's own
+  picks as taken. Tests: `client/src/api/m4b.api.test.js` (port choices),
+  `e2e-real/lld.spec.js` (Suggested: 02).

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { portKey, portOptions, suggestPort, portsOf, validateLld, diffDesigns, reconcileWithHld } from './lldDesign.js'
+import { portKey, portOptions, suggestPort, portsOf, validateLld, diffDesigns, reconcileWithHld, routeSides, routeBookings, hopProblems, routeTrace, hopText } from './lldDesign.js'
 import { connectionFindings, portSuitsMedia } from './hldRules.js'
 import { computeSuggestedLength, stockLengthsFor, DEFAULT_STOCK_LENGTHS } from './cableLength.js'
 
@@ -67,11 +67,88 @@ describe('LLD validation (on top of the HLD rules)', () => {
   it('a hop must name a panel of the design, its real ports and a panel for the medium', () => {
     const conn = (hops) => ({ id: 'c', source: { deviceId: 'e', portId: 'Gi1/0/1' }, dest: { deviceId: 'a', portId: 'Eth0' }, media: 'cat6a', speed: '1G', cableId: 'X', hops })
     const all = [edge, ap, panel]
-    expect(validateLld({ devices: all, connections: [conn([{ seq: 1, patchPanelId: 'p', inPort: '01', outPort: '01' }])] }, ctxFor(all))).toEqual([])
+    expect(validateLld({ devices: all, connections: [conn([{ seq: 1, patchPanelId: 'p', inPort: '01', outPort: '02' }])] }, ctxFor(all))).toEqual([])
     expect(validateLld({ devices: all, connections: [conn([{ seq: 1, patchPanelId: 'p', inPort: '09', outPort: '01' }])] }, ctxFor(all)).map((f) => f.rule)).toEqual(['L-HOP'])
     expect(validateLld({ devices: all, connections: [conn([{ seq: 1, patchPanelId: 'zz', inPort: '01', outPort: '01' }])] }, ctxFor(all))[0].message).toMatch(/not in this design/)
-    const fibre = { ...conn([{ seq: 1, patchPanelId: 'p', inPort: '01', outPort: '01' }]), media: 'om4', source: { deviceId: 'e', portId: 'Te1/1/1' }, dest: { deviceId: 'e', portId: 'Te1/1/2' } }
+    const fibre = { ...conn([{ seq: 1, patchPanelId: 'p', inPort: '01', outPort: '02' }]), media: 'om4', source: { deviceId: 'e', portId: 'Te1/1/1' }, dest: { deviceId: 'e', portId: 'Te1/1/2' } }
     expect(validateLld({ devices: all, connections: [fibre] }, ctxFor(all)).find((f) => f.rule === 'L-HOP').message).toMatch(/RJ45 panel, the link is OM4/)
+  })
+})
+
+describe('patch-panel sides by cable type (M4b review)', () => {
+  // Patch cord (device↔panel) → panel FRONT; trunk (panel↔panel) → panel REAR.
+  const panels = new Set(['pp1', 'pp2'])
+  const isPanel = (id) => panels.has(String(id))
+  const names = { edge: 'Edge', border: 'Border', ap: 'AP', pp1: 'PP-01', pp2: 'PP-02' }
+  const nameOf = (id) => names[id]
+  const keys = (conn) => routeBookings(conn, isPanel).map((b) => `${b.deviceId}:${portKey(b.portId, b.side)}`).sort()
+  // The same route drawn from the other end.
+  const reversed = (conn) => ({ ...conn, source: conn.dest, dest: conn.source, hops: [...conn.hops].reverse().map((h) => ({ ...h, inPort: h.outPort, outPort: h.inPort, inSide: h.outSide, outSide: h.inSide })) })
+
+  const twoPanel = {
+    source: { deviceId: 'edge', portId: 'Gi1/0/1' },
+    dest: { deviceId: 'border', portId: 'Te1/1/1' },
+    hops: [
+      { seq: 1, patchPanelId: 'pp2', inPort: '01', outPort: '01' },
+      { seq: 2, patchPanelId: 'pp1', inPort: '05', outPort: '05' },
+    ],
+  }
+  const singlePanel = { source: { deviceId: 'edge', portId: 'Gi1/0/2' }, dest: { deviceId: 'ap', portId: 'Eth0' }, hops: [{ seq: 1, patchPanelId: 'pp1', inPort: '01', outPort: '02' }] }
+
+  it('two panels: Edge → PP-02 front | PP-02 rear → PP-01 rear | PP-01 front → Border', () => {
+    expect(routeSides(twoPanel, isPanel)).toEqual({ source: null, dest: null, hops: [{ inSide: 'front', outSide: 'rear' }, { inSide: 'rear', outSide: 'front' }] })
+    expect(routeTrace(twoPanel, isPanel, nameOf)).toBe('Edge Gi1/0/1 → PP-02 01 front | PP-02 01 rear → PP-01 05 rear | PP-01 05 front → Border Te1/1/1')
+    expect(keys(twoPanel)).toEqual(['border:te1/1/1', 'edge:gi1/0/1', 'pp1:05#front', 'pp1:05#rear', 'pp2:01#front', 'pp2:01#rear'])
+    expect(hopProblems(twoPanel, isPanel, nameOf)).toEqual([])
+  })
+
+  it('two panels drawn from the Border end take exactly the same sides', () => {
+    const back = reversed(twoPanel)
+    expect(routeSides(back, isPanel).hops).toEqual([{ inSide: 'front', outSide: 'rear' }, { inSide: 'rear', outSide: 'front' }])
+    expect(keys(back)).toEqual(keys(twoPanel))
+    expect(routeTrace(back, isPanel, nameOf)).toBe('Border Te1/1/1 → PP-01 05 front | PP-01 05 rear → PP-02 01 rear | PP-02 01 front → Edge Gi1/0/1')
+  })
+
+  it('one panel between two devices: both patch cords on the front, two ports — from either end', () => {
+    expect(routeSides(singlePanel, isPanel).hops).toEqual([{ inSide: 'front', outSide: 'front' }])
+    expect(keys(singlePanel)).toEqual(['ap:eth0', 'edge:gi1/0/2', 'pp1:01#front', 'pp1:02#front'])
+    expect(keys(reversed(singlePanel))).toEqual(keys(singlePanel))
+    expect(hopProblems(singlePanel, isPanel, nameOf)).toEqual([])
+    expect(hopText(singlePanel.hops[0], { inSide: 'front', outSide: 'front' }, 'PP-01')).toBe('PP-01 01 front | 02 front')
+    expect(hopText(twoPanel.hops[0], { inSide: 'front', outSide: 'rear' }, 'PP-02')).toBe('PP-02 01 front | rear')
+  })
+
+  it('a cable ending on a panel: a patch cord lands on the front, a trunk between two panels on both rears', () => {
+    const cord = { source: { deviceId: 'edge', portId: 'Gi1/0/3' }, dest: { deviceId: 'pp1', portId: '07' }, hops: [] }
+    expect(routeSides(cord, isPanel)).toMatchObject({ source: null, dest: 'front' })
+    expect(keys(reversed(cord))).toEqual(keys(cord))
+    const trunk = { source: { deviceId: 'pp1', portId: '08' }, dest: { deviceId: 'pp2', portId: '08' }, hops: [] }
+    expect(keys(trunk)).toEqual(['pp1:08#rear', 'pp2:08#rear'])
+  })
+
+  it('invalid hops: wrong side for the cable type; front and rear of different ports; one port for both cords; a port side twice', () => {
+    const wrongSide = { ...singlePanel, hops: [{ ...singlePanel.hops[0], inSide: 'rear' }] }
+    expect(hopProblems(wrongSide, isPanel, nameOf).map((p) => p.message)).toEqual(['hop 1 (PP-01): 01 is on the rear, but a patch cord (device to panel) lands on the front'])
+    const trunkOnFront = { ...twoPanel, hops: [{ ...twoPanel.hops[0], outSide: 'front' }, twoPanel.hops[1]] }
+    expect(hopProblems(trunkOnFront, isPanel, nameOf)[0].message).toMatch(/a trunk \(panel to panel\) lands on the rear/)
+    const split = { ...twoPanel, hops: [{ ...twoPanel.hops[0], outPort: '02' }, twoPanel.hops[1]] }
+    expect(hopProblems(split, isPanel, nameOf).map((p) => p.message)).toEqual(['hop 1 (PP-02): front and rear must be the same port — 01 front and 02 rear are not connected'])
+    const onePort = { ...singlePanel, hops: [{ ...singlePanel.hops[0], outPort: '01' }] }
+    expect(hopProblems(onePort, isPanel, nameOf).map((p) => p.message)).toEqual(['hop 1 (PP-01): 01 front cannot take both cables — use two ports'])
+    const twice = { ...twoPanel, hops: [...twoPanel.hops, { seq: 3, patchPanelId: 'pp2', inPort: '01', outPort: '01' }] }
+    expect(hopProblems(twice, isPanel, nameOf).some((p) => /PP-02 01 rear is used twice/.test(p.message))).toBe(true)
+  })
+
+  it('validateLld reports a wrong side as a Critical L-HOP', () => {
+    const devices = [
+      { id: 'e', hostname: 'E-1', role: 'edge', catalogueKey: 'edge' },
+      { id: 'a', hostname: 'A-1', role: 'ap', catalogueKey: 'ap' },
+      { id: 'p', label: 'PP-01', catalogueKey: 'panel', isPanel: true },
+    ]
+    const conn = { id: 'c', source: { deviceId: 'e', portId: 'Gi1/0/1' }, dest: { deviceId: 'a', portId: 'Eth0' }, media: 'cat6a', speed: '1G', cableId: 'X', hops: [{ seq: 1, patchPanelId: 'p', inPort: '01', inSide: 'rear', outPort: '02', outSide: 'front' }] }
+    const findings = validateLld({ devices, connections: [conn] }, ctxFor(devices))
+    expect(findings.map((f) => [f.rule, f.severity])).toEqual([['L-HOP', 'critical']])
+    expect(findings[0].message).toMatch(/01 is on the rear, but a patch cord/)
   })
 })
 

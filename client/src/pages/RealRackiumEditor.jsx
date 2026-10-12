@@ -3,8 +3,8 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, AlertTriangle, RefreshCw, Plus, Trash2, Lightbulb, Save } from 'lucide-react'
 import RackElevation from '../components/RackElevation.jsx'
 import PortFace from '../components/PortFace.jsx'
-import { lldApi, portMapOf, portChoices, occupiedKeysOf } from '../api/lldApi.js'
-import { portKey } from '@rackium/shared/lldDesign.js'
+import { lldApi, portMapOf, portChoices, occupiedKeysOf, draftSides } from '../api/lldApi.js'
+import { portKey, routeTrace } from '@rackium/shared/lldDesign.js'
 import { MEDIA_LABEL } from '@rackium/shared/lldModel.js'
 import { useMediaQuery } from '../lib/useMediaQuery.js'
 import { useProjectRoles } from '../lib/useProjectRoles.js'
@@ -29,8 +29,10 @@ function toDraft(c) {
     engineerSelectedM: c.lengths.engineerSelectedM ?? '',
   }
 }
-function toBody(d) {
+function toBody(d, sides) {
   const fibre = d.media === 'os2' || d.media === 'om4'
+  // A pass-through hop (front ↔ rear) is one port: its front and its rear.
+  const passThrough = (i) => sides && sides.hops[i] && sides.hops[i].inSide !== sides.hops[i].outSide
   return {
     source: { deviceId: d.sourceDeviceId, portId: d.sourcePort || null },
     dest: { deviceId: d.destDeviceId, portId: d.destPort || null },
@@ -38,7 +40,10 @@ function toBody(d) {
     speed: d.speed,
     sourceSfpCode: fibre ? d.sourceSfpCode || null : null,
     destSfpCode: fibre ? d.destSfpCode || null : null,
-    hops: d.hops.filter((h) => h.patchPanelId && h.inPort && h.outPort).map((h) => ({ patchPanelId: h.patchPanelId, inPort: h.inPort, outPort: h.outPort, segmentCableId: h.segmentCableId?.trim() || null })),
+    hops: d.hops
+      .map((h, i) => (passThrough(i) ? { ...h, outPort: h.inPort } : h))
+      .filter((h) => h.patchPanelId && h.inPort && h.outPort)
+      .map((h) => ({ patchPanelId: h.patchPanelId, inPort: h.inPort, outPort: h.outPort, segmentCableId: h.segmentCableId?.trim() || null })),
     cableId: d.cableId.trim() || null,
     engineerSelectedM: d.engineerSelectedM === '' ? null : Number(d.engineerSelectedM),
   }
@@ -88,7 +93,8 @@ export default function RealRackiumEditor() {
 
   const devices = useMemo(() => view?.devices ?? [], [view])
   const deviceById = useMemo(() => Object.fromEntries(devices.map((d) => [d.id, d])), [devices])
-  const panels = devices.filter((d) => d.isPanel)
+  // Rack codes repeat per room (R01 in every room), so a panel is named with its room.
+  const panels = devices.filter((d) => d.isPanel).map((d) => ({ ...d, where: [view?.rooms.find((r) => r.id === d.roomId)?.code, d.rackCode].filter(Boolean).join(' / ') }))
   const endDevices = devices.filter((d) => d.ports.length > 0)
   const rack = view?.racks.find((r) => r.id === rackId) ?? view?.racks[0] ?? null
   const inRack = new Set(devices.filter((d) => d.rackId === rack?.id).map((d) => d.id))
@@ -104,7 +110,7 @@ export default function RealRackiumEditor() {
 
   async function save() {
     try {
-      const body = { ...toBody(draft), baseRevision: view.design.revision }
+      const body = { ...toBody(draft, draftSides(draft, deviceById)), baseRevision: view.design.revision }
       if (connection) await lldApi.updateConnection(orgId, projectId, connection.id, body)
       else {
         const res = await lldApi.createConnection(orgId, projectId, { buildingId, branchId: branchId ?? undefined, ...body })
@@ -135,6 +141,14 @@ export default function RealRackiumEditor() {
   if (!view.started) return <div className="p-6 text-sm text-text-secondary">Start the LLD first.</div>
 
   const lldPath = `/orgs/${orgId}/projects/${projectId}/buildings/${buildingId}/lld${branchId ? `?branch=${branchId}` : ''}`
+  // Panel sides by cable type for the route being drawn (patch cord → front, trunk → rear).
+  const sides = draftSides(draft, deviceById)
+  const drafted = draftPortKeys(draft, sides)
+  const takenFor = (deviceId, ...owners) => drafted.filter((k) => k.deviceId === deviceId && !owners.includes(k.owner)).map((k) => k.key)
+  const trace =
+    draft.sourceDeviceId && draft.destDeviceId
+      ? routeTrace({ source: { deviceId: draft.sourceDeviceId, portId: draft.sourcePort }, dest: { deviceId: draft.destDeviceId, portId: draft.destPort }, hops: draft.hops.map((h, i) => ({ ...h, outPort: sides.hops[i]?.inSide !== sides.hops[i]?.outSide ? h.inPort : h.outPort })) }, (id) => Boolean(deviceById[id]?.isPanel), (id) => deviceById[id]?.label ?? '?')
+      : null
   const opticsFor = view.optics.filter((o) => o.media === draft.media && String(o.speed) === String(draft.speed)).map((o) => o.key)
   const fibre = draft.media === 'os2' || draft.media === 'om4'
 
@@ -270,6 +284,8 @@ export default function RealRackiumEditor() {
               optics={fibre ? opticsFor : null}
               media={draft.media}
               connectionId={connection?.id ?? null}
+              side={sides.source}
+              taken={takenFor(draft.sourceDeviceId, 'source')}
               editable={editable}
               onChange={(p) => patch({ sourceDeviceId: p.deviceId ?? draft.sourceDeviceId, sourcePort: 'portId' in p ? p.portId : draft.sourcePort, sourceSfpCode: 'sfp' in p ? p.sfp : draft.sourceSfpCode })}
             />
@@ -282,12 +298,20 @@ export default function RealRackiumEditor() {
               optics={fibre ? opticsFor : null}
               media={draft.media}
               connectionId={connection?.id ?? null}
+              side={sides.dest}
+              taken={takenFor(draft.destDeviceId, 'dest')}
               editable={editable}
               onChange={(p) => patch({ destDeviceId: p.deviceId ?? draft.destDeviceId, destPort: 'portId' in p ? p.portId : draft.destPort, destSfpCode: 'sfp' in p ? p.sfp : draft.destSfpCode })}
             />
           </div>
 
-          <HopsEditor hops={draft.hops} panels={panels} deviceById={deviceById} media={draft.media} connectionId={connection?.id ?? null} editable={editable} onChange={(hops) => patch({ hops })} />
+          <HopsEditor hops={draft.hops} sides={sides.hops} takenFor={takenFor} panels={panels} deviceById={deviceById} media={draft.media} connectionId={connection?.id ?? null} editable={editable} onChange={(hops) => patch({ hops })} />
+          {trace && (
+            <p className="break-words rounded-lg bg-surface-muted px-3 py-2 text-xs text-text" data-testid="route-trace">
+              <span className="font-semibold">Route: </span>
+              {trace}
+            </p>
+          )}
 
           {editable && (
             <div className="flex flex-wrap items-center gap-2">
@@ -320,10 +344,10 @@ function Suggestion({ suggestion, current, onUse, editable }) {
   )
 }
 
-function EndEditor({ title, devices, device, portId, sfp, optics, media, connectionId, editable, onChange }) {
-  const { options, suggestion } = portChoices(device, { media, exceptConnectionId: connectionId })
-  const side = device?.isPanel ? 'front' : null
-  const occupied = device ? [...occupiedKeysOf(device, connectionId)].filter((k) => (side ? k.endsWith(`#${side}`) : !k.includes('#'))).map((k) => device.ports.find((p) => portKey(p.id, side) === k)?.id).filter(Boolean) : []
+function EndEditor({ title, devices, device, portId, sfp, optics, media, connectionId, side, taken, editable, onChange }) {
+  const { options, suggestion } = portChoices(device, { media, side, exceptConnectionId: connectionId, taken })
+  const used = new Set([...occupiedKeysOf(device, connectionId), ...taken])
+  const occupied = device ? device.ports.filter((p) => used.has(portKey(p.id, side))).map((p) => p.id) : []
   const incompatible = options.filter((o) => !o.compatible).length
   return (
     <div className="min-w-0 space-y-2 rounded-xl border border-border bg-surface p-3" data-testid={`end-${title.toLowerCase()}`}>
@@ -346,7 +370,7 @@ function EndEditor({ title, devices, device, portId, sfp, optics, media, connect
       {device && (
         <PortFace
           title={device.label}
-          sublabel={`${device.model ?? ''}${device.isPanel ? ' · cable lands on the front' : ''}${incompatible ? ` · ${incompatible} port(s) not for ${media.toUpperCase()}` : ''}`}
+          sublabel={`${device.model ?? ''}${side ? ` · ${SIDE_TEXT[side]}` : ''}${incompatible ? ` · ${incompatible} port(s) not for ${media.toUpperCase()}` : ''}`}
           portMap={portMapOf(device)}
           occupiedPortIds={occupied}
           selectedPortId={portId}
@@ -369,7 +393,32 @@ function EndEditor({ title, devices, device, portId, sfp, optics, media, connect
   )
 }
 
-function HopsEditor({ hops, panels, deviceById, media, connectionId, editable, onChange }) {
+const SIDE_TEXT = { front: 'front (patch cord)', rear: 'rear (trunk)' }
+
+// The draft's port keys per device, with who holds them (so a selector does
+// not count its own choice as taken).
+function draftPortKeys(draft, sides) {
+  const out = []
+  if (draft.sourcePort) out.push({ deviceId: draft.sourceDeviceId, key: portKey(draft.sourcePort, sides.source), owner: 'source' })
+  if (draft.destPort) out.push({ deviceId: draft.destDeviceId, key: portKey(draft.destPort, sides.dest), owner: 'dest' })
+  draft.hops.forEach((h, i) => {
+    const s = sides.hops[i]
+    if (!h.patchPanelId || !s) return
+    if (s.inSide !== s.outSide) {
+      if (h.inPort) out.push({ deviceId: h.patchPanelId, key: portKey(h.inPort, s.inSide), owner: `hop-${i}` }, { deviceId: h.patchPanelId, key: portKey(h.inPort, s.outSide), owner: `hop-${i}` })
+    } else {
+      if (h.inPort) out.push({ deviceId: h.patchPanelId, key: portKey(h.inPort, s.inSide), owner: `hop-${i}-in` })
+      if (h.outPort) out.push({ deviceId: h.patchPanelId, key: portKey(h.outPort, s.outSide), owner: `hop-${i}-out` })
+    }
+  })
+  return out
+}
+
+// Hops: each panel's side is set by the cable on it — from a device (patch
+// cord) the front, from another panel (trunk) the rear. A hop turning front
+// ↔ rear passes through ONE port; a hop between two devices takes two front
+// ports.
+function HopsEditor({ hops, sides, takenFor, panels, deviceById, media, connectionId, editable, onChange }) {
   const set = (i, p) => onChange(hops.map((h, j) => (j === i ? { ...h, ...p } : h)))
   return (
     <div className="space-y-2 rounded-xl border border-border bg-surface p-3" data-testid="hops">
@@ -386,8 +435,11 @@ function HopsEditor({ hops, panels, deviceById, media, connectionId, editable, o
       {hops.length === 0 && panels.length > 0 && <p className="text-xs text-text-secondary">Direct cable (no hops).</p>}
       {hops.map((hop, i) => {
         const panel = deviceById[hop.patchPanelId]
-        const rear = portChoices(panel, { media, side: 'rear', exceptConnectionId: connectionId })
-        const front = portChoices(panel, { media, side: 'front', exceptConnectionId: connectionId })
+        const s = sides[i] ?? { inSide: null, outSide: null }
+        const passThrough = Boolean(panel) && s.inSide !== s.outSide
+        const through = portChoices(panel, { media, sides: [s.inSide, s.outSide], exceptConnectionId: connectionId, taken: takenFor(hop.patchPanelId, `hop-${i}`) })
+        const inChoices = portChoices(panel, { media, side: s.inSide, exceptConnectionId: connectionId, taken: takenFor(hop.patchPanelId, `hop-${i}-in`) })
+        const outChoices = portChoices(panel, { media, side: s.outSide, exceptConnectionId: connectionId, taken: takenFor(hop.patchPanelId, `hop-${i}-out`) })
         return (
           <div key={i} className="grid grid-cols-1 items-end gap-2 rounded-lg border border-border/60 p-2 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
             <label className="flex min-w-0 flex-col gap-1 text-xs">
@@ -396,13 +448,21 @@ function HopsEditor({ hops, panels, deviceById, media, connectionId, editable, o
                 <option value="">Choose…</option>
                 {panels.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.label} ({p.rackCode})
+                    {p.label} ({p.where})
                   </option>
                 ))}
               </select>
             </label>
-            <PanelPortSelect label={`Hop ${i + 1} in (rear)`} choices={rear} value={hop.inPort} editable={editable} onChange={(v) => set(i, { inPort: v })} />
-            <PanelPortSelect label={`Hop ${i + 1} out (front)`} choices={front} value={hop.outPort} editable={editable} onChange={(v) => set(i, { outPort: v })} />
+            {passThrough ? (
+              <div className="sm:col-span-1 lg:col-span-2">
+                <PanelPortSelect label={`Hop ${i + 1} port (${s.inSide} | ${s.outSide})`} choices={through} value={hop.inPort} editable={editable} onChange={(v) => set(i, { inPort: v, outPort: v })} />
+              </div>
+            ) : (
+              <>
+                <PanelPortSelect label={`Hop ${i + 1} in (${s.inSide ?? '—'})`} choices={inChoices} value={hop.inPort} editable={editable} onChange={(v) => set(i, { inPort: v })} />
+                <PanelPortSelect label={`Hop ${i + 1} out (${s.outSide ?? '—'})`} choices={outChoices} value={hop.outPort} editable={editable} onChange={(v) => set(i, { outPort: v })} />
+              </>
+            )}
             <label className="flex min-w-0 flex-col gap-1 text-xs">
               <span className="text-text-secondary">Segment Cable ID</span>
               <input aria-label={`Hop ${i + 1} segment Cable ID`} value={hop.segmentCableId ?? ''} maxLength={32} disabled={!editable} onChange={(e) => set(i, { segmentCableId: e.target.value })} className={inputClass} />

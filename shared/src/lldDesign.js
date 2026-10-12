@@ -8,9 +8,11 @@ import { roleInfo } from './hldRoles.js'
 
 // --- Ports ---------------------------------------------------------------------
 
-// A patch-panel port has a rear (where a hop comes in) and a front (where it
-// goes out, or where a direct cable lands). Device ports have one side.
-export const PANEL_SIDES = ['rear', 'front']
+// A patch-panel port has a front and a rear; device ports have one side.
+// The side is set by the cable type (M4b review): a device↔panel cable
+// (patch cord) lands on the panel's FRONT, a panel↔panel cable (backbone /
+// trunk) on its REAR. See routeSides().
+export const PANEL_SIDES = ['front', 'rear']
 export function portKey(portId, side = null) {
   return side ? `${String(portId).trim().toLowerCase()}#${side}` : String(portId).trim().toLowerCase()
 }
@@ -49,6 +51,93 @@ export function suggestPort(options) {
   return options.find((o) => !o.occupied && o.compatible)?.id ?? null
 }
 
+// --- Routes: sides, bookings, checks, trace ----------------------------------------
+
+// A connection's route is its nodes in order: source, each hop's panel, dest.
+// Each pair of neighbours is one cable. At a panel node the side facing a
+// neighbour is REAR when that neighbour is also a panel (trunk) and FRONT
+// when it is a device (patch cord). Sides depend only on the neighbours, so
+// a route drawn from either end gets the same sides. `isPanel(deviceId)`.
+export function sideToward(isPanel, nodeId, neighbourId) {
+  if (!isPanel(String(nodeId))) return null
+  return isPanel(String(neighbourId)) ? 'rear' : 'front'
+}
+export function routeSides(conn, isPanel) {
+  const hops = conn.hops ?? []
+  const nodes = [conn.source.deviceId, ...hops.map((h) => h.patchPanelId), conn.dest.deviceId].map(String)
+  return {
+    source: sideToward(isPanel, nodes[0], nodes[1]),
+    dest: sideToward(isPanel, nodes[nodes.length - 1], nodes[nodes.length - 2]),
+    hops: hops.map((_, i) => ({ inSide: sideToward(isPanel, nodes[i + 1], nodes[i]), outSide: sideToward(isPanel, nodes[i + 1], nodes[i + 2]) })),
+  }
+}
+
+// Every port the route takes, with its side (the occupancy registry rows).
+// A pass-through hop (front→rear) takes both sides of its one port.
+export function routeBookings(conn, isPanel) {
+  const sides = routeSides(conn, isPanel)
+  const out = []
+  if (conn.source.portId) out.push({ deviceId: String(conn.source.deviceId), portId: conn.source.portId, side: sides.source, source: 'connection', hopSeq: null })
+  ;(conn.hops ?? []).forEach((h, i) => {
+    const hopSeq = h.seq ?? i + 1
+    out.push({ deviceId: String(h.patchPanelId), portId: h.inPort, side: sides.hops[i].inSide, source: 'hop', hopSeq })
+    out.push({ deviceId: String(h.patchPanelId), portId: h.outPort, side: sides.hops[i].outSide, source: 'hop', hopSeq })
+  })
+  if (conn.dest.portId) out.push({ deviceId: String(conn.dest.deviceId), portId: conn.dest.portId, side: sides.dest, source: 'connection', hopSeq: null })
+  return out
+}
+
+const SIDE_RULE = { front: 'a patch cord (device to panel) lands on the front', rear: 'a trunk (panel to panel) lands on the rear' }
+const samePort = (a, b) => String(a).trim().toLowerCase() === String(b).trim().toLowerCase()
+
+// What is wrong with a route's hops ([{ seq, message }], empty = valid):
+// - a stored side other than the one its cable type sets;
+// - front and rear used inconsistently: a hop turning front↔rear passes
+//   through one port, so both must be the same port; a hop staying on one
+//   side needs two ports;
+// - the same panel port side twice in one route.
+export function hopProblems(conn, isPanel, nameOf = (id) => String(id)) {
+  const sides = routeSides(conn, isPanel)
+  const problems = []
+  const singlePortSameSide = new Set()
+  ;(conn.hops ?? []).forEach((h, i) => {
+    const seq = h.seq ?? i + 1
+    const want = sides.hops[i]
+    const panel = nameOf(h.patchPanelId)
+    for (const [field, port, side] of [['inSide', h.inPort, want.inSide], ['outSide', h.outPort, want.outSide]]) {
+      if (h[field] && h[field] !== side) problems.push({ seq, message: `hop ${seq} (${panel}): ${port} is on the ${h[field]}, but ${SIDE_RULE[side]}` })
+    }
+    if (want.inSide !== want.outSide && !samePort(h.inPort, h.outPort)) problems.push({ seq, message: `hop ${seq} (${panel}): front and rear must be the same port — ${h.inPort} ${want.inSide} and ${h.outPort} ${want.outSide} are not connected` })
+    if (want.inSide === want.outSide && samePort(h.inPort, h.outPort)) {
+      singlePortSameSide.add(seq)
+      problems.push({ seq, message: `hop ${seq} (${panel}): ${h.inPort} ${want.inSide} cannot take both cables — use two ports` })
+    }
+  })
+  const seen = new Set()
+  for (const b of routeBookings(conn, isPanel)) {
+    const key = `${b.deviceId}|${portKey(b.portId, b.side)}`
+    // (a hop on one port and one side is reported once, above)
+    if (seen.has(key) && !singlePortSameSide.has(b.hopSeq)) problems.push({ seq: b.hopSeq, message: `${nameOf(b.deviceId)} ${b.portId}${b.side ? ` ${b.side}` : ''} is used twice in this route` })
+    seen.add(key)
+  }
+  return problems
+}
+
+// The route as text, cable by cable:
+// "E-1 Gi1/0/1 → PP-02 01 front | PP-02 01 rear → PP-01 01 rear | PP-01 01 front → B-1 Te1/1/1".
+export function routeTrace(conn, isPanel, nameOf = (id) => String(id)) {
+  const sides = routeSides(conn, isPanel)
+  const at = (deviceId, port, side) => [nameOf(deviceId), port ?? '?', side].filter(Boolean).join(' ')
+  const parts = [at(conn.source.deviceId, conn.source.portId, sides.source)]
+  ;(conn.hops ?? []).forEach((h, i) => parts.push(`${at(h.patchPanelId, h.inPort, sides.hops[i].inSide)} | ${at(h.patchPanelId, h.outPort, sides.hops[i].outSide)}`))
+  parts.push(at(conn.dest.deviceId, conn.dest.portId, sides.dest))
+  return parts.join(' → ')
+}
+// One hop with its sides: "PP-02 01 front | rear" (pass-through) or "PP-01 01 front | 02 front".
+export function hopText(hop, sides, panelName) {
+  return samePort(hop.inPort, hop.outPort) ? `${panelName} ${hop.inPort} ${sides.inSide} | ${sides.outSide}` : `${panelName} ${hop.inPort} ${sides.inSide} | ${hop.outPort} ${sides.outSide}`
+}
+
 // --- LLD-only checks (on top of the HLD rules) -----------------------------------
 
 export const LLD_RULES = {
@@ -72,6 +161,10 @@ export function validateLld(design, ctx) {
   const findings = validateHld(design, ctx)
   const deviceById = ctx.deviceById ?? new Map(design.devices.map((d) => [String(d.id), d]))
   const name = (d) => d?.hostname ?? d?.label ?? 'device'
+  const isPanelIn = (id) => {
+    const d = deviceById.get(String(id))
+    return Boolean(d) && (d.isPanel ?? isPatchPanel(ctx.itemOf(d), d))
+  }
   for (const d of design.devices) {
     if (d.origin !== 'planned') continue
     const item = ctx.itemOf(d)
@@ -99,6 +192,10 @@ export function validateLld(design, ctx) {
             : null
       if (bad) findings.push(lldFinding('L-HOP', 'connection', c.id, `${name(a)} → ${name(b)}, hop ${hop.seq}: ${bad}`, `hop-${hop.seq}`))
     }
+    // Sides by cable type, front/rear consistency (once every panel is known).
+    if ((c.hops ?? []).every((h) => deviceById.has(String(h.patchPanelId)))) {
+      hopProblems(c, isPanelIn, (id) => name(deviceById.get(String(id)))).forEach((p, i) => findings.push(lldFinding('L-HOP', 'connection', c.id, `${name(a)} → ${name(b)}, ${p.message}`, `side-${p.seq}-${i}`)))
+    }
   }
   return findings.sort((x, y) => ['critical', 'warning', 'info'].indexOf(x.severity) - ['critical', 'warning', 'info'].indexOf(y.severity) || x.rule.localeCompare(y.rule))
 }
@@ -113,7 +210,7 @@ const flatConn = (c) => ({
   ...c,
   source: `${c.source.deviceId}:${c.source.portId ?? '—'}`,
   dest: `${c.dest.deviceId}:${c.dest.portId ?? '—'}`,
-  hops: (c.hops ?? []).map((h) => `${h.patchPanelId}:${h.inPort}>${h.outPort}${h.segmentCableId ? `[${h.segmentCableId}]` : ''}`).join(' | ') || null,
+  hops: (c.hops ?? []).map((h) => `${h.patchPanelId}:${h.inPort}${h.inSide ? `(${h.inSide})` : ''}>${h.outPort}${h.outSide ? `(${h.outSide})` : ''}${h.segmentCableId ? `[${h.segmentCableId}]` : ''}`).join(' | ') || null,
   engineerSelectedM: c.lengths?.engineerSelectedM ?? null,
 })
 

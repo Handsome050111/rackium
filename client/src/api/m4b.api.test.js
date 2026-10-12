@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { portMapOf, portChoices, isPortFree, toLldContext, fieldChangeText } from './lldApi.js'
+import { portMapOf, portChoices, isPortFree, toLldContext, fieldChangeText, draftSides } from './lldApi.js'
 import { buildCableScheduleSheet } from '../lib/lldExport.js'
 import { parseLengthList, tableFromTexts } from '../lib/stockLengths.js'
 
@@ -86,10 +86,23 @@ describe('Rackium Editor helpers', () => {
   it('a patch panel has a rear and a front per port; a cable end lands on the front', () => {
     expect(portChoices(panel, { media: 'cat6a', side: 'rear' }).suggestion).toBe('02')
     expect(portChoices(panel, { media: 'cat6a', side: 'front' }).suggestion).toBe('01')
-    expect(portChoices(panel, { media: 'cat6a' }).suggestion).toBe('01')
+    // A pass-through hop needs the port free on both sides; the draft's own picks count as taken.
+    expect(portChoices(panel, { media: 'cat6a', sides: ['front', 'rear'] }).suggestion).toBe('02')
+    expect(portChoices(panel, { media: 'cat6a', side: 'front', taken: ['01#front'] }).suggestion).toBe('02')
     expect(isPortFree(panel, '01', 'rear')).toBe(false)
     expect(isPortFree(panel, '01')).toBe(true)
     expect(isPortFree(panel, '01', 'rear', 'c1')).toBe(true)
+  })
+})
+
+describe('editor route sides', () => {
+  it('patch cords on the front, trunks on the rear; the same sides when the route is drawn from the other end', () => {
+    const byId = { e: { isPanel: false }, b: { isPanel: false }, p1: { isPanel: true }, p2: { isPanel: true } }
+    const there = draftSides({ sourceDeviceId: 'e', destDeviceId: 'b', hops: [{ patchPanelId: 'p2' }, { patchPanelId: 'p1' }] }, byId)
+    expect(there.hops).toEqual([{ inSide: 'front', outSide: 'rear' }, { inSide: 'rear', outSide: 'front' }])
+    const back = draftSides({ sourceDeviceId: 'b', destDeviceId: 'e', hops: [{ patchPanelId: 'p1' }, { patchPanelId: 'p2' }] }, byId)
+    expect(back.hops).toEqual([{ inSide: 'front', outSide: 'rear' }, { inSide: 'rear', outSide: 'front' }])
+    expect(draftSides({ sourceDeviceId: 'e', destDeviceId: 'b', hops: [{ patchPanelId: 'p1' }] }, byId).hops).toEqual([{ inSide: 'front', outSide: 'front' }])
   })
 })
 
@@ -124,7 +137,9 @@ describe('LLD view → prototype tab context', () => {
     const ctx = toLldContext(view, { findings: [{ objectType: 'connection', objectId: 'c2', severity: 'critical', rule: 'L-CABLE-ID' }], summary: { critical: 1 } })
     const [c1, c2] = ctx.rows
     expect(c1).toMatchObject({ cableId: '26184735', mediaLabel: 'Cat6A', statusLabel: 'Designed', length: { suggested: 5, engineerSelected: 7, effective: 7, estimated: false } })
-    expect(c1.hops[0].label).toBe('PP-01 01→01')
+    // One panel between two devices: both patch cords on the front (sides by cable type).
+    expect(c1.hops[0].label).toBe('PP-01 01 front | front')
+    expect(c1.trace).toBe('E-1 Gi1/0/1 → PP-01 01 front | PP-01 01 front → A-1 Eth0')
     expect(c1.source.entity).toMatchObject({ rackCode: 'R01', roomCode: 'TR-EG-01', floorName: 'Floor EG' })
     expect(c2).toMatchObject({ statusLabel: 'Cable ID pending', length: { estimated: true, estimateReason: 'No pathway recorded between these rooms' } })
     expect(ctx.checks).toEqual({ portConflicts: 0, duplicateCableIds: 0, missingCableIds: 1 })
@@ -141,7 +156,9 @@ describe('LLD view → prototype tab context', () => {
     const sheet = buildCableScheduleSheet(toLldContext(view).rows)
     expect(sheet[0][0]).toBe('Cable ID')
     expect(sheet[1][0]).toBe('26184735')
-    expect(sheet[1][3]).toBe('PP-01 01→01')
+    expect(sheet[1][3]).toBe('PP-01 01 front | front')
+    expect(sheet[0][4]).toBe('Route')
+    expect(sheet[1][4].startsWith('E-1 Gi1/0/1 → PP-01 01 front')).toBe(true)
   })
 
   it('diff field changes read as before → after', () => {

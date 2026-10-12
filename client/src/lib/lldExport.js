@@ -10,6 +10,8 @@ export const SC_COLUMNS = [
   { heading: 'Source Device', value: (r) => r.source.entity.hostname ?? r.source.entity.label },
   { heading: 'Source Port', value: (r) => r.source.port ?? '' },
   { heading: 'Hops', value: (r) => (r.hops.length === 0 ? 'Direct' : r.hops.map((h) => h.label).join(' > ')) },
+  // The route with panel sides (real mode); the prototype's rows have none.
+  { heading: 'Route', value: (r) => r.trace ?? '' },
   { heading: 'Destination Device', value: (r) => r.dest.entity.hostname ?? r.dest.entity.label },
   { heading: 'Destination Port', value: (r) => r.dest.port ?? '' },
   { heading: 'Media', value: (r) => r.mediaLabel },

@@ -1,7 +1,7 @@
 import { API_MODE } from '../lib/apiMode.js'
 import { apiRequest } from './httpClient.js'
 import { MEDIA_LABEL, endLabel, buildPortGroups } from '@rackium/shared/lldModel.js'
-import { portKey, portOptions, suggestPort } from '@rackium/shared/lldDesign.js'
+import { portKey, portOptions, suggestPort, routeSides, routeTrace, hopText } from '@rackium/shared/lldDesign.js'
 
 const real = API_MODE === 'real'
 const base = (orgId, projectId) => `/orgs/${orgId}/projects/${projectId}/lld`
@@ -52,14 +52,25 @@ export function portMapOf(device) {
 // The occupied port keys of a device in this design (panel keys carry #rear / #front).
 export const occupiedKeysOf = (device, exceptConnectionId = null) => new Set((device?.occupied ?? []).filter((o) => o.connectionId !== exceptConnectionId).map((o) => o.portKey))
 
-// Port choices for one end or hop side, with the system's suggestion (never
-// applied by itself, brief §5.4).
-export function portChoices(device, { media, side = null, exceptConnectionId = null }) {
+// Port choices for one end or one panel side, with the system's suggestion
+// (never applied by itself, brief §5.4). `side`: the panel side the cable
+// type sets (routeSides); `taken`: port keys the draft already uses.
+// `sides` (a pass-through hop): the port must be free on every listed side.
+export function portChoices(device, { media, side = null, sides = null, exceptConnectionId = null, taken = [] }) {
   if (!device) return { options: [], suggestion: null }
-  const options = portOptions(device.ports ?? [], { media, occupiedKeys: occupiedKeysOf(device, exceptConnectionId), side: side ?? (device.isPanel ? 'front' : null) })
+  const occupiedKeys = new Set([...occupiedKeysOf(device, exceptConnectionId), ...taken])
+  const list = sides ?? [side]
+  const perSide = list.map((s) => portOptions(device.ports ?? [], { media, occupiedKeys, side: s }))
+  const options = perSide[0].map((o, i) => ({ ...o, occupied: perSide.some((opts) => opts[i].occupied) }))
   return { options, suggestion: suggestPort(options) }
 }
-export const isPortFree = (device, portId, side = null, exceptConnectionId = null) => !occupiedKeysOf(device, exceptConnectionId).has(portKey(portId, side ?? (device?.isPanel ? 'front' : null)))
+export const isPortFree = (device, portId, side = null, exceptConnectionId = null) => !occupiedKeysOf(device, exceptConnectionId).has(portKey(portId, side))
+
+// The draft route's panel sides, by cable type (patch cord → front, trunk → rear).
+export function draftSides(draft, deviceById) {
+  const isPanel = (id) => Boolean(deviceById[id]?.isPanel)
+  return routeSides({ source: { deviceId: draft.sourceDeviceId ?? '' }, dest: { deviceId: draft.destDeviceId ?? '' }, hops: draft.hops.map((h) => ({ patchPanelId: h.patchPanelId ?? '' })) }, isPanel)
+}
 
 // The server's LLD view as the prototype LLD tabs' context (api/lldDesign.js
 // getLldContext shape), so the real screen reuses Connectivity, Rack
@@ -88,6 +99,8 @@ export function toLldContext(view, validation = null) {
     ...placeOf(d),
   }))
   const entityById = Object.fromEntries(entities.map((e) => [e.id, e]))
+  const isPanelEntity = (id) => entityById[id]?.type === 'patchpanel'
+  const sidesOf = (c) => routeSides(c, isPanelEntity)
 
   const rows = view.connections
     .map((c) => {
@@ -103,7 +116,9 @@ export function toLldContext(view, validation = null) {
         cableId: c.cableId,
         source: { entityId: source.id, entity: source, port: c.source.portId, label: endLabel(source, c.source.portId) },
         dest: { entityId: dest.id, entity: dest, port: c.dest.portId, label: endLabel(dest, c.dest.portId) },
-        hops: c.hops.map((h) => ({ ...h, deviceId: h.patchPanelId, cableId: h.segmentCableId, label: `${entityById[h.patchPanelId]?.label ?? 'Panel'} ${h.inPort}→${h.outPort}` })),
+        hops: c.hops.map((h, i) => ({ ...h, deviceId: h.patchPanelId, cableId: h.segmentCableId, label: hopText(h, sidesOf(c).hops[i], entityById[h.patchPanelId]?.label ?? 'Panel') })),
+        // The whole route, cable by cable, with panel sides.
+        trace: routeTrace(c, isPanelEntity, (id) => entityById[id]?.label ?? '?'),
         horizontalTbd: Boolean(panelEnd),
         patchPanelPort: panelEnd ? `${panelEnd.entity.label} / ${panelEnd.port}` : null,
         media: c.media,

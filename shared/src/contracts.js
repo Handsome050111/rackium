@@ -535,6 +535,9 @@ export const lldHop = z.object({
   inPort: z.string().trim().min(1).max(40),
   outPort: z.string().trim().min(1).max(40),
   segmentCableId: cableIdField.nullable().optional(),
+  // Optional: the server derives each side from the cable type and refuses a wrong one.
+  inSide: z.enum(['front', 'rear']).optional(),
+  outSide: z.enum(['front', 'rear']).optional(),
 })
 const lldConnectionFields = {
   source: lldEnd,

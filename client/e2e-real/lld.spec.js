@@ -117,6 +117,11 @@ test('Rack Elevations: place devices by RU and face; an overlap is refused; add 
   await panel.getByRole('button', { name: 'Add to rack' }).click()
   // Drawn on the elevation (the block's title is its label).
   await expect(architect.getByTitle('PP-R01-01')).toBeVisible()
+  // A second panel in the Border's rack (main room), for a two-panel route.
+  await panel.getByLabel('Rack').nth(1).selectOption(racks[0].id)
+  await panel.getByLabel('RU').nth(1).fill('30')
+  await panel.getByRole('button', { name: 'Add to rack' }).click()
+  await expect(architect.getByTitle('PP-R01-01')).toHaveCount(2)
 })
 
 test('Rackium Editor: ports from the catalogue, suggestions applied by the user, a patch-panel hop, a Cable ID', async () => {
@@ -133,17 +138,20 @@ test('Rackium Editor: ports from the catalogue, suggestions applied by the user,
   await editor.getByRole('button', { name: 'Add hop' }).click()
   await editor.getByLabel('Hop 1 panel').selectOption({ index: 1 })
   const hops = editor.getByTestId('hops')
+  // One panel between two devices: both patch cords land on its front, so
+  // two front ports; the out suggestion skips the port just taken.
   await hops.getByRole('button', { name: 'Suggested: 01 — use' }).first().click()
-  await expect(hops.getByLabel('Hop 1 in (rear)')).toHaveValue('01')
-  await hops.getByRole('button', { name: 'Suggested: 01 — use' }).click()
-  await expect(hops.getByLabel('Hop 1 out (front)')).toHaveValue('01')
+  await expect(hops.getByLabel('Hop 1 in (front)')).toHaveValue('01')
+  await hops.getByRole('button', { name: 'Suggested: 02 — use' }).click()
+  await expect(hops.getByLabel('Hop 1 out (front)')).toHaveValue('02')
+  await expect(editor.getByTestId('route-trace')).toContainText('PP-R01-01 01 front | PP-R01-01 02 front')
   await editor.getByLabel('Hop 1 segment Cable ID').fill('SEG-EA-1')
   await editor.getByRole('button', { name: view.cableIdSuggestion }).click()
   await expect(editor.getByLabel('Cable ID', { exact: true })).toHaveValue(view.cableIdSuggestion)
   await editor.getByRole('button', { name: 'Save connection' }).click()
   await expect(editor.getByText('Saved')).toBeVisible()
   const after = linkOf(await lld(), 'edge', 'ap')
-  expect(after).toMatchObject({ cableId: view.cableIdSuggestion, hops: [{ inPort: '01', outPort: '01', segmentCableId: 'SEG-EA-1' }] })
+  expect(after).toMatchObject({ cableId: view.cableIdSuggestion, hops: [{ inPort: '01', inSide: 'front', outPort: '02', outSide: 'front', segmentCableId: 'SEG-EA-1' }] })
   expect(after.source.portId && after.dest.portId).toBeTruthy()
   // The same Edge port is now shown as occupied for another connection.
   const be = linkOf(view, 'border', 'edge')
@@ -151,6 +159,55 @@ test('Rackium Editor: ports from the catalogue, suggestions applied by the user,
   const edgeEnd = be.source.deviceId === byRole(view, 'edge').id ? 'end-source' : 'end-destination'
   const edgePort = after.source.deviceId === byRole(view, 'edge').id ? after.source.portId : after.dest.portId
   await expect(architect.getByTestId(edgeEnd).getByRole('button', { name: edgePort.split('/').pop(), exact: true }).first()).toBeDisabled()
+})
+
+test('Rackium Editor: a two-panel route — patch cords on the fronts, the trunk on the rears; shown in the trace and the schedule', async () => {
+  const view = await lld()
+  await architect.goto(`${lldUrl()}/editor?rack=${racks[1].id}`)
+  const editor = architect.getByTestId('rackium-editor')
+  await expect(editor).toContainText('New connection')
+  await editor.getByLabel('Source device').selectOption(byRole(view, 'edge').id)
+  await editor.getByLabel('Destination device').selectOption(byRole(view, 'border').id)
+  await editor.getByTestId('end-source').getByRole('button', { name: /Suggested:/ }).click()
+  await editor.getByTestId('end-destination').getByRole('button', { name: '9', exact: true }).click()
+  const hops = editor.getByTestId('hops')
+  await editor.getByRole('button', { name: 'Add hop' }).click()
+  await editor.getByLabel('Hop 1 panel').selectOption({ index: 1 }) // the Edge's rack
+  // Rack codes repeat per room, so each panel option also names its room (regression: two identical 'PP-R01-01 (R01)').
+  const options = (await editor.getByLabel('Hop 1 panel').locator('option').allTextContents()).slice(1)
+  expect(options).toHaveLength(2)
+  expect(new Set(options).size).toBe(2)
+  await editor.getByRole('button', { name: 'Add hop' }).click()
+  await editor.getByLabel('Hop 2 panel').selectOption({ index: 2 }) // the Border's rack
+  // Each panel passes through one port: front (patch cord) and rear (trunk).
+  await hops.getByRole('button', { name: /Suggested: 03 — use/ }).click()
+  await expect(hops.getByLabel('Hop 1 port (front | rear)')).toHaveValue('03')
+  await hops.getByRole('button', { name: /Suggested: 01 — use/ }).click()
+  await expect(hops.getByLabel('Hop 2 port (rear | front)')).toHaveValue('01')
+  await expect(editor.getByTestId('route-trace')).toContainText('PP-R01-01 03 front | PP-R01-01 03 rear → PP-R01-01 01 rear | PP-R01-01 01 front')
+  if (process.env.LLD_SHOTS) {
+    for (const [width, height] of [[1440, 900], [390, 844]]) {
+      await architect.setViewportSize({ width, height })
+      await editor.getByTestId('hops').screenshot({ path: `${process.env.LLD_SHOTS}/hops-two-panel-${width}.png` })
+    }
+    await architect.setViewportSize({ width: 1440, height: 900 })
+  }
+  await editor.getByRole('button', { name: 'Create connection' }).click()
+  await expect(editor.getByText('Saved')).toBeVisible()
+  const route = (await lld()).connections.find((c) => c.hops.length === 2)
+  expect(route.hops.map((h) => [h.inPort, h.inSide, h.outPort, h.outSide])).toEqual([
+    ['03', 'front', '03', 'rear'],
+    ['01', 'rear', '01', 'front'],
+  ])
+  // The Cable Schedule shows the sides.
+  await architect.goto(lldUrl())
+  await architect.getByRole('tab', { name: 'Cable Schedule' }).click()
+  await expect(architect.getByText('PP-R01-01 03 front | rear → PP-R01-01 01 rear | front')).toBeVisible()
+  // Removed again so the rest of the flow submits a clean LLD.
+  await architect.goto(`${lldUrl()}/editor?rack=${racks[1].id}&connection=${route.id}`)
+  architect.once('dialog', (d) => d.accept())
+  await architect.getByTestId('rackium-editor').getByRole('button', { name: 'Delete' }).click()
+  await expect.poll(async () => (await lld()).connections.some((c) => c.id === route.id)).toBe(false)
 })
 
 test('Cable Schedule: Cable ID first; Engineer Selected length; Estimated flag; both schedules export to Excel', async () => {
