@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { GitPullRequest, Plus, PenLine } from 'lucide-react'
+import { GitPullRequest, Plus, PenLine, AlertTriangle } from 'lucide-react'
 import ShareLinkPanel from '../ShareLinkPanel.jsx'
 import DesignDiff from '../../lld/real/DesignDiff.jsx'
 import { deliveryApi } from '../../../api/deliveryApi.js'
@@ -14,9 +14,10 @@ const DIFF_COLUMNS = [
 ]
 
 // Change requests (brief §5.5; M5a): after the design is approved, any change
-// is drafted on its own LLD branch, submitted by the Architect with its design
-// diff and BOM impact, and sent by the PM to the client through the same
-// share-link flow. Approval applies it to the frozen LLD. History stays here.
+// is drafted on its own branch — the HLD and the LLD together (M5a review) —
+// submitted by the Architect with its design diff and BOM impact, and sent by
+// the PM to the client through the same share-link flow. Approval applies both
+// to the frozen design. History stays here.
 export default function ChangeRequestsPanel({ orgId, projectId, buildingId, packageApproved, canDraft, canSend, onError, onChanged }) {
   const [list, setList] = useState([])
   const [selectedId, setSelectedId] = useState(null)
@@ -51,6 +52,7 @@ export default function ChangeRequestsPanel({ orgId, projectId, buildingId, pack
 
   const editable = canDraft && detail && ['draft', 'changes_requested'].includes(detail.status)
   const lldPath = (branchId) => `/orgs/${orgId}/projects/${projectId}/buildings/${buildingId}/lld?branch=${branchId}`
+  const hldPath = (branchId) => `/orgs/${orgId}/projects/${projectId}/buildings/${buildingId}/hld?branch=${branchId}`
 
   return (
     <div className="space-y-3 rounded-xl border border-border bg-surface p-4" data-testid="change-requests">
@@ -114,17 +116,41 @@ export default function ChangeRequestsPanel({ orgId, projectId, buildingId, pack
               CR-{detail.number} · {STATUS_LABEL[detail.status]}
             </div>
             {editable && (
-              <Link to={lldPath(detail.branchId)} className="flex items-center gap-1 font-medium text-brand hover:underline">
-                <PenLine size={12} strokeWidth={2} />
-                Edit the design on its branch
-              </Link>
+              <div className="flex flex-wrap items-center gap-3">
+                <Link to={hldPath(detail.branchId)} className="flex items-center gap-1 font-medium text-brand hover:underline">
+                  <PenLine size={12} strokeWidth={2} />
+                  Edit the HLD on its branch
+                </Link>
+                <Link to={lldPath(detail.branchId)} className="flex items-center gap-1 font-medium text-brand hover:underline">
+                  <PenLine size={12} strokeWidth={2} />
+                  Edit the LLD on its branch
+                </Link>
+              </div>
             )}
           </div>
           <CrFields key={`${detail.id}-${detail.status}`} detail={detail} editable={editable} onSave={(patch) => run(() => deliveryApi.updateChangeRequest(orgId, projectId, detail.id, patch))} />
+          {detail.consistency && !detail.consistency.consistent && (
+            <div role="alert" className="space-y-1 rounded-lg border border-status-amber/40 bg-status-amber/5 p-2 text-status-amber" data-testid="cr-inconsistent">
+              <div className="flex items-center gap-1.5 font-semibold">
+                <AlertTriangle size={13} strokeWidth={2} />
+                The HLD and LLD of this change are out of step — reconcile the LLD on the branch before submitting
+              </div>
+              <ul className="list-inside list-disc text-text-secondary">
+                {detail.consistency.problems.map((x) => (
+                  <li key={`${x.kind}-${x.state}-${x.id}`}>
+                    {x.label}: {x.state === 'inHldOnly' ? 'in the HLD, not mapped in the LLD' : x.state === 'inLldOnly' ? 'in the LLD, no longer in the HLD' : 'differs between HLD and LLD'}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           {detail.impact && (
             <>
               <div className="font-semibold text-text">Design changes ({detail.impact.design.total})</div>
-              <DesignDiff columns={DIFF_COLUMNS} sections={[{ title: 'Devices', data: detail.impact.design.devices }, { title: 'Connections', data: detail.impact.design.connections }]} empty="No design change yet — edit the design on its branch." />
+              {detail.impact.design.hld && (
+                <DesignDiff columns={DIFF_COLUMNS} sections={[{ title: 'HLD devices', data: detail.impact.design.hld.devices }, { title: 'HLD uplinks', data: detail.impact.design.hld.connections }]} empty="No HLD change." />
+              )}
+              <DesignDiff columns={DIFF_COLUMNS} sections={[{ title: detail.impact.design.hld ? 'LLD devices' : 'Devices', data: detail.impact.design.devices }, { title: detail.impact.design.hld ? 'LLD connections' : 'Connections', data: detail.impact.design.connections }]} empty="No LLD change yet — edit the design on its branch." />
               <div className="font-semibold text-text">BOM impact ({detail.impact.bom.total})</div>
               {detail.impact.bom.lines.length === 0 ? (
                 <p className="text-text-secondary">No BOM change.</p>

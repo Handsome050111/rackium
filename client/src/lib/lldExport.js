@@ -23,7 +23,29 @@ export const SC_COLUMNS = [
   { heading: 'Status', value: (r) => r.statusLabel },
 ]
 
+// Real mode (M5a review): every cable of a route is its own physical cable,
+// so the schedule lists one line per cable, with the connection it belongs to.
+export const CABLE_COLUMNS = [
+  { heading: 'Cable ID', value: (r, s) => s.cableId ?? '' },
+  { heading: 'Connection', value: (r) => r.cableId ?? '' },
+  { heading: 'Cable', value: (r, s) => `${s.index + 1} of ${r.segments.length}` },
+  { heading: 'From', value: (r, s) => s.from },
+  { heading: 'To', value: (r, s) => s.to },
+  { heading: 'Type', value: (r, s) => s.kindLabel },
+  { heading: 'Media', value: (r) => r.mediaLabel },
+  { heading: 'Speed', value: (r) => r.speed },
+  { heading: 'Suggested Length (m)', value: (r, s) => metres(s.length.suggested) },
+  { heading: 'Engineer Selected Length (m)', value: (r, s) => metres(s.length.effective) },
+  { heading: 'Installed Length (m)', value: (r, s) => (s.length.installed == null ? DEPLOYMENT_PLACEHOLDER : s.length.installed) },
+  { heading: 'Pathway', value: (r, s) => (s.length.estimated ? 'Estimated' : 'Surveyed / local') },
+  { heading: 'Route', value: (r) => r.trace ?? '' },
+  { heading: 'Status', value: (r, s) => (s.cableId ? r.statusLabel : 'Cable ID pending') },
+]
+
 export function buildCableScheduleSheet(rows) {
+  if (rows.some((r) => r.segments?.length)) {
+    return [CABLE_COLUMNS.map((c) => c.heading), ...rows.flatMap((r) => r.segments.map((s) => CABLE_COLUMNS.map((c) => c.value(r, s))))]
+  }
   return [SC_COLUMNS.map((c) => c.heading), ...rows.map((r) => SC_COLUMNS.map((c) => c.value(r)))]
 }
 

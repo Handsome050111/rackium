@@ -1,6 +1,6 @@
 import mongoose from 'mongoose'
 import crypto from 'node:crypto'
-import { buildBom } from '@rackium/shared/bomCalc.js'
+import { cageNutsOf, buildBom } from '@rackium/shared/bomCalc.js'
 import { RESOURCE_TASKS, buildResourceEstimate } from '@rackium/shared/billOfResources.js'
 import { ProjectSettings } from '../models/projectSettings.js'
 import { Organisation } from '../models/organisation.js'
@@ -33,8 +33,8 @@ export async function projectSettings(session = null) {
 }
 
 export async function organisationCommercial(session = null) {
-  const org = await Organisation.findById(currentScope().organisationId, { defaultCurrency: 1, 'settings.cordLengthDefaultM': 1, 'settings.architectsSeePrices': 1 }).session(session).lean()
-  return { currency: org?.defaultCurrency ?? 'EUR', cordLengthM: org?.settings?.cordLengthDefaultM ?? 2, architectsSeePrices: Boolean(org?.settings?.architectsSeePrices) }
+  const org = await Organisation.findById(currentScope().organisationId, { defaultCurrency: 1, 'settings.cordLengthDefaultM': 1, 'settings.architectsSeePrices': 1, 'settings.cageNutsPerRu': 1 }).session(session).lean()
+  return { currency: org?.defaultCurrency ?? 'EUR', cordLengthM: org?.settings?.cordLengthDefaultM ?? 2, architectsSeePrices: Boolean(org?.settings?.architectsSeePrices), cageNutsPerRu: cageNutsOf(org) }
 }
 
 export async function countryCodeOf(building, session = null) {
@@ -54,7 +54,7 @@ export async function computeBom(lld, req, building, { branchId = null, session 
       stage: design.stage,
       racks: design.racks,
       catalogue,
-      stockLengths: design.settings.stockLengths,
+      cageNutsPerRu: org.cageNutsPerRu,
       power: { customerStandard: settings.powerCordStandard, countryCode, cordLengthM: org.cordLengthM },
       currency: org.currency,
     }

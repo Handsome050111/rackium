@@ -458,3 +458,35 @@ Found and fixed while building and testing M5a, each with a test:
   has gone). `npm run clean:test-db` does the same by hand. Tests:
   `server/test/testDbCleanup.test.js`,
   `client/playwright-support/globalTeardown.test.mjs`.
+
+### M5a review round: HLD in change requests, cables per segment, cage nuts
+
+Found and fixed, each with a test:
+
+- **The survey's rack statistics counted planned design devices** (since
+  M4a): the Comms Rooms Summary's used/free RU counted every device in the
+  rack — the HLD's, the LLD's and every branch's copies — so placing a device
+  in the LLD (or opening a change request, which copies the HLD) changed the
+  surveyed "used RU". It now counts the surveyed gear only. Test:
+  `api.m5a-review.test.js` (rack statistics).
+- **A connection end without a port was labelled "… null"** (since M4b) in
+  the cable schedule, e.g. right after the LLD starts or for a link a change
+  request adds. It now shows the device alone. Test: `shared/lldModel.test.js`
+  (endLabel).
+- **An LLD-only change request wrote a new frozen HLD version** (found while
+  building): approval now promotes the branch's HLD only when the change
+  touched it. Test: `api.m5a.test.js` (the cable CR keeps the HLD versions).
+- **Promoting a change request's HLD failed on its own new records** (found
+  while building): a device new on the branch comes back under its own id,
+  which the branch copy still held (duplicate key). Branch records are now
+  removed before the main ones are re-created. Test: `api.m5a-review.test.js`
+  (a CR adds a device in the HLD).
+- **The design diff ignored PSU counts**: an HLD change of a device's
+  configured PSUs did not count as a change. Test:
+  `shared/m5a.test.js` (the design diff lists a PSU count change).
+- **The e2e server's database could still be left behind** (found in this
+  round's full run): the Playwright teardown returned once the server's port
+  closed, while the process was still removing its database; Playwright then
+  force-killed it half-way. The teardown now waits for the process itself to
+  exit (the shutdown reply carries its pid). Test:
+  `client/playwright-support/globalTeardown.test.mjs` (waits for the process).

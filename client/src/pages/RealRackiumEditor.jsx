@@ -14,6 +14,8 @@ const SPEEDS = ['1G', '2.5G', '10G', '25G', '40G', '100G']
 const inputClass = 'h-9 w-full min-w-0 rounded-lg border border-border bg-surface px-2 text-xs text-text focus:border-brand focus:outline-none disabled:bg-surface-muted disabled:text-text-secondary'
 const EMPTY = { sourceDeviceId: '', sourcePort: null, destDeviceId: '', destPort: null, media: 'cat6a', speed: '1G', sourceSfpCode: null, destSfpCode: null, hops: [], cableId: '', engineerSelectedM: '' }
 
+const metresOrNull = (v) => (v === '' || v == null ? null : Number(v))
+
 function toDraft(c) {
   return {
     sourceDeviceId: c.source.deviceId,
@@ -24,7 +26,8 @@ function toDraft(c) {
     speed: c.speed,
     sourceSfpCode: c.sourceSfpCode,
     destSfpCode: c.destSfpCode,
-    hops: c.hops.map((h) => ({ patchPanelId: h.patchPanelId, inPort: h.inPort, outPort: h.outPort, segmentCableId: h.segmentCableId ?? '' })),
+    // Each hop carries the cable after its panel: its Cable ID and Engineer Selected length.
+    hops: c.hops.map((h) => ({ patchPanelId: h.patchPanelId, inPort: h.inPort, outPort: h.outPort, segmentCableId: h.segmentCableId ?? '', engineerSelectedM: h.lengths?.engineerSelectedM ?? '' })),
     cableId: c.cableId ?? '',
     engineerSelectedM: c.lengths.engineerSelectedM ?? '',
   }
@@ -43,9 +46,9 @@ function toBody(d, sides) {
     hops: d.hops
       .map((h, i) => (passThrough(i) ? { ...h, outPort: h.inPort } : h))
       .filter((h) => h.patchPanelId && h.inPort && h.outPort)
-      .map((h) => ({ patchPanelId: h.patchPanelId, inPort: h.inPort, outPort: h.outPort, segmentCableId: h.segmentCableId?.trim() || null })),
+      .map((h) => ({ patchPanelId: h.patchPanelId, inPort: h.inPort, outPort: h.outPort, segmentCableId: h.segmentCableId?.trim() || null, engineerSelectedM: metresOrNull(h.engineerSelectedM) })),
     cableId: d.cableId.trim() || null,
-    engineerSelectedM: d.engineerSelectedM === '' ? null : Number(d.engineerSelectedM),
+    engineerSelectedM: metresOrNull(d.engineerSelectedM),
   }
 }
 
@@ -266,7 +269,7 @@ export default function RealRackiumEditor() {
             </label>
             <label className="flex flex-col gap-1 text-xs">
               <span className="text-text-secondary">
-                Engineer Selected (m){connection?.lengths.suggestedM != null ? ` · suggested ${connection.lengths.suggestedM}` : ''}
+                {draft.hops.length ? 'Cable 1 · ' : ''}Engineer Selected (m){connection?.lengths.suggestedM != null ? ` · suggested ${connection.lengths.suggestedM}` : ''}
                 {connection?.length.lengthEstimated ? ' · Estimated' : ''}
               </span>
               <input aria-label="Engineer Selected length" type="number" min="0" value={draft.engineerSelectedM} disabled={!editable} onChange={(e) => patch({ engineerSelectedM: e.target.value })} className={inputClass} />
@@ -305,7 +308,7 @@ export default function RealRackiumEditor() {
             />
           </div>
 
-          <HopsEditor hops={draft.hops} sides={sides.hops} takenFor={takenFor} panels={panels} deviceById={deviceById} media={draft.media} connectionId={connection?.id ?? null} editable={editable} onChange={(hops) => patch({ hops })} />
+          <HopsEditor hops={draft.hops} sides={sides.hops} segments={connection?.segments ?? []} takenFor={takenFor} panels={panels} deviceById={deviceById} media={draft.media} connectionId={connection?.id ?? null} editable={editable} onChange={(hops) => patch({ hops })} />
           {trace && (
             <p className="break-words rounded-lg bg-surface-muted px-3 py-2 text-xs text-text" data-testid="route-trace">
               <span className="font-semibold">Route: </span>
@@ -418,15 +421,16 @@ function draftPortKeys(draft, sides) {
 // Hops: each panel's side is set by the cable on it — from a device (patch
 // cord) the front, from another panel (trunk) the rear. A hop turning front
 // ↔ rear passes through ONE port; a hop between two devices takes two front
-// ports.
-function HopsEditor({ hops, sides, takenFor, panels, deviceById, media, connectionId, editable, onChange }) {
+// ports. Each hop also carries the cable after its panel — its own Cable ID
+// and Engineer Selected length (the Suggested one comes from `segments`).
+function HopsEditor({ hops, sides, segments, takenFor, panels, deviceById, media, connectionId, editable, onChange }) {
   const set = (i, p) => onChange(hops.map((h, j) => (j === i ? { ...h, ...p } : h)))
   return (
     <div className="space-y-2 rounded-xl border border-border bg-surface p-3" data-testid="hops">
       <div className="flex items-center justify-between text-xs font-semibold text-text">
         Patch-panel hops ({hops.length})
         {editable && (
-          <button type="button" disabled={panels.length === 0 || hops.length >= 8} onClick={() => onChange([...hops, { patchPanelId: '', inPort: '', outPort: '', segmentCableId: '' }])} className="flex h-8 items-center gap-1 rounded-lg border border-border px-2 font-medium text-brand hover:border-brand disabled:text-text-secondary">
+          <button type="button" disabled={panels.length === 0 || hops.length >= 8} onClick={() => onChange([...hops, { patchPanelId: '', inPort: '', outPort: '', segmentCableId: '', engineerSelectedM: '' }])} className="flex h-8 items-center gap-1 rounded-lg border border-border px-2 font-medium text-brand hover:border-brand disabled:text-text-secondary">
             <Plus size={12} strokeWidth={2} />
             Add hop
           </button>
@@ -442,7 +446,7 @@ function HopsEditor({ hops, sides, takenFor, panels, deviceById, media, connecti
         const inChoices = portChoices(panel, { media, side: s.inSide, exceptConnectionId: connectionId, taken: takenFor(hop.patchPanelId, `hop-${i}-in`) })
         const outChoices = portChoices(panel, { media, side: s.outSide, exceptConnectionId: connectionId, taken: takenFor(hop.patchPanelId, `hop-${i}-out`) })
         return (
-          <div key={i} className="grid grid-cols-1 items-end gap-2 rounded-lg border border-border/60 p-2 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
+          <div key={i} className="grid grid-cols-1 items-end gap-2 rounded-lg border border-border/60 p-2 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
             <label className="flex min-w-0 flex-col gap-1 text-xs">
               <span className="text-text-secondary">Hop {i + 1} panel</span>
               <select aria-label={`Hop ${i + 1} panel`} value={hop.patchPanelId} disabled={!editable} onChange={(e) => set(i, { patchPanelId: e.target.value, inPort: '', outPort: '' })} className={inputClass}>
@@ -466,8 +470,14 @@ function HopsEditor({ hops, sides, takenFor, panels, deviceById, media, connecti
               </>
             )}
             <label className="flex min-w-0 flex-col gap-1 text-xs">
-              <span className="text-text-secondary">Segment Cable ID</span>
+              <span className="text-text-secondary">Cable {i + 2} ID</span>
               <input aria-label={`Hop ${i + 1} segment Cable ID`} value={hop.segmentCableId ?? ''} maxLength={32} disabled={!editable} onChange={(e) => set(i, { segmentCableId: e.target.value })} className={inputClass} />
+            </label>
+            <label className="flex min-w-0 flex-col gap-1 text-xs">
+              <span className="truncate text-text-secondary" title={segments[i + 1]?.estimateReason ?? undefined}>
+                Cable {i + 2} (m){segments[i + 1]?.suggestedM != null ? ` · suggested ${segments[i + 1].suggestedM}` : ''}
+              </span>
+              <input aria-label={`Hop ${i + 1} cable Engineer Selected length`} type="number" min="0" step="0.1" value={hop.engineerSelectedM ?? ''} disabled={!editable} onChange={(e) => set(i, { engineerSelectedM: e.target.value })} className={inputClass} />
             </label>
             {editable && (
               <button type="button" aria-label={`Remove hop ${i + 1}`} onClick={() => onChange(hops.filter((_, j) => j !== i))} className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-status-red hover:border-status-red">

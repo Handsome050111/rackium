@@ -20,6 +20,12 @@ const organisationSchema = new mongoose.Schema({
     namingRoleCodes: { type: Map, of: String, default: {} },
     // Cable stock lengths (shared/cableLength.js DEFAULT_STOCK_LENGTHS shape); null = the default table (M4b).
     stockLengths: { type: mongoose.Schema.Types.Mixed, default: null },
+    // Cage nuts per RU on each face a device is fixed to (BOM; M5a review).
+    // A device is fixed on its mounting face; a full-depth one on both.
+    cageNutsPerRu: {
+      front: { type: Number, default: 4, min: 0, max: 20 },
+      rear: { type: Number, default: 4, min: 0, max: 20 },
+    },
   },
   createdAt: { type: Date, default: () => new Date() },
   deletedAt: { type: Date, default: null },

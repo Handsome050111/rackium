@@ -394,8 +394,8 @@ export function buildRegistry() {
   const H = '/api/v1/orgs/{orgId}/projects/{projectId}/hld'
   const stale = { 409: err('Stale revision, or the HLD is submitted and locked') }
   route('get', `${H}/library`, 'HLD library: roles with hostname codes and catalogue models, optics, blueprint presets')
-  route('get', `${H}/buildings/{buildingId}`, 'The HLD of a building: survey rooms and racks, devices, uplinks with lengths, positions, revision, approvals, survey-change flags', { params: p({ buildingId: 1 }) })
-  route('get', `${H}/buildings/{buildingId}/validation`, 'Run the validation engine (VAL-001…013 and the listed checks): findings by severity', { params: p({ buildingId: 1 }) })
+  route('get', `${H}/buildings/{buildingId}`, 'The HLD of a building (or a change request’s branch of it): survey rooms and racks, devices, uplinks with lengths, positions, revision, approvals, survey-change flags', { params: p({ buildingId: 1 }), query: C.hldViewQuery })
+  route('get', `${H}/buildings/{buildingId}/validation`, 'Run the validation engine (VAL-001…013 and the listed checks): findings by severity (main HLD or a change request’s branch)', { params: p({ buildingId: 1 }), query: C.hldViewQuery })
   route('post', `${H}/generate`, 'Generate HLD from the verified survey and a blueprint preset (Architect); adds only what is missing', { body: C.hldGenerateBody, status: 201, errors: stale })
   route('post', `${H}/devices`, 'Add a planned device from the library (Architect); hostname from the organisation naming codes', { body: C.hldDeviceCreateBody, status: 201, errors: stale })
   route('patch', `${H}/devices/{id}`, 'Change a planned device’s model or configured PSUs (Architect)', { params: p({ id: 1 }), body: C.hldDeviceUpdateBody, errors: stale })
@@ -414,7 +414,7 @@ export function buildRegistry() {
   const taken = { 409: err('Port or cable ID in use, or stale revision') }
   route('get', `${L}/buildings/{buildingId}`, 'The LLD of a building (or one of its branches): racks with RU states, devices with ports and occupancy, connections with lengths, versions, branches, approvals, HLD baseline', { params: p({ buildingId: 1 }), query: C.lldViewQuery })
   route('get', `${L}/buildings/{buildingId}/validation`, 'HLD rules plus the LLD checks (ports, cable IDs, RU placement, hops)', { params: p({ buildingId: 1 }), query: C.lldViewQuery })
-  route('get', `${L}/buildings/{buildingId}/reconciliation`, 'Side-by-side HLD vs LLD: devices and uplinks only in the HLD, only in the LLD, or changed', { params: p({ buildingId: 1 }) })
+  route('get', `${L}/buildings/{buildingId}/reconciliation`, 'Side-by-side HLD vs LLD: devices and uplinks only in the HLD, only in the LLD, or changed (on a change request’s branch: its own HLD against its LLD)', { params: p({ buildingId: 1 }), query: C.lldViewQuery })
   route('post', `${L}/start`, 'Start the LLD from the latest approved HLD (Architect): a working copy of its devices and uplinks', { body: C.lldStartBody, status: 201, errors: { 409: err('HLD not approved, or LLD already started') } })
   route('post', `${L}/rebase`, 'Mark the LLD reviewed against the latest approved HLD (Architect)', { body: C.lldRebaseBody, errors: lstale })
   route('post', `${L}/copy-from-hld`, 'Copy chosen HLD devices and uplinks into the LLD (Architect); no automatic re-sync', { body: C.lldCopyBody, errors: lstale })

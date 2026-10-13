@@ -14,9 +14,11 @@ const EDITABLE = ['draft', 'changes_requested']
 
 // Change requests (brief v2.3 §5.5; DATA-MODEL §5.9; M5a). Once the LLD has an
 // approved version (and after the Solution Package approval freezes the
-// design) a change is drafted on its own LLD branch, submitted by the
-// Architect with its design diff and BOM impact, and decided by the client
-// through the same share-link flow. History stays against the package.
+// design) a change is drafted on its own branch — which carries the HLD and
+// the LLD together (M5a review) — submitted by the Architect with its design
+// diff and BOM impact, and decided by the client through the same share-link
+// flow. Approval applies both as new frozen versions. History stays against
+// the package.
 export function createChangeRequestService({ lld }) {
   const audit = (req, building, actor, action, extra) =>
     recordAudit({ organisationId: req.org.id, projectId: req.project.id, buildingId: building.id, phaseKey: 'solution-package', actor: userActor(actor.userId, actor.role), action, changeType: 'design_intent', source: 'ui', ...extra })
@@ -28,7 +30,7 @@ export function createChangeRequestService({ lld }) {
     return { cr, building }
   }
 
-  // What the change does: the design diff (main LLD → branch) and the BOM impact.
+  // What the change does: the design diff (main → branch, HLD and LLD) and the BOM impact.
   async function impactOf(req, building, cr) {
     const [design, before, after] = await Promise.all([lld.diffBranch(req, building.id, String(cr.branchId)), computeBom(lld, req, building), computeBom(lld, req, building, { branchId: String(cr.branchId) })])
     const bom = bomImpact(before.bom, after.bom)
@@ -51,6 +53,7 @@ export function createChangeRequestService({ lld }) {
       submittedAt: cr.submittedAt,
       decidedAt: cr.decidedAt,
       resultingVersionId: id(cr.resultingVersionId),
+      resultingHldVersionId: id(cr.resultingHldVersionId),
       ...extra,
     }
   }
@@ -67,12 +70,15 @@ export function createChangeRequestService({ lld }) {
       const { cr, building } = await load(req, crId)
       const names = await namesOf([cr.createdBy, cr.submittedBy])
       // Live while it is being drafted; what was submitted afterwards.
-      const impact = EDITABLE.includes(cr.status) ? await impactOf(req, building, cr) : cr.impact
+      const drafting = EDITABLE.includes(cr.status)
+      const impact = drafting ? await impactOf(req, building, cr) : cr.impact
+      const consistency = drafting ? await lld.consistency(req, building.id, String(cr.branchId)) : null
       const approvals = await Approval.find({ changeRequestId: cr._id }).sort({ submittedAt: -1 }).lean()
       const links = (await linksOf(building.id, { changeRequestId: cr._id })) ?? []
       return {
         changeRequest: view(cr, names, {
           impact,
+          consistency,
           shareLinks: links,
           approvals: approvals.map((a) => ({ id: String(a._id), status: a.status, submittedAt: a.submittedAt, client: a.client ? { name: a.client.name, role: a.client.role } : null, decision: a.decision ? { value: a.decision.value, decidedAt: a.decision.decidedAt, comments: a.decision.comments } : null })),
         }),
@@ -110,7 +116,14 @@ export function createChangeRequestService({ lld }) {
       if (!EDITABLE.includes(cr.status)) throw conflict('change_request_locked', `CR-${cr.number} is already ${cr.status.replace('_', ' ')}`)
       const impact = await impactOf(req, building, cr)
       if (impact.design.total === 0) throw conflict('no_change', 'The change request does not change the design yet — edit its branch first')
-      const named = [...impact.design.devices.added, ...impact.design.devices.removed, ...impact.design.devices.changed, ...impact.design.connections.added, ...impact.design.connections.removed, ...impact.design.connections.changed].map((x) => x.label).filter(Boolean)
+      // The HLD and LLD must agree (the LLD reconciliation, on the branch).
+      const { consistent, problems } = await lld.consistency(req, building.id, String(cr.branchId))
+      if (!consistent) {
+        const text = problems.slice(0, 5).map((x) => `${x.label} (${x.state === 'inHldOnly' ? 'in the HLD, not mapped in the LLD' : x.state === 'inLldOnly' ? 'in the LLD, no longer in the HLD' : 'differs between HLD and LLD'})`)
+        throw new AppError(409, 'hld_lld_inconsistent', `The change leaves the HLD and LLD out of step: ${text.join('; ')}${problems.length > 5 ? ` and ${problems.length - 5} more` : ''} — reconcile the LLD on the branch first`, { problems })
+      }
+      const parts = [impact.design, impact.design.hld].filter(Boolean)
+      const named = parts.flatMap((d) => [...d.devices.added, ...d.devices.removed, ...d.devices.changed, ...d.connections.added, ...d.connections.removed, ...d.connections.changed]).map((x) => x.label).filter(Boolean)
       const affectedItems = cr.affectedItems.length ? cr.affectedItems : [...new Set(named)].slice(0, 200)
       const updated = await ChangeRequest.findOneAndUpdate({ _id: cr._id, status: { $in: EDITABLE } }, { $set: { status: 'submitted', impact, affectedItems, submittedBy: actor.userId, submittedAt: new Date() } }, { returnDocument: 'after' }).lean()
       if (!updated) throw conflict('change_request_locked', 'The change request was submitted meanwhile — reload')

@@ -14,6 +14,8 @@ const designBranchSchema = new mongoose.Schema({
   parentVersionId: { type: ObjectId, default: null },
   // The change request this branch carries (M5a); null = an ordinary branch.
   changeRequestId: { type: ObjectId, default: null },
+  // A change request's branch also carries the HLD, in layer 'hld:<id>' (M5a review).
+  includesHld: { type: Boolean, default: false },
   status: { type: String, enum: ['open', 'promoted', 'discarded'], default: 'open' },
   revision: { type: Number, default: 0 },
   lastEditedAt: { type: Date, default: null },

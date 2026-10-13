@@ -9,13 +9,12 @@ const COLUMNS = [
 // Side-by-side HLD vs LLD reconciliation (brief §5.4): what the newer HLD
 // has that the LLD does not, and the reverse — devices and uplinks. Nothing
 // re-syncs by itself; each HLD-only item can be copied in explicitly.
-export default function LldReconciliation({ reconciliation, editable, onCopy }) {
+// `caption` replaces the version line (a change request's branch compares its own HLD).
+export default function LldReconciliation({ reconciliation, editable, onCopy, caption = null }) {
   if (!reconciliation) return <p className="text-xs text-text-secondary">Loading the comparison…</p>
   return (
     <div className="space-y-2" data-testid="lld-reconciliation">
-      <p className="text-xs text-text-secondary">
-        HLD v{reconciliation.hldNumber} compared with this LLD (based on HLD v{reconciliation.basedOnNumber}).
-      </p>
+      <p className="text-xs text-text-secondary">{caption ?? `HLD v${reconciliation.hldNumber} compared with this LLD (based on HLD v${reconciliation.basedOnNumber}).`}</p>
       <DesignDiff
         columns={COLUMNS}
         sections={[

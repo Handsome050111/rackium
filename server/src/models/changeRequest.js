@@ -23,6 +23,8 @@ const changeRequestSchema = new mongoose.Schema({
   impact: { type: mongoose.Schema.Types.Mixed, default: null },
   approvalId: { type: ObjectId, default: null },
   resultingVersionId: { type: ObjectId, default: null },
+  // The HLD version an approved change request produced (M5a review).
+  resultingHldVersionId: { type: ObjectId, default: null },
   createdBy: { type: ObjectId, required: true },
   createdAt: { type: Date, default: () => new Date() },
   submittedBy: { type: ObjectId, default: null },

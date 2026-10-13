@@ -137,14 +137,15 @@ export function createPublicApprovalService({ storage, lld }) {
     return { frozen: false }
   }
 
-  // Approve: the branch replaces the frozen LLD (a new approved, frozen LLD
-  // version). Request changes: back to the Architect. Reject: the branch goes.
+  // Approve: the branch replaces the frozen HLD and LLD (new approved, frozen
+  // versions of both). Request changes: back to the Architect. Reject: the
+  // branch (HLD and LLD) goes.
   async function decideChangeRequest({ req, link, decision, building, actor, session }) {
     const cr = await ChangeRequest.findById(link.changeRequestId).session(session).lean()
     if (decision === 'approved') {
-      const { versionId, number } = await lld.applyChangeRequest(req, { building, branchId: cr.branchId, label: `CR-${cr.number} ${cr.title}`.slice(0, 80) }, actor, session)
-      await ChangeRequest.updateOne({ _id: cr._id }, { $set: { status: 'approved', decidedAt: new Date(), resultingVersionId: versionId } }, { session })
-      return { lldVersionNumber: number }
+      const { versionId, number, hldVersionId, hldNumber } = await lld.applyChangeRequest(req, { building, branchId: cr.branchId, label: `CR-${cr.number} ${cr.title}`.slice(0, 80) }, actor, session)
+      await ChangeRequest.updateOne({ _id: cr._id }, { $set: { status: 'approved', decidedAt: new Date(), resultingVersionId: versionId, resultingHldVersionId: hldVersionId } }, { session })
+      return { lldVersionNumber: number, hldVersionNumber: hldNumber }
     }
     if (decision === 'rejected') await lld.discardChangeRequestBranch(req, { building, branchId: cr.branchId }, actor, session)
     await ChangeRequest.updateOne({ _id: cr._id }, { $set: { status: decision, approvalId: null, ...(decision === 'rejected' ? { decidedAt: new Date() } : {}) } }, { session })

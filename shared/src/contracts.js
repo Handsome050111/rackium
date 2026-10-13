@@ -389,9 +389,11 @@ export const stockLengthsSchema = z.object({
   dac: lengthList,
   stack: lengthList,
 })
+// Cage nuts per RU on each face a device is fixed to (M5a review).
+export const cageNutsPerRuSchema = z.object({ front: z.number().int().min(0).max(20), rear: z.number().int().min(0).max(20) })
 export const organisationSettingsBody = z
-  .object({ architectsSeePrices: z.boolean().optional(), namingRoleCodes: namingRoleCodesSchema.optional(), stockLengths: stockLengthsSchema.optional() })
-  .refine((b) => b.architectsSeePrices !== undefined || b.namingRoleCodes !== undefined || b.stockLengths !== undefined, { message: 'Nothing to update' })
+  .object({ architectsSeePrices: z.boolean().optional(), namingRoleCodes: namingRoleCodesSchema.optional(), stockLengths: stockLengthsSchema.optional(), cageNutsPerRu: cageNutsPerRuSchema.optional() })
+  .refine((b) => b.architectsSeePrices !== undefined || b.namingRoleCodes !== undefined || b.stockLengths !== undefined || b.cageNutsPerRu !== undefined, { message: 'Nothing to update' })
 
 // --- M3a: catalogue -------------------------------------------------------
 // Create and replace take the whole item (shared/src/catalogue.js is the one
@@ -504,11 +506,11 @@ export const hldGenerateBody = z
     const problem = blueprintProblem(b.preset, b.variant)
     if (problem) ctx.addIssue({ code: 'custom', path: ['variant'], message: problem })
   })
-export const hldDeviceCreateBody = z.object({ buildingId: objectId, role: z.enum(HLD_ROLE_KEYS), roomId: objectId, catalogueKey: z.string().trim().min(1).max(200).optional(), baseRevision })
+export const hldDeviceCreateBody = z.object({ buildingId: objectId, role: z.enum(HLD_ROLE_KEYS), roomId: objectId, branchId: objectId.optional(), catalogueKey: z.string().trim().min(1).max(200).optional(), baseRevision })
 export const hldDeviceUpdateBody = z
   .object({ catalogueKey: z.string().trim().min(1).max(200).optional(), psuConfigured: z.number().int().min(0).max(8).optional(), baseRevision })
   .refine((b) => b.catalogueKey !== undefined || b.psuConfigured !== undefined, { message: 'Nothing to update' })
-export const hldUplinkCreateBody = z.object({ buildingId: objectId, ...uplinkFields, cableId: z.string().trim().min(1).max(32).nullable().optional(), baseRevision })
+export const hldUplinkCreateBody = z.object({ buildingId: objectId, branchId: objectId.optional(), ...uplinkFields, cableId: z.string().trim().min(1).max(32).nullable().optional(), baseRevision })
 export const hldUplinkUpdateBody = z.object({
   source: hldEnd.optional(),
   dest: hldEnd.optional(),
@@ -520,9 +522,11 @@ export const hldUplinkUpdateBody = z.object({
   cableId: z.string().trim().min(1).max(32).nullable().optional(),
   baseRevision,
 })
-export const hldUplinkCheckBody = z.object({ buildingId: objectId, connectionId: objectId.optional(), ...uplinkFields })
+export const hldUplinkCheckBody = z.object({ buildingId: objectId, connectionId: objectId.optional(), branchId: objectId.optional(), ...uplinkFields })
 export const hldPositionBody = z.object({ x: z.number().finite().min(-100000).max(100000), y: z.number().finite().min(-100000).max(100000) })
 export const hldRevisionQuery = z.object({ baseRevision: z.coerce.number().int().min(0) })
+// A change request's branch of the HLD (M5a review); omitted = the main HLD.
+export const hldViewQuery = z.object({ branchId: objectId.optional() })
 export const hldSubmitBody = z.object({ buildingId: objectId, baseRevision })
 export const hldDecisionBody = z.object({ buildingId: objectId, decision: z.enum(['approved', 'changes_requested']), comment: z.string().trim().max(2000).optional() })
 
@@ -539,7 +543,12 @@ export const lldHop = z.object({
   // Optional: the server derives each side from the cable type and refuses a wrong one.
   inSide: z.enum(['front', 'rear']).optional(),
   outSide: z.enum(['front', 'rear']).optional(),
+  // The cable after this panel (route segment seq; M5a review); omitted = kept.
+  engineerSelectedM: z.number().positive().max(100000).nullable().optional(),
 })
+// One cable's Engineer Selected length: segment 0 is the connection's own
+// cable, segment k the cable after hop k.
+const segmentLengths = z.array(z.object({ segment: z.number().int().min(0).max(8), engineerSelectedM: z.number().positive().max(100000).nullable() })).max(9)
 const lldConnectionFields = {
   source: lldEnd,
   dest: lldEnd,
@@ -553,7 +562,7 @@ const lldConnectionFields = {
 }
 export const lldStartBody = z.object({ buildingId: objectId })
 export const lldRebaseBody = z.object({ buildingId: objectId, baseRevision })
-export const lldCopyBody = z.object({ buildingId: objectId, hldDeviceIds: z.array(objectId).max(200).default([]), hldConnectionIds: z.array(objectId).max(400).default([]), baseRevision })
+export const lldCopyBody = z.object({ buildingId: objectId, ...branchRef, hldDeviceIds: z.array(objectId).max(200).default([]), hldConnectionIds: z.array(objectId).max(400).default([]), baseRevision })
 export const lldDeviceCreateBody = z.object({ buildingId: objectId, ...branchRef, catalogueKey: z.string().trim().min(1).max(200), rackId: objectId, ru: z.number().int().min(1).max(60).nullable(), face: z.enum(['front', 'rear']).default('front'), label: z.string().trim().regex(/^[A-Za-z0-9][A-Za-z0-9-]{0,62}$/, 'Letters, digits and hyphens, up to 63 characters (hostname-safe)').optional(), baseRevision })
 export const lldPlacementBody = z.object({ rackId: objectId.nullable(), ru: z.number().int().min(1).max(60).nullable(), face: z.enum(['front', 'rear']).default('front'), baseRevision })
 export const lldConnectionCreateBody = z.object({ buildingId: objectId, ...branchRef, ...lldConnectionFields, baseRevision })
@@ -567,6 +576,7 @@ export const lldConnectionUpdateBody = z.object({
   hops: z.array(lldHop).max(8).optional(),
   cableId: cableIdField.nullable().optional(),
   engineerSelectedM: z.number().positive().max(100000).nullable().optional(),
+  segmentLengths: segmentLengths.optional(),
   baseRevision,
 })
 export const lldViewQuery = z.object({ branchId: objectId.optional() })

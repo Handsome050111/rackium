@@ -8,6 +8,9 @@ import { REQUIRED_INPUT_GROUPS } from '@rackium/shared/solutionPackage.js'
 // Solution Package inputs → the PM sends it by share link → the client
 // approves on the public page → the design freezes → procurement → a change
 // request changes a cable → the client re-approves → the BOM is re-approved.
+// M5a review: a second change request adds an Edge in the HLD and maps it in
+// the LLD, with a per-cable length; both get new frozen versions. Cage nuts
+// per RU are an organisation setting.
 
 test.describe.configure({ mode: 'serial' })
 test.setTimeout(240_000)
@@ -23,6 +26,19 @@ let api
 const errors = []
 const base = () => `/orgs/${orgId}/projects/${projectId}/buildings/${b001}`
 let link
+let secondRoomId
+let racks
+const widths = [[1440, 900], [1024, 768], [768, 1024], [390, 844]]
+async function fitsEveryWidth(page, label) {
+  for (const [width, height] of widths) {
+    await page.setViewportSize({ width, height })
+    await expect(page.locator('body')).not.toContainText('Loading…')
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
+    expect(overflow, `${label} at ${width}px`).toBe(0)
+    if (process.env.M5A_SHOTS) await page.screenshot({ path: `${process.env.M5A_SHOTS}/${label}-${width}.png`, fullPage: true })
+  }
+  await page.setViewportSize({ width: 1440, height: 900 })
+}
 
 async function send(page, method, path, data, status) {
   const res = await page.request[method](`${api}${path}`, data === undefined ? undefined : { data })
@@ -56,7 +72,8 @@ test('set up: an approved HLD and an approved LLD for B001', async ({ browser })
   const { floor } = await send(fe, 'post', '/survey/floors', { buildingId: b001, token: 'EG', name: 'Ground floor', order: 0 }, 201)
   const { room: main } = await send(fe, 'post', '/survey/rooms', { floorId: floor.id }, 201)
   const { room: second } = await send(fe, 'post', '/survey/rooms', { floorId: floor.id }, 201)
-  const racks = [(await send(fe, 'post', '/survey/racks', { roomId: main.id }, 201)).rack, (await send(fe, 'post', '/survey/racks', { roomId: second.id }, 201)).rack]
+  secondRoomId = second.id
+  racks = [(await send(fe, 'post', '/survey/racks', { roomId: main.id }, 201)).rack, (await send(fe, 'post', '/survey/racks', { roomId: second.id }, 201)).rack]
   for (const rack of racks) await send(fe, 'patch', `/survey/racks/${rack.id}/placements`, { placements: [{ ru: 0, heightU: 0, face: 'rear', mounting: '0U', railSide: 'left', label: 'PDU-A', category: 'Power' }] }, 200)
   // The main room's PDU has C13 sockets (brief §6.7: the PDU socket decides the cord).
   await send(fe, 'patch', `/survey/racks/${racks[0].id}/facts`, { mountingPower: { cageNutType: 'M6', pduA: { totalSockets: 24, freeSockets: 20, socketType: 'C13' } } }, 200)
@@ -246,7 +263,7 @@ test('a change request changes a cable on its branch; the client approves it; th
   await panel.getByRole('button', { name: 'Create' }).click()
   await expect(panel.getByTestId('change-request-detail')).toContainText('CR-1 · Draft')
   // Edit the cable on the change request's branch (the LLD itself stays frozen).
-  await panel.getByRole('link', { name: 'Edit the design on its branch' }).click()
+  await panel.getByRole('link', { name: 'Edit the LLD on its branch' }).click()
   await expect(architect.getByTestId('lld-frozen')).toContainText("This is a change request's branch")
   await architect.getByRole('tab', { name: 'Cable Schedule' }).click()
   const row = architect.locator('tbody tr', { hasText: 'C-BE-1' })
@@ -288,6 +305,110 @@ test('a change request changes a cable on its branch; the client approves it; th
   await owner.goto(`${base()}/solution-package`)
   await expect(owner.getByTestId('change-requests')).toContainText('CR-1 Longer trunk to TR-EG-02')
   await expect(owner.getByTestId('change-requests')).toContainText('Approved')
+})
+
+test('a change request adds an Edge in the HLD and maps it in the LLD, with a per-cable length; the client approves; HLD and LLD get new frozen versions', async ({ browser }) => {
+  await architect.goto(`${base()}/solution-package`)
+  const panel = architect.getByTestId('change-requests')
+  await panel.getByRole('button', { name: 'New change request' }).click()
+  await panel.getByLabel('Change request title').fill('Second edge in TR-EG-02')
+  await panel.getByRole('button', { name: 'Create' }).click()
+  await expect(panel.getByTestId('change-request-detail')).toContainText('CR-2 · Draft')
+  await panel.getByRole('link', { name: 'Edit the HLD on its branch' }).click()
+  await expect(architect.getByTestId('hld-branch-banner')).toContainText('CR-2 Second edge in TR-EG-02')
+  const branchId = new URL(architect.url()).searchParams.get('branch')
+  // The Edge and its uplink through the API (the canvas drag has its own HLD spec).
+  let hld = await send(architect, 'get', `/hld/buildings/${b001}?branchId=${branchId}`, undefined, 200)
+  const { device } = await send(architect, 'post', '/hld/devices', { buildingId: b001, branchId, role: 'edge', roomId: secondRoomId, baseRevision: hld.design.revision }, 201)
+  hld = await send(architect, 'get', `/hld/buildings/${b001}?branchId=${branchId}`, undefined, 200)
+  const border = hld.devices.find((d) => d.role === 'border')
+  await send(architect, 'post', '/hld/uplinks', { buildingId: b001, branchId, source: { deviceId: border.id }, dest: { deviceId: device.id }, media: 'os2', speed: '10G', baseRevision: hld.design.revision }, 201)
+  await architect.reload()
+  await expect(architect.locator('.react-flow')).toContainText(device.hostname)
+  await fitsEveryWidth(architect, 'hld-branch')
+  // Out of step until the LLD maps it: shown on the change request.
+  await architect.goto(`${base()}/solution-package`)
+  await architect.getByTestId('change-requests').getByRole('button', { name: /CR-2 Second edge/ }).click()
+  await expect(architect.getByTestId('cr-inconsistent')).toContainText(`${device.hostname}: in the HLD, not mapped in the LLD`)
+  // Mapped in the branch's LLD against the change's own HLD.
+  await architect.getByTestId('change-request-detail').getByRole('link', { name: 'Edit the LLD on its branch' }).click()
+  const rec = architect.getByTestId('cr-reconciliation')
+  await expect(rec.getByRole('button', { name: 'Copy into LLD' })).toHaveCount(2)
+  await rec.getByRole('button', { name: 'Copy into LLD' }).first().click()
+  await expect(rec.getByRole('button', { name: 'Copy into LLD' })).toHaveCount(1)
+  await rec.getByRole('button', { name: 'Copy into LLD' }).click()
+  await expect(rec).toContainText('The LLD of this change matches its HLD.')
+  // Every cable has its own length: the cable after the panel, on the schedule.
+  const onBranch = await send(architect, 'get', `/lld/buildings/${b001}?branchId=${branchId}`, undefined, 200)
+  const ea = linkOf(onBranch, 'edge', 'ap')
+  await architect.getByRole('tab', { name: 'Cable Schedule' }).click()
+  await expect(architect.getByTestId(`cable-${ea.id}-0`)).toContainText('Patch cord')
+  await architect.getByTestId(`cable-${ea.id}-1`).getByRole('button', { name: /Cable 2 of C-EA-1/ }).click()
+  await architect.getByTestId(`cable-${ea.id}-1`).getByRole('spinbutton').fill('15')
+  await architect.getByTestId(`cable-${ea.id}-1`).getByRole('button', { name: 'Save' }).click()
+  await expect(architect.getByTestId(`cable-${ea.id}-1`).getByRole('button', { name: /Cable 2 of C-EA-1/ })).toHaveText('15')
+  await fitsEveryWidth(architect, 'lld-branch-cables')
+  // The Editor shows the same cable with its own length.
+  await architect.goto(`${base()}/lld/editor?rack=${racks[1].id}&connection=${ea.id}&branch=${branchId}`)
+  await expect(architect.getByLabel('Hop 1 cable Engineer Selected length')).toHaveValue('15')
+  await fitsEveryWidth(architect, 'editor-branch')
+  if (process.env.M5A_SHOTS) {
+    for (const [width, height] of widths) {
+      await architect.setViewportSize({ width, height })
+      await architect.getByTestId('hops').screenshot({ path: `${process.env.M5A_SHOTS}/editor-hops-${width}.png` })
+    }
+    await architect.setViewportSize({ width: 1440, height: 900 })
+  }
+  // Submit; the PM sends it; the client approves.
+  await architect.goto(`${base()}/solution-package`)
+  await architect.getByTestId('change-requests').getByRole('button', { name: /CR-2 Second edge/ }).click()
+  const detail = architect.getByTestId('change-request-detail')
+  await expect(detail.getByTestId('cr-inconsistent')).toHaveCount(0)
+  await expect(detail).toContainText('HLD devices')
+  await detail.getByRole('button', { name: 'Submit change request' }).click()
+  await expect(detail).toContainText('CR-2 · Submitted')
+  await owner.goto(`${base()}/solution-package`)
+  await owner.getByTestId('change-requests').getByRole('button', { name: /CR-2 Second edge/ }).click()
+  const pmDetail = owner.getByTestId('change-request-detail')
+  await pmDetail.getByRole('button', { name: 'Send to the client' }).click()
+  await expect(pmDetail.locator('input[readonly]').first()).toHaveValue(/\/approve\//)
+  const values = await pmDetail.locator('input[readonly]').evaluateAll((els) => els.map((e) => e.value))
+  const crClient = await (await browser.newContext()).newPage()
+  await crClient.goto(new URL(values[0]).pathname)
+  await crClient.getByLabel('Password').fill(values[1])
+  await crClient.getByRole('button', { name: 'View Change request' }).click()
+  await crClient.getByPlaceholder('Your full name').fill('Clara Client')
+  await crClient.getByRole('checkbox').check()
+  await crClient.getByRole('button', { name: 'Approve' }).click()
+  await expect(crClient.getByTestId('decision-recorded')).toContainText('You approved this Change request.')
+  await crClient.context().close()
+  // The frozen HLD has the Edge (a new frozen version); the LLD maps it, with the cable length.
+  await owner.goto(`${base()}/hld`)
+  await expect(owner.getByTestId('hld-frozen')).toBeVisible()
+  await expect(owner.locator('.react-flow')).toContainText(device.hostname)
+  const hldAfter = await send(owner, 'get', `/hld/buildings/${b001}`, undefined, 200)
+  expect(hldAfter.versions[0]).toMatchObject({ frozen: true, number: 2 })
+  const lldAfter = await lld()
+  expect(lldAfter.devices.some((d) => d.inDesign && d.hldRef === device.id)).toBe(true)
+  expect(linkOf(lldAfter, 'edge', 'ap').segments[1]).toMatchObject({ engineerSelectedM: 15, effectiveM: 15 })
+  expect(lldAfter.versions[0]).toMatchObject({ label: 'CR-2 Second edge in TR-EG-02', frozen: true })
+  await fitsEveryWidth(owner, 'hld-frozen')
+})
+
+test('cage nuts per RU and face are an organisation setting; the BOM follows', async () => {
+  const nuts = async () => (await send(owner, 'get', `/bom/buildings/${b001}`, undefined, 200)).lines.filter((l) => l.key.startsWith('cage:')).reduce((n, l) => n + l.qty, 0)
+  const before = await nuts()
+  await owner.goto(`/orgs/${orgId}/settings`)
+  const section = owner.getByTestId('cage-nuts')
+  await expect(section.getByLabel('Cage nuts per RU, front face')).toHaveValue('4')
+  await section.getByLabel('Cage nuts per RU, front face').fill('2')
+  await section.getByLabel('Cage nuts per RU, rear face').fill('0')
+  await section.getByRole('button', { name: 'Save cage nuts' }).click()
+  await expect(owner.getByTestId('cage-nuts').getByLabel('Cage nuts per RU, front face')).toHaveValue('2')
+  await owner.reload()
+  await expect(owner.getByTestId('cage-nuts').getByLabel('Cage nuts per RU, front face')).toHaveValue('2')
+  expect(await nuts()).toBe(before / 2)
+  await fitsEveryWidth(owner, 'org-settings')
 })
 
 test('the BOM, the Solution Package and the public approval page fit every width', async ({ browser }) => {

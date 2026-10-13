@@ -6,10 +6,10 @@
 // - Serialised items (switch, router, firewall, AP, WLC, server, UPS, PDU,
 //   probe): one line per device.
 // - Consumables aggregated: optics (one per link end), uplink modules, PSUs,
-//   power cords, cables per medium and stock length, stack/DAC cables,
-//   cage-nut sets, patch panels, cable managers and accessories.
+//   power cords, cables (one per route segment, each at its own stock
+//   length), stack/DAC cables, cage nuts, patch panels, cable managers and
+//   accessories.
 // Each line carries its source tag (Survey / HLD / LLD) and a reason.
-import { stockLengthsFor } from './cableLength.js'
 import { selectPowerCord } from './powerCords.js'
 
 export const SERIALISED_CATEGORIES = ['switch', 'router', 'firewall', 'ap', 'wlc', 'server', 'ups', 'pdu', 'probe']
@@ -20,6 +20,20 @@ const MEDIA_LABEL = { cat6a: 'Cat6A', os2: 'OS2', om4: 'OM4', dac: 'DAC', stack:
 const COPPER_FIBRE = ['cat6a', 'os2', 'om4']
 
 const lower = (s) => String(s ?? '').trim().toLowerCase()
+
+// Cage nuts per RU on each face a device is fixed to (organisation setting
+// `cageNutsPerRu`; M5a review). A device is fixed on its mounting face, a
+// full-depth device on both.
+export const DEFAULT_CAGE_NUTS_PER_RU = { front: 4, rear: 4 }
+export function cageNutsOf(org) {
+  const s = org?.settings?.cageNutsPerRu
+  return { front: s?.front ?? DEFAULT_CAGE_NUTS_PER_RU.front, rear: s?.rear ?? DEFAULT_CAGE_NUTS_PER_RU.rear }
+}
+export function cageNutCount({ heightU, face = 'front', fullDepth = false }, perRu = DEFAULT_CAGE_NUTS_PER_RU) {
+  if (!(heightU > 0)) return 0
+  const faces = fullDepth ? ['front', 'rear'] : [face === 'rear' ? 'rear' : 'front']
+  return faces.reduce((n, f) => n + heightU * (perRu[f] ?? 0), 0)
+}
 
 export function catalogueLookup(items) {
   const byKey = new Map(items.map((i) => [lower(i.key), i]))
@@ -42,13 +56,14 @@ export function unitPriceOf(item, lengthM = null) {
 
 // `design`: { devices, connections } — devices: { id, hostname, label, role,
 // catalogueKey, category, roomCode, rackId, ru, heightU, psuConfigured,
-// hldRef }; connections: { id, hldRef, source, dest, media, sourceSfpCode,
-// destSfpCode, hops, lengths: { effectiveM } }.
+// face, fullDepth, hldRef }; connections: { id, hldRef, source, dest, media,
+// sourceSfpCode, destSfpCode, hops, segments: [{ index, kind, cableId,
+// effectiveM, engineerSelectedM }] (shared/cableSegments.js), lengths }.
 // `context`: { stage ('hld' | 'lld'), racks: [{ id, code, cageNutType,
-// pduSocketType }], catalogue (items), stockLengths, power: {
-// customerStandard, countryCode, cordLengthM }, currency }.
+// pduSocketType }], catalogue (items), power: { customerStandard,
+// countryCode, cordLengthM }, cageNutsPerRu, currency }.
 export function buildBom(design, context) {
-  const { stage = 'lld', racks = [], stockLengths = null, power = {}, currency = 'EUR' } = context
+  const { stage = 'lld', racks = [], power = {}, currency = 'EUR', cageNutsPerRu = DEFAULT_CAGE_NUTS_PER_RU } = context
   const cat = catalogueLookup(context.catalogue ?? [])
   const rackById = new Map(racks.map((r) => [String(r.id), r]))
   const designTag = (record) => (stage === 'hld' ? 'HLD' : record?.hldRef ? 'HLD' : 'LLD')
@@ -109,13 +124,16 @@ export function buildBom(design, context) {
       const cordItem = cat.find((i) => i.powerCord && lower(i.powerCord.connectorPair) === lower(cord.connectorPair))
       addConsumable({ key: `cord:${lower(cord.connectorPair)}`, category: 'Power & accessories', item: cordItem?.model ?? cord.label, catalogueKey: cordItem?.key ?? null, spec: `${power.cordLengthM ?? 2} m · ${cord.connectorPair}`, qty: Math.max(1, psus), source: cord.source === 'pdu' ? 'Survey' : 'HLD', reason: `${name}: ${Math.max(1, psus)} × (${cord.reason})` })
     }
-    // Cage nuts: one set of 4 per RU of rack-mounted gear (front/rear, not 0U).
+    // Cage nuts: per RU on each face the device is fixed to (not 0U).
     const heightU = item.heightU ?? d.heightU ?? 0
-    if (item.rackMounted && heightU > 0 && d.rackId) {
+    const fullDepth = Boolean(item.fullDepth ?? d.fullDepth)
+    const nuts = item.rackMounted && d.rackId ? cageNutCount({ heightU, face: d.face, fullDepth }, cageNutsPerRu) : 0
+    if (nuts > 0) {
       const rack = rackById.get(String(d.rackId))
       const type = String(rack?.cageNutType ?? 'M6').trim() || 'M6'
       const nutItem = cat.find((i) => i.category === 'cage_nut' && lower(i.model).includes(lower(type)))
-      addConsumable({ key: `cage:${lower(type)}`, category: 'Power & accessories', item: nutItem?.model ?? `${type} cage-nut set`, catalogueKey: nutItem?.key ?? null, spec: `${type}, set of 4`, unit: 'Set', qty: heightU, source: rack?.cageNutType ? 'Survey' : designTag(d), reason: `${name}: ${heightU} RU in ${rack?.code ?? 'its rack'}${rack?.cageNutType ? ` (surveyed ${type})` : ''}` })
+      const faces = fullDepth ? 'front and rear' : d.face === 'rear' ? 'rear' : 'front'
+      addConsumable({ key: `cage:${lower(type)}`, category: 'Power & accessories', item: nutItem?.model ?? `${type} cage nut`, catalogueKey: nutItem?.key ?? null, spec: `${type} cage nut, screw and washer`, qty: nuts, source: rack?.cageNutType ? 'Survey' : designTag(d), reason: `${name}: ${heightU} RU × ${faces} in ${rack?.code ?? 'its rack'} = ${nuts}${rack?.cageNutType ? ` (surveyed ${type})` : ''}` })
     }
   }
 
@@ -129,32 +147,29 @@ export function buildBom(design, context) {
   }
 
   // --- Cables ---
-  // Each connection is one cable per route segment. The connection's
-  // Engineer Selected (or Suggested) length goes to its main cable — the
-  // first panel-to-panel trunk, or the first segment when there is none —
-  // and every other segment is a patch cord at the shortest stock length.
+  // Every route segment is its own physical cable (shared/cableSegments.js),
+  // counted at its own Engineer Selected (else Suggested) stock length.
   let pendingLength = 0
   for (const c of design.connections) {
     if (COPPER_FIBRE.includes(c.media)) {
       const stock = cat.find((i) => i.kind === 'stock_cable' && i.stock?.media === c.media)
-      const shortest = stockLengthsFor(c.media, 'same-rack', stockLengths)[0] ?? null
-      const segments = (c.hops ?? []).length + 1
-      const effective = c.lengths?.effectiveM ?? null
       const label = `${MEDIA_LABEL[c.media]} ${c.media === 'cat6a' ? 'patch cord' : 'fibre patch cord'}`
-      if (effective == null) pendingLength += 1
-      addConsumable({
-        key: `cable:${c.media}:${effective ?? 'pending'}`,
-        category: 'Cables',
-        item: stock?.model ?? label,
-        catalogueKey: stock?.key ?? null,
-        spec: effective != null ? `${effective} m` : 'Length pending (place both ends)',
-        qty: 1,
-        source: stage === 'hld' ? 'HLD' : 'LLD',
-        reason: `${c.cableId ?? 'connection'} at ${effective ?? '—'} m (${c.lengths?.engineerSelectedM != null ? 'Engineer Selected' : 'Suggested'})`,
-        lengthM: effective,
-      })
-      if (segments > 1 && shortest != null) {
-        addConsumable({ key: `cable:${c.media}:${shortest}`, category: 'Cables', item: stock?.model ?? label, catalogueKey: stock?.key ?? null, spec: `${shortest} m`, qty: segments - 1, source: 'LLD', reason: `${c.cableId ?? 'connection'}: ${segments - 1} patch cord(s) at the panel(s)`, lengthM: shortest })
+      const segments = c.segments?.length ? c.segments : [{ index: 0, cableId: c.cableId ?? null, effectiveM: c.lengths?.effectiveM ?? null, engineerSelectedM: c.lengths?.engineerSelectedM ?? null }]
+      for (const seg of segments) {
+        const effective = seg.effectiveM ?? null
+        if (effective == null) pendingLength += 1
+        const name = seg.cableId ?? `${c.cableId ?? 'connection'}${segments.length > 1 ? ` cable ${seg.index + 1}/${segments.length}` : ''}`
+        addConsumable({
+          key: `cable:${c.media}:${effective ?? 'pending'}`,
+          category: 'Cables',
+          item: stock?.model ?? label,
+          catalogueKey: stock?.key ?? null,
+          spec: effective != null ? `${effective} m` : 'Length pending (place both ends)',
+          qty: 1,
+          source: stage === 'hld' ? 'HLD' : 'LLD',
+          reason: `${name} at ${effective ?? '—'} m (${seg.engineerSelectedM != null ? 'Engineer Selected' : 'Suggested'})`,
+          lengthM: effective,
+        })
       }
     } else if (c.media === 'stack' || c.media === 'dac') {
       const item = cat.find((i) => i.kind === 'optic' && i.mediaSpeed?.media === c.media)
@@ -186,7 +201,7 @@ export function buildBom(design, context) {
   const opticEnds = design.connections.reduce((n, c) => n + (c.sourceSfpCode ? 1 : 0) + (c.destSfpCode ? 1 : 0), 0)
   const opticBom = all.filter((l) => l.key.startsWith('optic:')).reduce((n, l) => n + l.qty, 0)
   const cabled = design.connections.filter((c) => COPPER_FIBRE.includes(c.media))
-  const cableSegments = cabled.reduce((n, c) => n + (c.hops ?? []).length + 1, 0)
+  const cableSegments = cabled.reduce((n, c) => n + (c.segments?.length || (c.hops ?? []).length + 1), 0)
   const cableBom = all.filter((l) => l.key.startsWith('cable:') && !/^cable:(stack|dac)$/.test(l.key)).reduce((n, l) => n + l.qty, 0)
   const checks = [
     { key: 'devices', label: 'Serialised devices', design: serialisedDesign, bom: serialisedBom },

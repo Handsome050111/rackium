@@ -202,5 +202,5 @@ export const SEEDED_CATALOGUE = [
   generic({ kind: 'consumable', category: 'cable', model: 'Power cord C13/C14', description: 'IEC C13 to C14 (PDU)', powerCord: { connectorPair: 'C13/C14' }, unitPriceMinor: 600 }),
   generic({ kind: 'consumable', category: 'cable', model: 'Power cord C19/C20', description: 'IEC C19 to C20 (PDU)', powerCord: { connectorPair: 'C19/C20' }, unitPriceMinor: 900 }),
   generic({ kind: 'consumable', category: 'cable', model: 'Power cord Schuko/C13', description: 'CEE 7/4 (Schuko) to C13', powerCord: { connectorPair: 'Schuko/C13' }, unitPriceMinor: 700 }),
-  generic({ kind: 'consumable', category: 'cage_nut', model: 'M6 cage-nut set', description: 'Cage nut, screw and washer (set of 4)', unitPriceMinor: 360 }),
+  generic({ kind: 'consumable', category: 'cage_nut', model: 'M6 cage nut', description: 'Cage nut, screw and washer (one)', unitPriceMinor: 90 }),
 ]

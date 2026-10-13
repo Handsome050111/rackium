@@ -73,7 +73,9 @@ async function main() {
   const app = createApp({ config, logger: createLogger({ level: 'silent' }), mailer, rateLimits: { ...DEFAULT_RATE_LIMITS, enabled: false } })
   const server = http.createServer((req, res) => {
     if (req.method === 'POST' && req.url === SHUTDOWN_PATH) {
-      res.writeHead(202, { 'content-type': 'application/json' }).end('{"stopping":true}', () => shutdown(server, replSet))
+      // The pid lets the teardown wait until this process has really gone
+      // (its database folder is removed on the way out).
+      res.writeHead(202, { 'content-type': 'application/json' }).end(JSON.stringify({ stopping: true, pid: process.pid }), () => shutdown(server, replSet))
       return
     }
     app(req, res)

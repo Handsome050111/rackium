@@ -303,15 +303,19 @@ export const ALL_RULES = { ...HLD_RULES, ...LLD_RULES }
 
 // --- Version diff (brief §6.10) ----------------------------------------------------
 
-const DEVICE_FIELDS = ['hostname', 'role', 'catalogueKey', 'roomId', 'rackId', 'ru', 'face']
-const CONNECTION_FIELDS = ['source', 'dest', 'media', 'speed', 'sourceSfpCode', 'destSfpCode', 'cableId', 'hops', 'engineerSelectedM']
+const DEVICE_FIELDS = ['hostname', 'role', 'catalogueKey', 'roomId', 'rackId', 'ru', 'face', 'psuConfigured']
+// segmentLengths: the Engineer Selected length of each cable after a panel (M5a review).
+const CONNECTION_FIELDS = ['source', 'dest', 'media', 'speed', 'sourceSfpCode', 'destSfpCode', 'cableId', 'hops', 'engineerSelectedM', 'segmentLengths']
 const show = (v) => (v == null ? null : typeof v === 'object' ? JSON.stringify(v) : v)
+// The Engineer Selected lengths of the cables after each panel; null while none is set.
+const segmentLengthsText = (hops) => (hops.some((h) => h.lengths?.engineerSelectedM != null) ? hops.map((h) => h.lengths?.engineerSelectedM ?? '—').join(' / ') : null)
 const flatConn = (c) => ({
   ...c,
   source: `${c.source.deviceId}:${c.source.portId ?? '—'}`,
   dest: `${c.dest.deviceId}:${c.dest.portId ?? '—'}`,
   hops: (c.hops ?? []).map((h) => `${h.patchPanelId}:${h.inPort}${h.inSide ? `(${h.inSide})` : ''}>${h.outPort}${h.outSide ? `(${h.outSide})` : ''}${h.segmentCableId ? `[${h.segmentCableId}]` : ''}`).join(' | ') || null,
   engineerSelectedM: c.lengths?.engineerSelectedM ?? null,
+  segmentLengths: segmentLengthsText(c.hops ?? []),
 })
 
 function diffList(before, after, fields, labelOf, keyOf = (x) => String(x.id)) {

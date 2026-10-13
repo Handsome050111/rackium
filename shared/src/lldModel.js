@@ -27,8 +27,11 @@ export function deviceDisplayLabel(device, devices) {
   return `${base} ${String(sameRole.findIndex((d) => d.id === device.id) + 1).padStart(2, '0')}`
 }
 
+// An end without a port yet (a fresh LLD, a change request's new link) shows
+// the device alone — never "null".
 export function endLabel(entity, port) {
   if (!entity) return '—'
+  if (port == null || port === '') return entity.label
   return entity.type === 'patchpanel' ? `${entity.label} / Port ${port}` : `${entity.label} ${port}`
 }
 

@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { buildBom, bomImpact, withMargin, unitPriceOf } from './bomCalc.js'
+import { buildBom, bomImpact, withMargin, unitPriceOf, cageNutCount, cageNutsOf, DEFAULT_CAGE_NUTS_PER_RU } from './bomCalc.js'
+import { connectionSegments, lengthBetween } from './cableSegments.js'
+import { diffDesigns } from './lldDesign.js'
 import { selectPowerCord, COUNTRY_PLUG_TABLE } from './powerCords.js'
 import { procurementProblem, nextStatuses, PROCUREMENT_STATUSES } from './procurement.js'
 import { evaluatePackage, groupStatus, REQUIRED_INPUT_GROUPS, SECTIONS } from './solutionPackage.js'
@@ -18,7 +20,7 @@ const CATALOGUE = [
   { kind: 'stock_cable', key: 'Generic OS2', model: 'OS2 fibre patch cord', vendor: 'Generic', category: 'cable', stock: { media: 'os2', pricePerMetreMinor: 120, minimumMinor: 900 }, currency: 'EUR' },
   { kind: 'consumable', key: 'Generic Cord C13/C14', model: 'Power cord C13/C14', vendor: 'Generic', category: 'cable', powerCord: { connectorPair: 'C13/C14' }, unitPriceMinor: 600, currency: 'EUR' },
   { kind: 'consumable', key: 'Generic Cord Schuko/C13', model: 'Power cord Schuko/C13', vendor: 'Generic', category: 'cable', powerCord: { connectorPair: 'Schuko/C13' }, unitPriceMinor: 700, currency: 'EUR' },
-  { kind: 'consumable', key: 'Generic M6', model: 'M6 cage-nut set', vendor: 'Generic', category: 'cage_nut', unitPriceMinor: 360, currency: 'EUR' },
+  { kind: 'consumable', key: 'Generic M6', model: 'M6 cage nut', vendor: 'Generic', category: 'cage_nut', unitPriceMinor: 90, currency: 'EUR' },
 ]
 
 const design = {
@@ -33,7 +35,8 @@ const design = {
   connections: [
     { id: 'c1', hldRef: 'h-c1', source: { deviceId: 'b' }, dest: { deviceId: 'e1' }, media: 'os2', sourceSfpCode: 'Cisco SFP-10G-LR', destSfpCode: 'Cisco SFP-10G-LR', cableId: 'C1', hops: [], lengths: { effectiveM: 50, engineerSelectedM: null } },
     { id: 'c2', hldRef: 'h-c2', source: { deviceId: 'b' }, dest: { deviceId: 'e2' }, media: 'os2', sourceSfpCode: 'Cisco SFP-10G-LR', destSfpCode: 'Cisco SFP-10G-LR', cableId: 'C2', hops: [], lengths: { effectiveM: 47, engineerSelectedM: 47 } },
-    { id: 'c3', hldRef: 'h-c3', source: { deviceId: 'e1' }, dest: { deviceId: 'a' }, media: 'cat6a', cableId: 'C3', hops: [{ patchPanelId: 'p', inPort: '01', outPort: '02' }], lengths: { effectiveM: 5, engineerSelectedM: null } },
+    // Two cables: Edge → panel (Suggested 1 m) and panel → AP (Engineer Selected 15 m).
+    { id: 'c3', hldRef: 'h-c3', source: { deviceId: 'e1' }, dest: { deviceId: 'a' }, media: 'cat6a', cableId: 'C3', hops: [{ patchPanelId: 'p', inPort: '01', outPort: '02', segmentCableId: 'C3b' }], lengths: { effectiveM: 1, engineerSelectedM: null }, segments: [{ index: 0, kind: 'patch_cord', cableId: 'C3', effectiveM: 1, engineerSelectedM: null }, { index: 1, kind: 'patch_cord', cableId: 'C3b', effectiveM: 15, engineerSelectedM: 15 }] },
     { id: 'c4', hldRef: null, source: { deviceId: 'e1' }, dest: { deviceId: 'e2' }, media: 'stack', cableId: 'S1', hops: [], lengths: { effectiveM: null } },
   ],
 }
@@ -57,20 +60,26 @@ describe('BOM quantities (brief §5.6)', () => {
     expect(line(bom, 'psu:cisco pwr-715')).toMatchObject({ qty: 5 }) // 2 + 1 + 2
   })
 
-  it('cables at the Engineer Selected (else Suggested) length; a hop adds a patch cord at the shortest stock length', () => {
+  it('every route segment is its own cable at its own Engineer Selected (else Suggested) length', () => {
     expect(line(bom, 'cable:os2:50')).toMatchObject({ qty: 1, spec: '50 m', unitPriceMinor: 6000 })
     expect(line(bom, 'cable:os2:47')).toMatchObject({ qty: 1, spec: '47 m', unitPriceMinor: 5640 })
-    // Cat6A same-rack stock starts at 0.3 m; the minimum price applies.
-    expect(line(bom, 'cable:cat6a:5')).toMatchObject({ qty: 1, unitPriceMinor: 750 })
-    expect(line(bom, 'cable:cat6a:0.3')).toMatchObject({ qty: 1, unitPriceMinor: 500 })
+    // Edge → panel at 1 m (the minimum price applies); panel → AP at 15 m.
+    expect(line(bom, 'cable:cat6a:1')).toMatchObject({ qty: 1, unitPriceMinor: 500 })
+    expect(line(bom, 'cable:cat6a:15')).toMatchObject({ qty: 1, unitPriceMinor: 2250 })
+    expect(line(bom, 'cable:cat6a:15').basis).toBe('C3b at 15 m (Engineer Selected)')
+    expect(bom.lines.some((l) => l.key === 'cable:cat6a:0.3')).toBe(false)
     expect(line(bom, 'cable:stack')).toMatchObject({ qty: 1, source: 'LLD' })
+    // A connection without segment data (HLD stage) is one cable at its length.
+    const hld = buildBom({ devices: [], connections: [{ id: 'x', source: { deviceId: 'b' }, dest: { deviceId: 'e1' }, media: 'os2', hops: [], lengths: { effectiveM: 30 } }] }, context({ stage: 'hld' }))
+    expect(line(hld, 'cable:os2:30')).toMatchObject({ qty: 1, source: 'HLD' })
   })
 
   it('power cords: PDU socket in R01 (C13/C14), country table (Schuko) where the rack has no PDU socket; cage nuts per RU with the surveyed type', () => {
     expect(line(bom, 'cord:c13/c14')).toMatchObject({ qty: 2, source: 'Survey', unitPriceMinor: 600 })
     expect(line(bom, 'cord:schuko/c13')).toMatchObject({ qty: 3, source: 'HLD' })
-    // Border 1U (R01, no type surveyed) + two Edges 1U and a panel 1U (R01 in TR1, M6).
-    expect(line(bom, 'cage:m6').qty).toBe(4)
+    // Border 1U (R01, no type surveyed: M6) + two Edges 1U and a panel 1U
+    // (R01 in TR1, M6): 4 RU × 4 per RU on the front, counted per nut.
+    expect(line(bom, 'cage:m6')).toMatchObject({ qty: 16, unit: 'Each', unitPriceMinor: 90, lineTotalMinor: 1440 })
   })
 
   it('a customer standard overrides every cord', () => {
@@ -104,6 +113,83 @@ describe('BOM quantities (brief §5.6)', () => {
       ['cable:os2:50', 1, 0, 'removed'],
     ])
     expect(impact.costAfterMinor - impact.costBeforeMinor).toBe(12000 - 6000)
+  })
+})
+
+describe('cage nuts per RU and face (organisation setting; M5a review)', () => {
+  it('default 4 per RU on the mounting face; full-depth gear is fixed on both faces; the setting changes both', () => {
+    expect(DEFAULT_CAGE_NUTS_PER_RU).toEqual({ front: 4, rear: 4 })
+    expect(cageNutCount({ heightU: 1 })).toBe(4)
+    expect(cageNutCount({ heightU: 2, face: 'rear' })).toBe(8)
+    expect(cageNutCount({ heightU: 2, fullDepth: true })).toBe(16)
+    expect(cageNutCount({ heightU: 2, fullDepth: true }, { front: 4, rear: 2 })).toBe(12)
+    expect(cageNutCount({ heightU: 0 })).toBe(0)
+    expect(cageNutsOf({ settings: { cageNutsPerRu: { front: 2 } } })).toEqual({ front: 2, rear: 4 })
+    expect(cageNutsOf(null)).toEqual({ front: 4, rear: 4 })
+    const fewer = buildBom(design, context({ cageNutsPerRu: { front: 2, rear: 0 } }))
+    expect(line(fewer, 'cage:m6').qty).toBe(8)
+    const fullDepth = buildBom({ ...design, devices: design.devices.map((d) => (d.id === 'b' ? { ...d, fullDepth: true } : d)) }, context())
+    expect(line(fullDepth, 'cage:m6').qty).toBe(20)
+  })
+})
+
+describe('route segments: each cable its own length (M5a review)', () => {
+  // A rack R1 (room A, first in the room), R2 (room A, second), R3 (room B).
+  const nodes = {
+    e: { roomId: 'A', rackId: 'R1', ru: 10 },
+    pp: { roomId: 'A', rackId: 'R1', ru: 40 },
+    pp2: { roomId: 'A', rackId: 'R2', ru: 40 },
+    pp3: { roomId: 'B', rackId: 'R3', ru: 40 },
+    d: { roomId: 'B', rackId: 'R3', ru: 30 },
+  }
+  const opts = { nodeOf: (id) => nodes[id] ?? null, isPanel: (id) => id.startsWith('pp'), rackPositionOf: (r) => ({ R1: 1, R2: 2, R3: 1 })[r], routeOf: () => ({ distanceM: 40, reason: null }) }
+
+  it('an RU10 → RU40 patch cord in one rack is 2 m (30 × 0.045 + 0.5 = 1.85 → stock 2)', () => {
+    const r = lengthBetween(nodes.e, nodes.pp, 'cat6a', opts)
+    expect(r).toMatchObject({ situation: 'same-rack', suggestedM: 2, placementPending: false })
+    expect(r.lengthM).toBeCloseTo(1.85)
+  })
+
+  it('segments: kinds, cable IDs and lengths per cable; patch cords use the same-rack formula, trunks the inter-rack and pathway formulas', () => {
+    const conn = {
+      source: { deviceId: 'e', portId: 'Gi1' },
+      dest: { deviceId: 'd', portId: 'Gi2' },
+      media: 'cat6a',
+      cableId: 'C-1',
+      lengths: { engineerSelectedM: null, installedM: 1.9 },
+      hops: [
+        { patchPanelId: 'pp', inPort: '01', outPort: '01', segmentCableId: 'C-1b', lengths: { engineerSelectedM: 5 } },
+        { patchPanelId: 'pp2', inPort: '02', outPort: '02', segmentCableId: 'C-1c' },
+        { patchPanelId: 'pp3', inPort: '03', outPort: '03', segmentCableId: 'C-1d' },
+      ],
+    }
+    const segs = connectionSegments(conn, opts)
+    expect(segs.map((s) => [s.index, s.kind, s.cableId, s.situation, s.suggestedM, s.engineerSelectedM, s.effectiveM])).toEqual([
+      [0, 'patch_cord', 'C-1', 'same-rack', 2, null, 2],
+      // Racks 1 and 2 of one room: 0.8 × 1 + 1.5 + 1 = 3.3 → Cat6A same-room stock 5.
+      [1, 'trunk', 'C-1b', 'same-room', 5, 5, 5],
+      // Across rooms: surveyed pathway 40 m + 2 m slack → stock 50.
+      [2, 'trunk', 'C-1c', 'cross-room', 50, null, 50],
+      // Panel RU40 → device RU30 in one rack: 10 × 0.045 + 0.5 = 0.95 → 1.
+      [3, 'patch_cord', 'C-1d', 'same-rack', 1, null, 1],
+    ])
+    expect(segs[0]).toMatchObject({ from: { deviceId: 'e', portId: 'Gi1' }, to: { deviceId: 'pp', portId: '01' }, installedM: 1.9 })
+    expect(segs[3]).toMatchObject({ from: { deviceId: 'pp3', portId: '03' }, to: { deviceId: 'd', portId: 'Gi2' } })
+    // A direct device↔device link is one segment; an unplaced end leaves it pending.
+    const direct = connectionSegments({ source: { deviceId: 'e' }, dest: { deviceId: 'x' }, media: 'os2', cableId: 'D', hops: [] }, opts)
+    expect(direct).toEqual([expect.objectContaining({ kind: 'direct', cableId: 'D', placementPending: true, suggestedM: null, effectiveM: null })])
+  })
+
+  // Regression: a change of a device's configured PSUs (an HLD edit) was not a design change.
+  it('the design diff lists a PSU count change', () => {
+    const d = (n) => ({ devices: [{ id: 'b', hostname: 'B-1', role: 'border', psuConfigured: n }], connections: [] })
+    expect(diffDesigns(d(1), d(2)).devices.changed[0].fields).toEqual([{ field: 'psuConfigured', before: 1, after: 2 }])
+  })
+
+  it('the design diff lists a cable length change on a segment as segmentLengths', () => {
+    const c = (len) => ({ id: 'c', source: { deviceId: 'e' }, dest: { deviceId: 'd' }, media: 'cat6a', hops: [{ patchPanelId: 'pp', inPort: '01', outPort: '01', lengths: { engineerSelectedM: len } }], lengths: {} })
+    const diff = diffDesigns({ devices: [], connections: [c(3)] }, { devices: [], connections: [c(5)] })
+    expect(diff.connections.changed[0].fields).toEqual([{ field: 'segmentLengths', before: '3', after: '5' }])
   })
 })
 

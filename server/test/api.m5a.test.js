@@ -105,10 +105,11 @@ describe('Draft BOM from the approved HLD + LLD (brief §5.6)', () => {
       ['cord:c13/c14', 4, 'Survey'],
       ['cord:schuko/c13', 2, 'HLD'],
     ])
-    // Cage nuts follow the surveyed type per rack.
+    // Cage nuts follow the surveyed type per rack: 2 RU per rack × 4 per RU
+    // on the front face (the organisation default).
     expect(bom.lines.filter((l) => l.key.startsWith('cage:')).map((l) => [l.key, l.qty])).toEqual([
-      ['cage:m5', 2],
-      ['cage:m6', 2],
+      ['cage:m5', 8],
+      ['cage:m6', 8],
     ])
   })
 })
@@ -323,6 +324,7 @@ describe('Procurement after approval (brief §5.6)', () => {
 describe('Change requests after the freeze (brief §5.5)', () => {
   it('a CR changes a cable on its branch, shows the design diff and BOM impact, and the client approval applies it to the frozen LLD (new frozen version); the BOM then needs re-approval', async () => {
     const { ctx, p, d } = await approvedPackage()
+    const hldVersions = (await hldView(p.architect, p)).versions.map((v) => v.id)
     expectStatus(await p.admin.agent.post(`${p.base}/bom/approve`).send({ buildingId: p.b001 }), 201)
     await p.admin.agent.post(`${p.base}/change-requests`).send({ buildingId: p.b001, title: 'x' }).expect(403)
     const created = expectStatus(await p.architect.post(`${p.base}/change-requests`).send({ buildingId: p.b001, title: 'Longer trunk to TR-EG-02', reason: 'Cable route changed', description: 'Re-route C-BE-1' }), 201).body.changeRequest
@@ -360,6 +362,9 @@ describe('Change requests after the freeze (brief §5.5)', () => {
     expect((await d.device('edge')).hostname).toBe('E-DE-ERL-C01-B001-EG-009')
     expect(lldView).toMatchObject({ frozen: true, status: 'approved' })
     expect(lldView.versions[0]).toMatchObject({ label: 'CR-1 Longer trunk to TR-EG-02', frozen: true })
+    // An LLD-only change leaves the HLD's versions as they were (M5a review).
+    expect((await hldView(p.architect, p)).versions.map((v) => v.id)).toEqual(hldVersions)
+    expect((await p.admin.agent.get(`${p.base}/change-requests/${created.id}`).expect(200)).body.changeRequest.resultingHldVersionId).toBeNull()
     // The BOM changed since its approval: listed, and the PM re-approves.
     const bom = await bomView(p.admin.agent, p)
     expect(bom).toMatchObject({ status: 'in_progress', subLabel: 'Changed since approval' })

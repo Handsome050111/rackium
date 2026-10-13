@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { ReactFlowProvider } from '@xyflow/react'
 import { DndContext, DragOverlay } from '@dnd-kit/core'
-import { ArrowLeft, Sparkles, AlertTriangle, RefreshCw } from 'lucide-react'
+import { ArrowLeft, Sparkles, AlertTriangle, RefreshCw, GitBranch, Lock } from 'lucide-react'
 import HldCanvas, { buildHldFlow } from '../components/hld/HldCanvas.jsx'
 import HldObjectLibrary from '../components/hld/HldObjectLibrary.jsx'
 import SurveyInputsPanel from '../components/hld/SurveyInputsPanel.jsx'
@@ -27,6 +27,9 @@ const EMPTY_DRAFT = { sourceDeviceId: null, sourcePort: null, destDeviceId: null
 // refused and the screen offers to reload (brief §6.10).
 export default function RealHld() {
   const { orgId, projectId, buildingId } = useParams()
+  // A change request's branch (M5a review): its HLD changes, applied when the client approves.
+  const [searchParams] = useSearchParams()
+  const branchId = searchParams.get('branch') || null
   const { user } = useAuth()
   const { readOnly, has } = useProjectRoles(orgId, projectId)
   const isPhone = useMediaQuery('(max-width: 767px)')
@@ -52,7 +55,7 @@ export default function RealHld() {
 
   const reload = useCallback(async () => {
     try {
-      const [v, val] = await Promise.all([hldApi.view(orgId, projectId, buildingId), hldApi.validate(orgId, projectId, buildingId)])
+      const [v, val] = await Promise.all([hldApi.view(orgId, projectId, buildingId, branchId), hldApi.validate(orgId, projectId, buildingId, branchId)])
       setView(v)
       setValidation(val)
       setError(null)
@@ -62,7 +65,7 @@ export default function RealHld() {
     } catch (err) {
       setError(err.status === 404 ? 'This building is not in the part of the project you can see.' : err.message)
     }
-  }, [orgId, projectId, buildingId])
+  }, [orgId, projectId, buildingId, branchId])
 
   useEffect(() => {
     reload()
@@ -80,7 +83,11 @@ export default function RealHld() {
   const ownSubmission = latest?.status === 'pending' && latest.submittedById === user?.id
   const canReview = !readOnly && (has('pm') || has('reviewer')) && !ownSubmission
   const locked = view?.design.state === 'awaiting_approval'
-  const editable = canEdit && !locked
+  // The frozen main HLD is read-only; its changes are drafted on a change request's branch.
+  const frozenMain = Boolean(view?.frozen) && !branchId
+  const editable = canEdit && !locked && !frozenMain
+  // Creating calls carry the branch; edits by id reach the record's own layer.
+  const onBranch = branchId ? { branchId } : {}
 
   // One design write: sends the loaded revision; stale → offer reload.
   async function write(fn, { record } = {}) {
@@ -150,7 +157,7 @@ export default function RealHld() {
 
   async function runCheck() {
     try {
-      const res = await hldApi.checkUplink(orgId, projectId, { buildingId, connectionId: selectedConnectionId ?? undefined, ...draftToUplinkBody(draft) })
+      const res = await hldApi.checkUplink(orgId, projectId, { buildingId, ...onBranch, connectionId: selectedConnectionId ?? undefined, ...draftToUplinkBody(draft) })
       setCheck({ findings: res.checks, blocked: res.blocked, estimatedLengthM: res.length?.lengthM ?? null })
     } catch (err) {
       setError(err.message)
@@ -168,12 +175,12 @@ export default function RealHld() {
       })
     } else {
       let createdId = null
-      const created = await write((rev) => hldApi.createUplink(orgId, projectId, { buildingId, ...body, baseRevision: rev }), {
+      const created = await write((rev) => hldApi.createUplink(orgId, projectId, { buildingId, ...onBranch, ...body, baseRevision: rev }), {
         record: (res) => {
           createdId = res.uplink.id
           return {
             apply: async (rev) => {
-              const again = await hldApi.createUplink(orgId, projectId, { buildingId, ...body, baseRevision: rev })
+              const again = await hldApi.createUplink(orgId, projectId, { buildingId, ...onBranch, ...body, baseRevision: rev })
               createdId = again.uplink.id
               return again
             },
@@ -198,7 +205,7 @@ export default function RealHld() {
           // A deleted uplink's cable ID is retired (never reused), so undo recreates it without one.
           apply: (rev) => hldApi.deleteUplink(orgId, projectId, currentId, rev),
           revert: async (rev) => {
-            const again = await hldApi.createUplink(orgId, projectId, { buildingId, ...body, baseRevision: rev })
+            const again = await hldApi.createUplink(orgId, projectId, { buildingId, ...onBranch, ...body, baseRevision: rev })
             currentId = again.uplink.id
             return again
           },
@@ -219,7 +226,7 @@ export default function RealHld() {
 
   async function runValidation() {
     try {
-      setValidation(await hldApi.validate(orgId, projectId, buildingId))
+      setValidation(await hldApi.validate(orgId, projectId, buildingId, branchId))
       setShowValidation(true)
       setDraft(null)
     } catch (err) {
@@ -262,12 +269,12 @@ export default function RealHld() {
     const room = flow.roomNodes.find((r) => point.x >= r.x && point.x <= r.x + r.width && point.y >= r.y && point.y <= r.y + r.height)
     if (!room) return
     let createdId = null
-    const res = await write((rev) => hldApi.addDevice(orgId, projectId, { buildingId, role: data.item.role, roomId: room.roomId, baseRevision: rev }), {
+    const res = await write((rev) => hldApi.addDevice(orgId, projectId, { buildingId, ...onBranch, role: data.item.role, roomId: room.roomId, baseRevision: rev }), {
       record: (r) => {
         createdId = r.device.id
         return {
           apply: async (rev) => {
-            const again = await hldApi.addDevice(orgId, projectId, { buildingId, role: data.item.role, roomId: room.roomId, baseRevision: rev })
+            const again = await hldApi.addDevice(orgId, projectId, { buildingId, ...onBranch, role: data.item.role, roomId: room.roomId, baseRevision: rev })
             createdId = again.device.id
             return again
           },
@@ -343,7 +350,7 @@ export default function RealHld() {
               Generated from validated physical survey data · Network Architect review required · revision {view.design.revision}
             </p>
           </div>
-          {canEdit && (
+          {canEdit && !branchId && !frozenMain && (
             <div className="flex flex-wrap items-end gap-2">
               <label className="flex flex-col gap-1 text-xs">
                 <span className="text-text-secondary">Blueprint</span>
@@ -381,6 +388,31 @@ export default function RealHld() {
             </div>
           )}
         </div>
+
+        {view.branch && (
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-brand/40 bg-brand/5 px-3 py-2 text-xs text-brand" data-testid="hld-branch-banner">
+            <GitBranch size={14} strokeWidth={2} />
+            <span>
+              Editing the HLD of change request <strong>{view.branch.name}</strong>
+              {view.branch.editable ? ' — its changes reach the frozen HLD when the client approves the change. Map new devices and uplinks into the LLD on the same branch.' : ' — submitted, so read-only until changes are requested.'}
+            </span>
+            <Link to={`/orgs/${orgId}/projects/${projectId}/buildings/${buildingId}/lld?branch=${view.branch.id}`} className="font-medium underline">
+              LLD of this change
+            </Link>
+            <Link to={`/orgs/${orgId}/projects/${projectId}/buildings/${buildingId}/solution-package`} className="font-medium underline">
+              Change requests
+            </Link>
+          </div>
+        )}
+        {frozenMain && (
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-status-amber/40 bg-status-amber/5 px-3 py-2 text-xs text-status-amber" data-testid="hld-frozen">
+            <Lock size={14} strokeWidth={2} />
+            The HLD is frozen by the Solution Package approval — changes go through a change request.
+            <Link to={`/orgs/${orgId}/projects/${projectId}/buildings/${buildingId}/solution-package`} className="font-medium underline">
+              Change requests
+            </Link>
+          </div>
+        )}
 
         {!view.surveyVerified && <p className="rounded-lg border border-status-amber/40 bg-status-amber/5 px-3 py-2 text-xs text-status-amber">The survey of {view.building.code} is not fully verified yet — Generate HLD needs every survey tab Verified.</p>}
 
@@ -430,6 +462,7 @@ export default function RealHld() {
           </div>
         )}
 
+        {!branchId && !frozenMain && (
         <HldWorkflowControls
           status={view.status}
           canSubmit={canEdit}
@@ -440,6 +473,7 @@ export default function RealHld() {
           onApprove={() => decide('approved')}
           onRequestChanges={(comment) => decide('changes_requested', comment)}
         />
+        )}
         {latest?.decision?.comments && latest.status === 'changes_requested' && (
           <p className="text-xs text-status-red">
             Changes requested by {latest.decision.decidedBy}: {latest.decision.comments}
