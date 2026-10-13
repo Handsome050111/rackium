@@ -1,4 +1,4 @@
-import { CheckCircle2, AlertTriangle } from 'lucide-react'
+import { CheckCircle2, AlertTriangle, AlertOctagon } from 'lucide-react'
 
 export default function ValidationResultsTable({ areas, onAccept, canAccept }) {
   return (
@@ -23,9 +23,13 @@ export default function ValidationResultsTable({ areas, onAccept, canAccept }) {
                 {a.passed}/{a.total}
               </td>
               <td className="whitespace-nowrap px-3 py-1.5">
-                {a.result === 'passed' ? (
+                {a.result === 'passed' || a.result === 'accepted' ? (
                   <span className="flex items-center gap-1.5 font-medium text-status-green">
-                    <CheckCircle2 size={13} strokeWidth={2} /> Passed
+                    <CheckCircle2 size={13} strokeWidth={2} /> {a.result === 'accepted' ? 'Accepted' : 'Passed'}
+                  </span>
+                ) : a.result === 'critical' ? (
+                  <span className="flex items-center gap-1.5 font-medium text-status-red">
+                    <AlertOctagon size={13} strokeWidth={2} /> Critical
                   </span>
                 ) : (
                   <span className="flex items-center gap-1.5 font-medium text-status-amber">
@@ -34,7 +38,8 @@ export default function ValidationResultsTable({ areas, onAccept, canAccept }) {
                 )}
               </td>
               <td className="whitespace-nowrap px-3 py-1.5">
-                {a.result !== 'passed' && canAccept && (
+                {/* Only a plain warning can be accepted (a Critical finding is fixed, not accepted). */}
+                {a.result === 'warning' && canAccept && (
                   <button type="button" onClick={() => onAccept(a)} className="rounded border border-border px-2 py-1 text-[11px] font-medium text-brand hover:border-brand">
                     Accept
                   </button>

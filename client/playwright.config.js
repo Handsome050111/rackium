@@ -1,5 +1,6 @@
 import { defineConfig, devices } from '@playwright/test'
 import { assertPortsFree } from './playwright-support/assertPortsFree.mjs'
+import { sweepLeftovers } from '../server/test/helpers/testDbDirs.js'
 
 // Never test a server this run didn't start. A `vite preview` left over from
 // an earlier run once made 9 specs fail against a stale build (docs/
@@ -11,6 +12,9 @@ import { assertPortsFree } from './playwright-support/assertPortsFree.mjs'
 const TEST_SERVER_PORTS = [5173, 4100, 5174]
 if (process.env.TEST_WORKER_INDEX === undefined) {
   await assertPortsFree(TEST_SERVER_PORTS)
+  // In-memory databases a killed earlier run left behind (only folders whose
+  // owning process has gone — see server/test/helpers/testDbDirs.js).
+  sweepLeftovers()
 }
 
 // All projects use Chromium (already installed) with different
@@ -19,6 +23,8 @@ if (process.env.TEST_WORKER_INDEX === undefined) {
 // download. Touch is emulated via `hasTouch`, which Chromium supports.
 export default defineConfig({
   testDir: './e2e',
+  // Stops the real-mode server cleanly so its in-memory database is removed.
+  globalTeardown: './playwright-support/globalTeardown.mjs',
   fullyParallel: true,
   // Full multi-project runs on this machine produced a handful of timing
   // failures under 4+ workers that always passed alone (never the same test

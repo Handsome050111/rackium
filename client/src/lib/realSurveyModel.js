@@ -48,7 +48,8 @@ export function factPatch(meta, group, key, raw, number) {
   if (key.includes('.')) {
     const [pdu, part] = key.split('.')
     const current = meta[group]?.[pdu] ?? {}
-    const next = { totalSockets: current.totalSockets ?? 0, freeSockets: current.freeSockets ?? 0, [part]: value ?? 0 }
+    // socketType (M5a, brief §6.7: the PDU socket decides the power cord) is kept with the counts.
+    const next = { totalSockets: current.totalSockets ?? 0, freeSockets: current.freeSockets ?? 0, socketType: current.socketType ?? null, [part]: part === 'socketType' ? value : value ?? 0 }
     return { [group]: { [pdu]: next } }
   }
   return { [group]: { [key]: value } }

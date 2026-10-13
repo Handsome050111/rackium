@@ -5,6 +5,7 @@ import { organisationApi } from '../api/organisationApi.js'
 import { useAuth } from '../lib/AuthContext.jsx'
 import NamingCodesSection from '../components/NamingCodesSection.jsx'
 import StockLengthsSection from '../components/StockLengthsSection.jsx'
+import CageNutsSection from '../components/CageNutsSection.jsx'
 import { canIn } from '../lib/realRoles.js'
 
 function Section({ title, description, children }) {
@@ -140,6 +141,19 @@ export default function OrganisationSettings() {
             settings={settings}
             onSave={async (stockLengths) => {
               const res = await organisationApi.updateSettings(orgId, { stockLengths })
+              setSettings(res.settings)
+            }}
+          />
+        )}
+      </Section>
+
+      <Section title="Cage nuts" description="The BOM counts cage nuts per RU on each face a device is fixed to: its mounting face, or both faces for full-depth gear.">
+        {settings?.cageNutsPerRu && (
+          <CageNutsSection
+            key={JSON.stringify(settings.cageNutsPerRu)}
+            settings={settings}
+            onSave={async (cageNutsPerRu) => {
+              const res = await organisationApi.updateSettings(orgId, { cageNutsPerRu })
               setSettings(res.settings)
             }}
           />

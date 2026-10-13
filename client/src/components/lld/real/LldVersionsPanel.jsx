@@ -143,7 +143,8 @@ export default function LldVersionsPanel({ view, branchId, editable, onSave, onD
                       Open
                     </button>
                   )}
-                  {editable && (
+                  {/* A change request's branch is applied by the client's approval, never promoted or discarded here. */}
+                  {editable && !b.changeRequestId && (
                     <>
                       <button type="button" onClick={() => onPromote(b)} className="h-8 rounded-lg border border-brand px-2 font-medium text-brand hover:bg-brand/5">
                         Promote

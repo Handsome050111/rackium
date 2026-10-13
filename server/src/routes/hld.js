@@ -28,11 +28,12 @@ export function hldRoutes({ config, hld }) {
   r.get('/library', ...base, async (req, res) => {
     res.json(await hld.library(req))
   })
-  r.get('/buildings/:buildingId', ...base, validate({ params: buildingParam }), async (req, res) => {
-    res.json(await hld.view(req, req.input.params.buildingId))
+  // `?branchId=`: a change request's branch (M5a review).
+  r.get('/buildings/:buildingId', ...base, validate({ params: buildingParam, query: C.hldViewQuery }), async (req, res) => {
+    res.json(await hld.view(req, req.input.params.buildingId, req.input.query.branchId ?? null))
   })
-  r.get('/buildings/:buildingId/validation', ...base, validate({ params: buildingParam }), async (req, res) => {
-    res.json(await hld.validate(req, req.input.params.buildingId))
+  r.get('/buildings/:buildingId/validation', ...base, validate({ params: buildingParam, query: C.hldViewQuery }), async (req, res) => {
+    res.json(await hld.validate(req, req.input.params.buildingId, req.input.query.branchId ?? null))
   })
 
   r.post('/generate', ...base, edit, validate({ body: C.hldGenerateBody }), async (req, res) => {

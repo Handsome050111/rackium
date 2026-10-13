@@ -33,8 +33,8 @@ export function lldRoutes({ config, lld }) {
   r.get('/buildings/:buildingId/validation', ...base, validate({ params: buildingParam, query: C.lldViewQuery }), async (req, res) => {
     res.json(await lld.validate(req, req.input.params.buildingId, req.input.query.branchId))
   })
-  r.get('/buildings/:buildingId/reconciliation', ...base, validate({ params: buildingParam }), async (req, res) => {
-    res.json(await lld.reconciliation(req, req.input.params.buildingId))
+  r.get('/buildings/:buildingId/reconciliation', ...base, validate({ params: buildingParam, query: C.lldViewQuery }), async (req, res) => {
+    res.json(await lld.reconciliation(req, req.input.params.buildingId, req.input.query.branchId ?? null))
   })
 
   r.post('/start', ...base, edit, validate({ body: C.lldStartBody }), async (req, res) => {

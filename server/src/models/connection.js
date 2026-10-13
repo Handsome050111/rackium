@@ -24,6 +24,12 @@ const hopSchema = new mongoose.Schema(
     // device↔panel (patch cord) → front, panel↔panel (trunk) → rear.
     inSide: { type: String, enum: ['front', 'rear', null], default: null },
     outSide: { type: String, enum: ['front', 'rear', null], default: null },
+    // The cable after this panel (route segment seq; M5a review): its own
+    // Engineer Selected and Installed length. Suggested is calculated.
+    lengths: {
+      engineerSelectedM: { type: Number, default: null },
+      installedM: { type: Number, default: null },
+    },
   },
   { _id: false }
 )

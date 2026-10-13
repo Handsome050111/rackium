@@ -44,6 +44,9 @@ const deviceSchema = new mongoose.Schema({
   layer: { type: String, default: null },
   // The HLD device an LLD device was copied from (reconciliation).
   hldRef: { type: ObjectId, default: null },
+  // On a branch copy: the main-LLD device it came from (M5a) — diffs and
+  // promotion map the branch back to the main design's ids.
+  originId: { type: ObjectId, default: null },
   // PSUs configured on this device; defaults to the catalogue model's count (VAL-005).
   psuConfigured: { type: Number, default: null, min: 0 },
   // Existing gear starts in service [F5].

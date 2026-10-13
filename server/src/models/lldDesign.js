@@ -14,6 +14,10 @@ const lldDesignSchema = new mongoose.Schema({
   basedOnHldNumber: { type: Number, required: true },
   pendingApprovalId: { type: ObjectId, default: null },
   latestApprovedVersionId: { type: ObjectId, default: null },
+  // Frozen by the Solution Package approval (M5a): changes go through a change request.
+  frozen: { type: Boolean, default: false },
+  frozenAt: { type: Date, default: null },
+  frozenByApprovalId: { type: ObjectId, default: null },
   lastEditedAt: { type: Date, default: null },
   lastEditedBy: { type: ObjectId, default: null },
   startedBy: { type: ObjectId, required: true },

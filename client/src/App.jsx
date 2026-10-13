@@ -16,6 +16,10 @@ import RealRoomDetails from './pages/realSurvey/RealRoomDetails.jsx'
 import RealHld from './pages/RealHld.jsx'
 import RealLld from './pages/RealLld.jsx'
 import RealRackiumEditor from './pages/RealRackiumEditor.jsx'
+import RealBom from './pages/RealBom.jsx'
+import RealSolutionPackage from './pages/RealSolutionPackage.jsx'
+import RealClientApproval from './pages/RealClientApproval.jsx'
+import { API_MODE } from './lib/apiMode.js'
 import OrganisationSettings from './pages/OrganisationSettings.jsx'
 import Catalogue from './pages/Catalogue.jsx'
 import CatalogueItem from './pages/CatalogueItem.jsx'
@@ -83,7 +87,8 @@ export default function App() {
       <Route path="/invite" element={<InviteAccept />} />
       <Route path="/team" element={<RequireAuth><Team /></RequireAuth>} />
       <Route path="/demo-guide" element={<DemoGuide />} />
-      <Route path="/approve/:token" element={<ClientApproval />} />
+      {/* The public client approval page: the real one on the backend (M5a), the prototype's in mock mode. */}
+      <Route path="/approve/:token" element={API_MODE === 'real' ? <RealClientApproval /> : <ClientApproval />} />
       <Route path="/b/:buildingId" element={<RequireAuth><AppShell /></RequireAuth>}>
         <Route index element={<BuildingOverview />} />
         <Route path="cmo" element={<Cmo />} />
@@ -120,6 +125,8 @@ export default function App() {
         <Route path="projects/:projectId/buildings/:buildingId/hld" element={<RealHld />} />
         <Route path="projects/:projectId/buildings/:buildingId/lld" element={<RealLld />} />
         <Route path="projects/:projectId/buildings/:buildingId/lld/editor" element={<RealRackiumEditor />} />
+        <Route path="projects/:projectId/buildings/:buildingId/solution-package" element={<RealSolutionPackage />} />
+        <Route path="projects/:projectId/buildings/:buildingId/bom" element={<RealBom />} />
         <Route path="projects/:projectId/buildings/:buildingId/:phaseKey" element={<RealPhasePlaceholder />} />
         <Route path="settings" element={<OrganisationSettings />} />
         <Route path="catalogue" element={<Catalogue />} />

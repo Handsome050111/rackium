@@ -24,7 +24,12 @@ export function buildResourceEstimate({ devices, rows, racks }, minutesById) {
   const byRoom = {}
 
   for (const d of devices) {
-    if (d.role === 'wan-circuit') continue
+    if (d.role === 'wan-circuit' || d.notProcured) continue
+    // Patch panels, cable managers and other passive items: installed, never DGUV-inspected.
+    if (d.passive) {
+      addTask(byRoom, d.roomCode, 'install-rack-accessory')
+      continue
+    }
     if (d.role === 'ap') addTask(byRoom, d.roomCode, 'mount-ap')
     else addTask(byRoom, d.roomCode, 'install-device')
     if (d.role !== 'ap') addTask(byRoom, d.roomCode, 'dguv-inspection') // mains-powered only (brief D31)

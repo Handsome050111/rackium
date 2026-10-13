@@ -10,6 +10,7 @@
     "test:shared": "npm test --workspace @rackium/shared",
     "test:client": "npm test --workspace client",
     "test:server": "npm test --workspace @rackium/server",
+    "clean:test-db": "npm run clean:test-db --workspace @rackium/server",
     "lint": "npm run lint --workspace client",
     "build": "npm run build --workspace client"
   },

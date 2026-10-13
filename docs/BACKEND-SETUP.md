@@ -149,6 +149,34 @@ The Playwright suite runs against the production build in mock mode:
 npm run test:e2e --workspace client
 ```
 
+### Test database folders
+
+Each in-memory database keeps its data on disk while tests run, in
+`<system temp>/rackium-test-db/run-<id>/mongo-mem-<id>` (on Windows,
+`%TEMP%\rackium-test-db`). They are removed automatically:
+
+- each test file stops its database with the library's forced cleanup, which
+  deletes its folder;
+- the Vitest global setup (`server/test/globalSetup.js`) gives each run one
+  folder and deletes it at the end, even after failures or a crashed worker;
+- the Playwright global teardown asks the real-mode e2e server to shut down
+  cleanly before Playwright kills it, so that server's database is removed too;
+- each run first sweeps folders left by earlier runs that were killed outright.
+
+A folder is only ever swept when the process that created it has gone, so a
+test run in another terminal is never disturbed. To clean up by hand:
+
+```bash
+npm run clean:test-db
+```
+
+It only touches `rackium-test-db/run-*` folders whose run has ended. Other
+`mongo-mem-*` folders in the temp folder (from other projects, or from runs
+before this was added) are left alone. Each folder can grow to a few hundred
+MB, and when the disk fills up `mongod` cannot start, so the API tests are
+reported as **skipped** instead of failing. If you see that, check free disk
+space first.
+
 ## Running MongoDB yourself instead of Atlas
 
 Any single-node replica set works, including the one the VPS will run. Start

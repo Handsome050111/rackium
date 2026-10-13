@@ -140,7 +140,10 @@ describe('real survey helpers', () => {
     expect(factPatch({}, 'details', 'usableDepthMm', '650', true)).toEqual({ details: { usableDepthMm: 650 } })
     expect(factPatch({}, 'details', 'usableDepthMm', '-1', true)).toBeNull()
     expect(factPatch({}, 'details', 'type', '', false)).toEqual({ details: { type: null } })
-    expect(factPatch({ mountingPower: { pduA: { totalSockets: 24, freeSockets: 4 } } }, 'mountingPower', 'pduA.freeSockets', '6', true)).toEqual({ mountingPower: { pduA: { totalSockets: 24, freeSockets: 6 } } })
+    expect(factPatch({ mountingPower: { pduA: { totalSockets: 24, freeSockets: 4 } } }, 'mountingPower', 'pduA.freeSockets', '6', true)).toEqual({ mountingPower: { pduA: { totalSockets: 24, freeSockets: 6, socketType: null } } })
+    // M5a: the socket type is kept when the counts change, and set without a count (regression: it became 0).
+    expect(factPatch({ mountingPower: { pduA: { totalSockets: 24, freeSockets: 4, socketType: 'C13' } } }, 'mountingPower', 'pduA.freeSockets', '5', true)).toEqual({ mountingPower: { pduA: { totalSockets: 24, freeSockets: 5, socketType: 'C13' } } })
+    expect(factPatch({}, 'mountingPower', 'pduB.socketType', 'C19', false)).toEqual({ mountingPower: { pduB: { totalSockets: 0, freeSockets: 0, socketType: 'C19' } } })
   })
 
   it('room facts map between the panel and the API; stepper links stay in the project', () => {

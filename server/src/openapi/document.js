@@ -394,8 +394,8 @@ export function buildRegistry() {
   const H = '/api/v1/orgs/{orgId}/projects/{projectId}/hld'
   const stale = { 409: err('Stale revision, or the HLD is submitted and locked') }
   route('get', `${H}/library`, 'HLD library: roles with hostname codes and catalogue models, optics, blueprint presets')
-  route('get', `${H}/buildings/{buildingId}`, 'The HLD of a building: survey rooms and racks, devices, uplinks with lengths, positions, revision, approvals, survey-change flags', { params: p({ buildingId: 1 }) })
-  route('get', `${H}/buildings/{buildingId}/validation`, 'Run the validation engine (VAL-001…013 and the listed checks): findings by severity', { params: p({ buildingId: 1 }) })
+  route('get', `${H}/buildings/{buildingId}`, 'The HLD of a building (or a change request’s branch of it): survey rooms and racks, devices, uplinks with lengths, positions, revision, approvals, survey-change flags', { params: p({ buildingId: 1 }), query: C.hldViewQuery })
+  route('get', `${H}/buildings/{buildingId}/validation`, 'Run the validation engine (VAL-001…013 and the listed checks): findings by severity (main HLD or a change request’s branch)', { params: p({ buildingId: 1 }), query: C.hldViewQuery })
   route('post', `${H}/generate`, 'Generate HLD from the verified survey and a blueprint preset (Architect); adds only what is missing', { body: C.hldGenerateBody, status: 201, errors: stale })
   route('post', `${H}/devices`, 'Add a planned device from the library (Architect); hostname from the organisation naming codes', { body: C.hldDeviceCreateBody, status: 201, errors: stale })
   route('patch', `${H}/devices/{id}`, 'Change a planned device’s model or configured PSUs (Architect)', { params: p({ id: 1 }), body: C.hldDeviceUpdateBody, errors: stale })
@@ -414,7 +414,7 @@ export function buildRegistry() {
   const taken = { 409: err('Port or cable ID in use, or stale revision') }
   route('get', `${L}/buildings/{buildingId}`, 'The LLD of a building (or one of its branches): racks with RU states, devices with ports and occupancy, connections with lengths, versions, branches, approvals, HLD baseline', { params: p({ buildingId: 1 }), query: C.lldViewQuery })
   route('get', `${L}/buildings/{buildingId}/validation`, 'HLD rules plus the LLD checks (ports, cable IDs, RU placement, hops)', { params: p({ buildingId: 1 }), query: C.lldViewQuery })
-  route('get', `${L}/buildings/{buildingId}/reconciliation`, 'Side-by-side HLD vs LLD: devices and uplinks only in the HLD, only in the LLD, or changed', { params: p({ buildingId: 1 }) })
+  route('get', `${L}/buildings/{buildingId}/reconciliation`, 'Side-by-side HLD vs LLD: devices and uplinks only in the HLD, only in the LLD, or changed (on a change request’s branch: its own HLD against its LLD)', { params: p({ buildingId: 1 }), query: C.lldViewQuery })
   route('post', `${L}/start`, 'Start the LLD from the latest approved HLD (Architect): a working copy of its devices and uplinks', { body: C.lldStartBody, status: 201, errors: { 409: err('HLD not approved, or LLD already started') } })
   route('post', `${L}/rebase`, 'Mark the LLD reviewed against the latest approved HLD (Architect)', { body: C.lldRebaseBody, errors: lstale })
   route('post', `${L}/copy-from-hld`, 'Copy chosen HLD devices and uplinks into the LLD (Architect); no automatic re-sync', { body: C.lldCopyBody, errors: lstale })
@@ -434,6 +434,33 @@ export function buildRegistry() {
   route('post', `${L}/branches/{id}/discard`, 'Discard a branch (Architect)', { params: p({ id: 1 }), errors: lstale })
   route('post', `${L}/submit`, 'Submit the LLD for approval (Architect): refused while any Critical finding is open', { body: C.lldSubmitBody, status: 201, errors: { 409: err('Critical findings, stale revision or already submitted') } })
   route('post', `${L}/decision`, 'Approve or request changes on the LLD (PM or Reviewer, never the submitter); approval freezes the version', { body: C.lldDecisionBody, errors: { 409: err('Not awaiting approval') } })
+
+  // --- M5a: BOM, Solution Package, client approval, change requests ---
+  const PR = '/api/v1/orgs/{orgId}/projects/{projectId}'
+  const locked = { 409: err('Locked, not ready or stale') }
+  route('get', `${PR}/commercial-settings`, "The project's commercial and resource standards: margin %, Bill of Resources minutes per task, customer power-cord standard")
+  route('patch', `${PR}/commercial-settings`, 'Set margin %, resource minutes or the customer power-cord standard (PM)', { body: C.commercialSettingsBody })
+  route('get', `${PR}/bom/buildings/{buildingId}`, 'The BOM: lines with source tag and reason, quantities, reconciliation, prices (when allowed), procurement facts; Draft until the Solution Package is approved', { params: p({ buildingId: 1 }) })
+  route('post', `${PR}/bom/approve`, 'Approve the procurement BOM (PM) after the Solution Package approval; again after a change', { body: C.bomApproveBody, status: 201, errors: locked })
+  route('patch', `${PR}/bom/lines`, 'Update a procurement line (PM): status by allowed transition, vendor, PO, expected/actual delivery; optimistic version', { body: C.procurementLineBody, errors: { 400: err('Transition not allowed'), 409: err('Locked or stale') } })
+  route('get', `${PR}/solution-package/buildings/{buildingId}`, 'The Solution Package: 18 sections with completeness, 12 Required Input groups, validation areas, readiness, Bill of Resources, share links, approvals, change requests', { params: p({ buildingId: 1 }) })
+  route('put', `${PR}/solution-package/groups/{groupKey}`, 'Edit one Required Input group: owner, due date, addressing entries (group 1) or key/value pairs (Architect or PM)', { params: p({ groupKey: 1 }), body: C.requiredInputGroupBody, errors: locked })
+  route('post', `${PR}/solution-package/accept-warning`, 'Accept a warning area (Architect or PM); who and when are recorded', { body: C.acceptWarningBody, errors: locked })
+  route('post', `${PR}/solution-package/submit`, 'Send the package to the client (PM): a version, a pending client approval and a share link (token and password shown once)', { body: C.shareLinkCreateBody, status: 201, errors: locked })
+  route('post', `${PR}/share-links/{id}/extend`, 'Extend a share link 1–30 days from now (PM)', { params: p({ id: 1 }), body: C.shareLinkExtendBody })
+  route('post', `${PR}/share-links/{id}/revoke`, 'Revoke a share link (PM); the pending decision is withdrawn', { params: p({ id: 1 }) })
+  route('get', `${PR}/change-requests/buildings/{buildingId}`, 'Change requests of a building (history against the package)', { params: p({ buildingId: 1 }) })
+  route('get', `${PR}/change-requests/{id}`, 'A change request with its design diff and BOM impact', { params: p({ id: 1 }) })
+  route('post', `${PR}/change-requests`, 'Open a change request on its own LLD branch (Architect); needs an approved LLD', { body: C.changeRequestCreateBody, status: 201, errors: locked })
+  route('patch', `${PR}/change-requests/{id}`, 'Edit a draft change request (Architect)', { params: p({ id: 1 }), body: C.changeRequestUpdateBody, errors: locked })
+  route('post', `${PR}/change-requests/{id}/submit`, 'Submit a change request (Architect): design diff and BOM impact captured', { params: p({ id: 1 }), errors: locked })
+  route('post', `${PR}/change-requests/{id}/send`, 'Send a submitted change request to the client (PM): share link shown once', { params: p({ id: 1 }), body: C.changeRequestSendBody, status: 201, errors: locked })
+  route('post', `${PR}/change-requests/{id}/withdraw`, 'Withdraw a change request (Architect); its branch is discarded', { params: p({ id: 1 }), errors: locked })
+  const PUB = '/api/v1/public/share-links/{token}'
+  const tok = z.object({ token: z.string() })
+  route('get', PUB, 'Public: whether an approval link can be used (no package content)', { params: tok })
+  route('post', `${PUB}/view`, 'Public: the package (or change request) behind a link, read-only; password required, 5 wrong passwords lock the link for 15 minutes', { params: tok, body: C.publicViewBody, errors: { 401: err('Wrong password'), 410: err('Expired or revoked'), 429: err('Locked') } })
+  route('post', `${PUB}/decision`, "Public: the client's decision (approve, request changes, reject) with name, role, comments, acceptance and an optional signature; expiry checked at submit", { params: tok, body: C.publicDecisionBody, errors: { 401: err('Wrong password'), 409: err('Already decided'), 410: err('Expired or revoked'), 429: err('Locked') } })
 
   registry.registerPath({
     method: 'get',

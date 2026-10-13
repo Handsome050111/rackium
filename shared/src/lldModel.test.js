@@ -11,6 +11,7 @@ import {
   findPortConflicts,
   paginate,
   deviceDisplayLabel,
+  endLabel,
 } from './lldModel.js'
 
 describe('resolvePathway — the Estimated flag (brief Step 6: "verify this works with a route set to Estimated")', () => {
@@ -215,5 +216,17 @@ describe('deviceDisplayLabel', () => {
   it('gives the single Border/Fusion device its fixed name, no number', () => {
     const devices = [{ id: 'b1', role: 'border' }]
     expect(deviceDisplayLabel(devices[0], devices)).toBe('Border')
+  })
+})
+
+// Regression: an end without a port yet (a fresh LLD, a change request's new
+// link) was shown as 'B-1 null' in the cable schedule.
+describe('endLabel', () => {
+  it('device and port; a panel by port; an end without a port shows the device alone', () => {
+    expect(endLabel({ type: 'device', label: 'B-1' }, 'Te1/1/1')).toBe('B-1 Te1/1/1')
+    expect(endLabel({ type: 'patchpanel', label: 'PP-1' }, '01')).toBe('PP-1 / Port 01')
+    expect(endLabel({ type: 'device', label: 'B-1' }, null)).toBe('B-1')
+    expect(endLabel({ type: 'patchpanel', label: 'PP-1' }, undefined)).toBe('PP-1')
+    expect(endLabel(null, '01')).toBe('—')
   })
 })

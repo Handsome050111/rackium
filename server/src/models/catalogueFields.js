@@ -45,6 +45,8 @@ export function catalogueFields() {
     compatibleSfps: { type: [String], default: [] },
     compatiblePsus: { type: [String], default: [] },
     compatibleModules: { type: [String], default: [] },
+    stock: { type: new mongoose.Schema({ media: String, pricePerMetreMinor: Number, minimumMinor: Number }, { _id: false }), default: null },
+    powerCord: { type: new mongoose.Schema({ connectorPair: String }, { _id: false }), default: null },
     unitPriceMinor: { type: Number, default: null },
     currency: { type: String, default: 'EUR' },
     servonAvailable: { type: Boolean, default: false },

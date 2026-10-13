@@ -222,7 +222,8 @@ export const roomSurveyBody = z
   })
   .refine((v) => Object.keys(v).length > 0, { message: 'Provide at least one survey fact' })
 
-const sockets = z.object({ totalSockets: nonNegInt, freeSockets: nonNegInt }).nullable()
+// socketType (M5a, brief §6.7): the PDU socket decides the power cord.
+const sockets = z.object({ totalSockets: nonNegInt, freeSockets: nonNegInt, socketType: z.enum(['C13', 'C19']).nullable().optional() }).nullable()
 export const rackFactsBody = z.object({
   details: z
     .object({
@@ -388,9 +389,11 @@ export const stockLengthsSchema = z.object({
   dac: lengthList,
   stack: lengthList,
 })
+// Cage nuts per RU on each face a device is fixed to (M5a review).
+export const cageNutsPerRuSchema = z.object({ front: z.number().int().min(0).max(20), rear: z.number().int().min(0).max(20) })
 export const organisationSettingsBody = z
-  .object({ architectsSeePrices: z.boolean().optional(), namingRoleCodes: namingRoleCodesSchema.optional(), stockLengths: stockLengthsSchema.optional() })
-  .refine((b) => b.architectsSeePrices !== undefined || b.namingRoleCodes !== undefined || b.stockLengths !== undefined, { message: 'Nothing to update' })
+  .object({ architectsSeePrices: z.boolean().optional(), namingRoleCodes: namingRoleCodesSchema.optional(), stockLengths: stockLengthsSchema.optional(), cageNutsPerRu: cageNutsPerRuSchema.optional() })
+  .refine((b) => b.architectsSeePrices !== undefined || b.namingRoleCodes !== undefined || b.stockLengths !== undefined || b.cageNutsPerRu !== undefined, { message: 'Nothing to update' })
 
 // --- M3a: catalogue -------------------------------------------------------
 // Create and replace take the whole item (shared/src/catalogue.js is the one
@@ -503,11 +506,11 @@ export const hldGenerateBody = z
     const problem = blueprintProblem(b.preset, b.variant)
     if (problem) ctx.addIssue({ code: 'custom', path: ['variant'], message: problem })
   })
-export const hldDeviceCreateBody = z.object({ buildingId: objectId, role: z.enum(HLD_ROLE_KEYS), roomId: objectId, catalogueKey: z.string().trim().min(1).max(200).optional(), baseRevision })
+export const hldDeviceCreateBody = z.object({ buildingId: objectId, role: z.enum(HLD_ROLE_KEYS), roomId: objectId, branchId: objectId.optional(), catalogueKey: z.string().trim().min(1).max(200).optional(), baseRevision })
 export const hldDeviceUpdateBody = z
   .object({ catalogueKey: z.string().trim().min(1).max(200).optional(), psuConfigured: z.number().int().min(0).max(8).optional(), baseRevision })
   .refine((b) => b.catalogueKey !== undefined || b.psuConfigured !== undefined, { message: 'Nothing to update' })
-export const hldUplinkCreateBody = z.object({ buildingId: objectId, ...uplinkFields, cableId: z.string().trim().min(1).max(32).nullable().optional(), baseRevision })
+export const hldUplinkCreateBody = z.object({ buildingId: objectId, branchId: objectId.optional(), ...uplinkFields, cableId: z.string().trim().min(1).max(32).nullable().optional(), baseRevision })
 export const hldUplinkUpdateBody = z.object({
   source: hldEnd.optional(),
   dest: hldEnd.optional(),
@@ -519,9 +522,11 @@ export const hldUplinkUpdateBody = z.object({
   cableId: z.string().trim().min(1).max(32).nullable().optional(),
   baseRevision,
 })
-export const hldUplinkCheckBody = z.object({ buildingId: objectId, connectionId: objectId.optional(), ...uplinkFields })
+export const hldUplinkCheckBody = z.object({ buildingId: objectId, connectionId: objectId.optional(), branchId: objectId.optional(), ...uplinkFields })
 export const hldPositionBody = z.object({ x: z.number().finite().min(-100000).max(100000), y: z.number().finite().min(-100000).max(100000) })
 export const hldRevisionQuery = z.object({ baseRevision: z.coerce.number().int().min(0) })
+// A change request's branch of the HLD (M5a review); omitted = the main HLD.
+export const hldViewQuery = z.object({ branchId: objectId.optional() })
 export const hldSubmitBody = z.object({ buildingId: objectId, baseRevision })
 export const hldDecisionBody = z.object({ buildingId: objectId, decision: z.enum(['approved', 'changes_requested']), comment: z.string().trim().max(2000).optional() })
 
@@ -538,7 +543,12 @@ export const lldHop = z.object({
   // Optional: the server derives each side from the cable type and refuses a wrong one.
   inSide: z.enum(['front', 'rear']).optional(),
   outSide: z.enum(['front', 'rear']).optional(),
+  // The cable after this panel (route segment seq; M5a review); omitted = kept.
+  engineerSelectedM: z.number().positive().max(100000).nullable().optional(),
 })
+// One cable's Engineer Selected length: segment 0 is the connection's own
+// cable, segment k the cable after hop k.
+const segmentLengths = z.array(z.object({ segment: z.number().int().min(0).max(8), engineerSelectedM: z.number().positive().max(100000).nullable() })).max(9)
 const lldConnectionFields = {
   source: lldEnd,
   dest: lldEnd,
@@ -552,7 +562,7 @@ const lldConnectionFields = {
 }
 export const lldStartBody = z.object({ buildingId: objectId })
 export const lldRebaseBody = z.object({ buildingId: objectId, baseRevision })
-export const lldCopyBody = z.object({ buildingId: objectId, hldDeviceIds: z.array(objectId).max(200).default([]), hldConnectionIds: z.array(objectId).max(400).default([]), baseRevision })
+export const lldCopyBody = z.object({ buildingId: objectId, ...branchRef, hldDeviceIds: z.array(objectId).max(200).default([]), hldConnectionIds: z.array(objectId).max(400).default([]), baseRevision })
 export const lldDeviceCreateBody = z.object({ buildingId: objectId, ...branchRef, catalogueKey: z.string().trim().min(1).max(200), rackId: objectId, ru: z.number().int().min(1).max(60).nullable(), face: z.enum(['front', 'rear']).default('front'), label: z.string().trim().regex(/^[A-Za-z0-9][A-Za-z0-9-]{0,62}$/, 'Letters, digits and hyphens, up to 63 characters (hostname-safe)').optional(), baseRevision })
 export const lldPlacementBody = z.object({ rackId: objectId.nullable(), ru: z.number().int().min(1).max(60).nullable(), face: z.enum(['front', 'rear']).default('front'), baseRevision })
 export const lldConnectionCreateBody = z.object({ buildingId: objectId, ...branchRef, ...lldConnectionFields, baseRevision })
@@ -566,6 +576,7 @@ export const lldConnectionUpdateBody = z.object({
   hops: z.array(lldHop).max(8).optional(),
   cableId: cableIdField.nullable().optional(),
   engineerSelectedM: z.number().positive().max(100000).nullable().optional(),
+  segmentLengths: segmentLengths.optional(),
   baseRevision,
 })
 export const lldViewQuery = z.object({ branchId: objectId.optional() })
@@ -583,3 +594,81 @@ export const lldBranchBody = z.object({ buildingId: objectId, name: z.string().t
 export const lldBranchPromoteBody = z.object({ baseRevision })
 export const lldSubmitBody = z.object({ buildingId: objectId, baseRevision })
 export const lldDecisionBody = z.object({ buildingId: objectId, decision: z.enum(['approved', 'changes_requested']), comment: z.string().trim().max(2000).optional() })
+
+// --- M5a: BOM, Solution Package, client approval, change requests ----------
+const minutes = z.number().int().min(0).max(24 * 60)
+export const commercialSettingsBody = z
+  .object({
+    marginPercent: z.number().min(0).max(500).optional(),
+    resourceMinutes: z.record(z.string().regex(/^[a-z-]{2,40}$/), minutes).optional(),
+    powerCordStandard: z.object({ label: z.string().trim().min(1).max(80), connectorPair: z.string().trim().min(3).max(40) }).nullable().optional(),
+  })
+  .refine((b) => Object.keys(b).length > 0, { message: 'Nothing to update' })
+
+const isoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use a date (YYYY-MM-DD)')
+const entryId = z.string().trim().min(1).max(40)
+export const addressingEntry = z.object({
+  id: entryId,
+  label: z.string().trim().max(80).default(''),
+  vlanId: z.union([z.number().int(), z.literal('')]).default(''),
+  cidr: z.string().trim().max(43).default(''),
+  gateway: z.string().trim().max(39).default(''),
+})
+export const kvPair = z.object({ id: entryId, key: z.string().trim().max(120).default(''), value: z.string().trim().max(2000).default('') })
+export const requiredInputGroupBody = z
+  .object({
+    buildingId: objectId,
+    ownerId: objectId.nullable().optional(),
+    dueDate: isoDay.nullable().optional(),
+    addressingEntries: z.array(addressingEntry).max(200).optional(),
+    kvPairs: z.array(kvPair).max(100).optional(),
+    baseRevision,
+  })
+  .refine((b) => ['ownerId', 'dueDate', 'addressingEntries', 'kvPairs'].some((k) => b[k] !== undefined), { message: 'Nothing to update' })
+export const acceptWarningBody = z.object({ buildingId: objectId, areaKey: z.string().trim().min(1).max(40), baseRevision })
+
+// Share links (PM): password optional (generated when blank), expiry 1–30 days.
+const sharePassword = z.string().min(8, 'At least 8 characters').max(128)
+export const shareLinkCreateBody = z.object({ buildingId: objectId, password: sharePassword.optional(), expiryDays: z.number().int().min(1).max(30).default(14) })
+export const shareLinkExtendBody = z.object({ days: z.number().int().min(1).max(30) })
+export const publicViewBody = z.object({ password: z.string().min(1).max(128) })
+export const publicDecisionBody = z
+  .object({
+    password: z.string().min(1).max(128),
+    decision: z.enum(['approved', 'changes_requested', 'rejected']),
+    name: z.string().trim().min(1, 'Your name is required').max(120),
+    role: z.string().trim().max(120).default(''),
+    comments: z.string().trim().max(4000).default(''),
+    termsAccepted: z.literal(true, { message: 'Confirm you have reviewed the package and may decide on it' }),
+    // A drawn signature as a PNG data URL (optional, ≤ 300 KB).
+    signature: z.string().regex(/^data:image\/png;base64,[A-Za-z0-9+/=]+$/).max(400_000).nullable().optional(),
+  })
+  .refine((b) => b.decision === 'approved' || b.comments.length > 0, { message: 'Say what needs to change', path: ['comments'] })
+
+// Procurement (PM, after the procurement BOM is approved).
+export const bomApproveBody = z.object({ buildingId: objectId })
+export const procurementLineBody = z
+  .object({
+    buildingId: objectId,
+    lineKey: z.string().trim().min(1).max(300),
+    status: z.enum(['not_ordered', 'quotation_requested', 'quoted', 'ordered', 'shipped', 'delivered']).optional(),
+    vendor: z.string().trim().max(120).nullable().optional(),
+    poNumber: z.string().trim().max(60).nullable().optional(),
+    expectedDelivery: isoDay.nullable().optional(),
+    actualDelivery: isoDay.nullable().optional(),
+    notes: z.string().trim().max(1000).nullable().optional(),
+    version: z.number().int().min(0),
+  })
+  .refine((b) => ['status', 'vendor', 'poNumber', 'expectedDelivery', 'actualDelivery', 'notes'].some((k) => b[k] !== undefined), { message: 'Nothing to update' })
+
+// Change requests.
+export const changeRequestCreateBody = z.object({
+  buildingId: objectId,
+  title: z.string().trim().min(1).max(120),
+  description: z.string().trim().max(4000).default(''),
+  reason: z.string().trim().max(2000).default(''),
+})
+export const changeRequestUpdateBody = z
+  .object({ title: z.string().trim().min(1).max(120).optional(), description: z.string().trim().max(4000).optional(), reason: z.string().trim().max(2000).optional(), affectedItems: z.array(z.string().trim().min(1).max(200)).max(200).optional() })
+  .refine((b) => Object.keys(b).length > 0, { message: 'Nothing to update' })
+export const changeRequestSendBody = z.object({ password: sharePassword.optional(), expiryDays: z.number().int().min(1).max(30).default(14) })

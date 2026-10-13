@@ -61,7 +61,9 @@ async function calculationContext(building, room, session = null) {
   const floor = await Floor.findById(room.floorId).session(session).lean()
   Object.assign(ctx, { floorName: floor?.name ?? null, roomCode: room.code })
   const racks = await Rack.find({ roomId: room._id }).sort({ code: 1 }).session(session).lean()
-  const devices = await Device.find({ rackId: { $in: racks.map((r) => r._id) }, mounting: 'rack' }).session(session).lean()
+  // The survey counts the surveyed (existing) gear only — never the planned
+  // devices of the HLD, the LLD or their branches, which share the racks.
+  const devices = await Device.find({ rackId: { $in: racks.map((r) => r._id) }, mounting: 'rack', origin: 'existing' }).session(session).lean()
   const rackStatsByCode = {}
   for (const r of racks) {
     const used = devices.filter((d) => String(d.rackId) === String(r._id)).reduce((sum, d) => sum + (d.heightU ?? 0), 0)

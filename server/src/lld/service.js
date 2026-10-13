@@ -1,6 +1,7 @@
 import mongoose from 'mongoose'
 import crypto from 'node:crypto'
-import { computeSuggestedLength, determineSituation, DEFAULT_STOCK_LENGTHS } from '@rackium/shared/cableLength.js'
+import { DEFAULT_STOCK_LENGTHS } from '@rackium/shared/cableLength.js'
+import { connectionSegments, lengthBetween } from '@rackium/shared/cableSegments.js'
 import { findRoute } from '@rackium/shared/pathway.js'
 import { findConflicts, computeFreeRU } from '@rackium/shared/rackValidation.js'
 import { suggestNextCableId } from '@rackium/shared/cableId.js'
@@ -15,6 +16,8 @@ import { PortOccupancy } from '../models/portOccupancy.js'
 import { CableIdRegistry } from '../models/cableIdRegistry.js'
 import { LldDesign } from '../models/lldDesign.js'
 import { DesignBranch } from '../models/designBranch.js'
+import { HLD_LAYER, hldDesignSnapshot, copyHldIntoBranch, promoteHldBranch, discardHldBranch, writeHldVersion } from '../hld/service.js'
+import { assertChangeRequestEditable, claimBranchRevision } from '../design/branchClaim.js'
 import { HldDesign } from '../models/hldDesign.js'
 import { DesignVersion } from '../models/designVersion.js'
 import { Approval } from '../models/approval.js'
@@ -121,26 +124,29 @@ function deviceView(d, cat, racks) {
 // Brief §6.3 lengths for a connection, from where its ends now are: same
 // rack (RU), same room (rack positions) or across rooms (pathway); rounded
 // up to the organisation's stock table. Estimated when the route is.
-function lengthOf(conn, deviceById, rackPos, pathways, stockLengths) {
-  const a = deviceById.get(id(conn.source.deviceId))
-  const b = deviceById.get(id(conn.dest.deviceId))
-  const empty = { lengthM: null, lengthEstimated: true, customLengthRequired: false, suggestedM: null, situation: null, estimateReason: 'An end has no room yet', placementPending: true }
-  if (!a?.roomId || !b?.roomId) return empty
-  const situation = determineSituation({ sourceRackId: a.rackId, destRackId: b.rackId, sourceRoomId: a.roomId, destRoomId: b.roomId })
-  const placementPending = (situation === 'same-rack' && (a.ru == null || b.ru == null)) || (situation === 'same-room' && (!a.rackId || !b.rackId))
-  let estimateReason = null
-  let distance
-  if (situation === 'cross-room') {
-    const route = findRoute(a.roomId, b.roomId, pathways)
-    if (!route) estimateReason = 'No pathway recorded between these rooms'
-    else if (route.routeStatus !== 'surveyed') estimateReason = 'Pathway route is marked Estimated'
-    else if (route.distanceM == null) estimateReason = 'Surveyed pathway has no distance'
-    distance = route?.distanceM ?? null
+function lengthOptions(rackPos, pathways, stockLengths) {
+  return {
+    rackPositionOf: (rackId) => rackPos.get(String(rackId)) ?? 1,
+    routeOf: (roomA, roomB) => {
+      const route = findRoute(String(roomA), String(roomB), pathways)
+      if (!route) return { distanceM: null, reason: 'No pathway recorded between these rooms' }
+      if (route.routeStatus !== 'surveyed') return { distanceM: route.distanceM ?? null, reason: 'Pathway route is marked Estimated' }
+      if (route.distanceM == null) return { distanceM: null, reason: 'Surveyed pathway has no distance' }
+      return { distanceM: route.distanceM, reason: null }
+    },
+    stockLengths,
   }
-  if (placementPending) return { ...empty, situation, estimateReason: 'Place both devices to calculate the length', lengthEstimated: false }
-  const end = (d, extra = {}) => ({ rackId: d.rackId, roomId: d.roomId, ru: d.ru ?? 1, rackPosition: d.rackId ? rackPos.get(d.rackId) ?? 1 : 1, ...extra })
-  const r = computeSuggestedLength({ source: end(a), dest: end(b, { surveyedPathwayLength: distance }), media: conn.media, stockLengths })
-  return { lengthM: r.rawMeters, lengthEstimated: Boolean(estimateReason) || r.estimated, customLengthRequired: r.customLengthRequired, suggestedM: r.suggested, situation, estimateReason, placementPending: false }
+}
+
+// The end-to-end run (source → destination), for the channel checks.
+function lengthOf(conn, deviceById, rackPos, pathways, stockLengths) {
+  const length = lengthBetween(deviceById.get(id(conn.source.deviceId)), deviceById.get(id(conn.dest.deviceId)), conn.media, lengthOptions(rackPos, pathways, stockLengths))
+  return length.placementPending && length.situation ? { ...length, estimateReason: 'Place both devices to calculate the length' } : length
+}
+
+// Every cable of the route with its own lengths (shared/cableSegments.js).
+function segmentsOf(conn, deviceById, rackPos, pathways, stockLengths) {
+  return connectionSegments(conn, { nodeOf: (deviceId) => deviceById.get(String(deviceId)) ?? null, isPanel: (deviceId) => Boolean(deviceById.get(String(deviceId))?.isPanel), ...lengthOptions(rackPos, pathways, stockLengths) })
 }
 
 function rackPositions(racks) {
@@ -151,7 +157,10 @@ function rackPositions(racks) {
   return out
 }
 
-function connectionView(c, length) {
+// `lengths` are the connection's own cable (segment 0); `segments` every
+// cable of the route, each with its Suggested, Engineer Selected and
+// Installed length.
+function connectionView(c, length, segments = []) {
   const engineer = c.lengths?.engineerSelectedM ?? null
   return {
     id: String(c._id),
@@ -165,9 +174,10 @@ function connectionView(c, length) {
     destSfpCode: c.destSfpCode ?? null,
     viaPatchPanel: Boolean(c.viaPatchPanel),
     cableId: c.cableId ?? null,
-    hops: (c.hops ?? []).map((h) => ({ seq: h.seq, patchPanelId: String(h.patchPanelId), inPort: h.inPort, inSide: h.inSide ?? null, outPort: h.outPort, outSide: h.outSide ?? null, segmentCableId: h.segmentCableId ?? null, roomId: id(h.roomId), rackId: id(h.rackId), ru: h.ru ?? null })),
-    lengths: { suggestedM: length.suggestedM, engineerSelectedM: engineer, effectiveM: engineer ?? length.suggestedM, installedM: c.lengths?.installedM ?? null },
+    hops: (c.hops ?? []).map((h) => ({ seq: h.seq, patchPanelId: String(h.patchPanelId), inPort: h.inPort, inSide: h.inSide ?? null, outPort: h.outPort, outSide: h.outSide ?? null, segmentCableId: h.segmentCableId ?? null, roomId: id(h.roomId), rackId: id(h.rackId), ru: h.ru ?? null, lengths: { engineerSelectedM: h.lengths?.engineerSelectedM ?? null, installedM: h.lengths?.installedM ?? null } })),
+    lengths: { suggestedM: segments[0]?.suggestedM ?? length.suggestedM, engineerSelectedM: engineer, effectiveM: engineer ?? segments[0]?.suggestedM ?? length.suggestedM, installedM: c.lengths?.installedM ?? null },
     length,
+    segments,
     status: c.status,
   }
 }
@@ -177,7 +187,8 @@ function inputs(data) {
   const rackPos = rackPositions(data.racks)
   const views = [...data.existing, ...data.devices].map((d) => deviceView(d, cat, data.racks))
   const deviceById = new Map(views.map((d) => [d.id, d]))
-  const connections = data.connections.map((c) => connectionView(c, lengthOf(c, deviceById, rackPos, data.pathways, data.settings.stockLengths)))
+  const { stockLengths } = data.settings
+  const connections = data.connections.map((c) => connectionView(c, lengthOf(c, deviceById, rackPos, data.pathways, stockLengths), segmentsOf(c, deviceById, rackPos, data.pathways, stockLengths)))
   const occupancyByDevice = new Map()
   for (const o of data.occupancy) occupancyByDevice.set(String(o.deviceId), [...(occupancyByDevice.get(String(o.deviceId)) ?? []), o])
   const ctx = {
@@ -209,7 +220,7 @@ function snapshotOf(data) {
     devices: views.filter((d) => own.has(d.id)),
     connections,
     raw: {
-      devices: data.devices.map((d) => ({ _id: String(d._id), role: d.role ?? null, hostname: d.hostname ?? null, label: d.label ?? null, model: d.model ?? null, catalogueKey: d.catalogueKey ?? null, category: d.category ?? null, roomId: id(d.roomId), rackId: id(d.rackId), ru: d.ru ?? null, heightU: d.heightU ?? null, face: d.face ?? null, fullDepth: Boolean(d.fullDepth), mounting: d.mounting ?? null, psuConfigured: d.psuConfigured ?? null, hldRef: id(d.hldRef), salId: id(d.salId) })),
+      devices: data.devices.map((d) => ({ _id: String(d._id), role: d.role ?? null, hostname: d.hostname ?? null, label: d.label ?? null, model: d.model ?? null, catalogueKey: d.catalogueKey ?? null, category: d.category ?? null, roomId: id(d.roomId), rackId: id(d.rackId), ru: d.ru ?? null, heightU: d.heightU ?? null, face: d.face ?? null, fullDepth: Boolean(d.fullDepth), mounting: d.mounting ?? null, psuConfigured: d.psuConfigured ?? null, hldRef: id(d.hldRef), originId: id(d.originId), salId: id(d.salId) })),
       connections: data.connections.map((c) => ({
         _id: String(c._id),
         hldRef: id(c.hldRef),
@@ -222,11 +233,31 @@ function snapshotOf(data) {
         destSfpCode: c.destSfpCode ?? null,
         viaPatchPanel: Boolean(c.viaPatchPanel),
         cableId: c.cableId ?? null,
-        hops: (c.hops ?? []).map((h) => ({ seq: h.seq, patchPanelId: String(h.patchPanelId), inPort: h.inPort, inSide: h.inSide ?? null, outPort: h.outPort, outSide: h.outSide ?? null, segmentCableId: h.segmentCableId ?? null, roomId: id(h.roomId), rackId: id(h.rackId), ru: h.ru ?? null })),
-        lengths: { engineerSelectedM: c.lengths?.engineerSelectedM ?? null },
+        hops: (c.hops ?? []).map((h) => ({ seq: h.seq, patchPanelId: String(h.patchPanelId), inPort: h.inPort, inSide: h.inSide ?? null, outPort: h.outPort, outSide: h.outSide ?? null, segmentCableId: h.segmentCableId ?? null, roomId: id(h.roomId), rackId: id(h.rackId), ru: h.ru ?? null, lengths: { engineerSelectedM: h.lengths?.engineerSelectedM ?? null, installedM: h.lengths?.installedM ?? null } })),
+        lengths: { engineerSelectedM: c.lengths?.engineerSelectedM ?? null, installedM: c.lengths?.installedM ?? null },
       })),
     },
   }
+}
+
+// A branch's snapshot on the main design's ids: each copied device and
+// connection takes its origin id (records new on the branch keep theirs),
+// endpoints and hops follow. Works on view snapshots and on raw ones.
+function remapToMain(snap, data) {
+  const dev = new Map(data.devices.map((d) => [String(d._id), d.originId ? String(d.originId) : String(d._id)]))
+  const conn = new Map(data.connections.map((c) => [String(c._id), c.originId ? String(c.originId) : String(c._id)]))
+  const d = (x) => (x == null ? x : dev.get(String(x)) ?? String(x))
+  const remapConn = (c) => {
+    const key = c._id !== undefined ? '_id' : 'id'
+    return { ...c, [key]: conn.get(String(c[key])) ?? String(c[key]), originId: null, source: { ...c.source, deviceId: d(c.source.deviceId) }, dest: { ...c.dest, deviceId: d(c.dest.deviceId) }, hops: (c.hops ?? []).map((h) => ({ ...h, patchPanelId: d(h.patchPanelId) })) }
+  }
+  const remapDev = (x) => {
+    const key = x._id !== undefined ? '_id' : 'id'
+    return { ...x, [key]: d(x[key]), originId: null }
+  }
+  const out = { ...snap, devices: snap.devices.map(remapDev), connections: snap.connections.map(remapConn) }
+  if (snap.raw) out.raw = remapToMain(snap.raw, data)
+  return out
 }
 
 // --- Revisions ---------------------------------------------------------------------
@@ -241,23 +272,33 @@ async function staleError(doc, baseRevision, what) {
 }
 
 // The main LLD or an open branch: claims the next revision or refuses.
+// After the Solution Package approval (M5a) the HLD and LLD are frozen: any
+// change goes through a change request, which edits its own branch.
+export const FROZEN_MESSAGE = 'The design is frozen by the Solution Package approval — changes go through a change request'
+
+// A branch may be edited while it is an ordinary branch of an unfrozen LLD,
+// or the branch of a change request that is still a draft (or sent back).
+async function assertBranchEditable(branch, buildingId, session) {
+  if (branch?.changeRequestId) return assertChangeRequestEditable(branch, session)
+  const lld = await LldDesign.findOne({ buildingId }, { frozen: 1 }).session(session).lean()
+  if (lld?.frozen) throw conflict('change_request_required', FROZEN_MESSAGE)
+}
+
 async function claim({ buildingId, branchId }, baseRevision, actor, session) {
   const now = new Date()
   if (branchId) {
-    const updated = await DesignBranch.findOneAndUpdate({ _id: branchId, buildingId, status: 'open', revision: baseRevision }, { $inc: { revision: 1 }, $set: { lastEditedAt: now, lastEditedBy: actor.userId } }, { session, returnDocument: 'after' })
-    if (updated) return updated
-    const current = await DesignBranch.findById(branchId).session(session)
-    if (!current || current.status !== 'open') throw conflict('branch_closed', 'This branch was promoted or discarded')
-    throw await staleError(current, baseRevision, 'branch')
+    await assertBranchEditable(await DesignBranch.findById(branchId).session(session).lean(), buildingId, session)
+    return claimBranchRevision({ branchId, buildingId }, baseRevision, actor, session)
   }
   const updated = await LldDesign.findOneAndUpdate(
-    { buildingId, revision: baseRevision, state: { $ne: 'awaiting_approval' } },
+    { buildingId, revision: baseRevision, state: { $ne: 'awaiting_approval' }, frozen: { $ne: true } },
     { $inc: { revision: 1 }, $set: { state: 'draft', lastEditedAt: now, lastEditedBy: actor.userId } },
     { session, returnDocument: 'after' }
   )
   if (updated) return updated
   const current = await LldDesign.findOne({ buildingId }).session(session)
   if (!current) throw conflict('lld_not_started', 'Start the LLD from the approved HLD first')
+  if (current.frozen) throw conflict('change_request_required', FROZEN_MESSAGE)
   if (current.state === 'awaiting_approval') throw conflict('lld_submitted', 'The LLD is submitted for approval — it can be edited again once a PM or Reviewer decides')
   throw await staleError(current, baseRevision, 'LLD')
 }
@@ -394,12 +435,24 @@ async function writeConnection(doc, body, { layer, data, isNew }, session) {
   if (body.cableId !== undefined) doc.cableId = body.cableId ? body.cableId.trim() : null
   if (body.engineerSelectedM !== undefined) doc.set('lengths.engineerSelectedM', body.engineerSelectedM)
   if (body.hops !== undefined) {
+    const previous = (doc.hops ?? []).map((h) => (h.toObject ? h.toObject() : h))
     doc.hops = body.hops.map((h, i) => {
       const panel = devices.get(String(h.patchPanelId))
       if (!panel || !isPatchPanel(cat.item(panel.catalogueKey), panel)) throw badRequest(`Hop ${i + 1}: not a patch panel of this building`)
       const rack = data.racks.find((r) => String(r._id) === String(panel.rackId))
-      return { seq: i + 1, patchPanelId: panel._id, inPort: validPort(panel, h.inPort, cat), inSide: h.inSide ?? null, outPort: validPort(panel, h.outPort, cat), outSide: h.outSide ?? null, segmentCableId: h.segmentCableId ? h.segmentCableId.trim() : null, roomId: rack?.roomId ?? panel.roomId ?? null, rackId: panel.rackId ?? null, ru: panel.ru ?? null }
+      // The cable after this panel keeps its lengths unless new ones are sent
+      // (the same panel at the same place in the route is the same cable).
+      const before = previous[i] && String(previous[i].patchPanelId) === String(panel._id) ? previous[i].lengths ?? {} : {}
+      const pick = (field) => (h[field] !== undefined ? h[field] : h.lengths?.[field] !== undefined ? h.lengths[field] : before[field] ?? null)
+      return { seq: i + 1, patchPanelId: panel._id, inPort: validPort(panel, h.inPort, cat), inSide: h.inSide ?? null, outPort: validPort(panel, h.outPort, cat), outSide: h.outSide ?? null, segmentCableId: h.segmentCableId ? h.segmentCableId.trim() : null, roomId: rack?.roomId ?? panel.roomId ?? null, rackId: panel.rackId ?? null, ru: panel.ru ?? null, lengths: { engineerSelectedM: pick('engineerSelectedM'), installedM: pick('installedM') } }
     })
+  }
+  // One cable's Engineer Selected length (cable schedule): segment 0 is the
+  // connection's own cable, segment k the cable after hop k.
+  for (const s of body.segmentLengths ?? []) {
+    if (s.segment === 0) doc.set('lengths.engineerSelectedM', s.engineerSelectedM)
+    else if (doc.hops[s.segment - 1]) doc.hops[s.segment - 1].set('lengths.engineerSelectedM', s.engineerSelectedM)
+    else throw badRequest(`This connection has no cable ${s.segment + 1} — it has ${doc.hops.length + 1}`)
   }
   // Sides come from the cable types along the route; a side the client sent
   // that disagrees, or front/rear used inconsistently, is refused.
@@ -432,11 +485,13 @@ async function writeConnection(doc, body, { layer, data, isNew }, session) {
 // Copies devices and connections into a layer. `keepIds` (restore) keeps the
 // snapshot ids; otherwise new ids, endpoints remapped. Ports and cable IDs are
 // registered for the copies.
-async function copyIntoLayer({ devices, connections }, { layer, building, keepIds = false, hldRefOf = (x) => x.hldRef ?? null, carryCableIds = true, data, actor }, session) {
+async function copyIntoLayer({ devices, connections }, { layer, building, keepIds = false, hldRefOf = (x) => x.hldRef ?? null, carryCableIds = true, asNew = false, data, actor }, session) {
   const idMap = new Map()
   for (const d of devices) {
     const newId = keepIds ? oid(d._id ?? d.id) : new mongoose.Types.ObjectId()
     idMap.set(String(d._id ?? d.id), newId)
+    // A copy into a branch remembers the main device it came from.
+    const deviceOrigin = layer === MAIN || asNew ? null : keepIds ? d.originId ?? null : d.originId ?? d._id ?? d.id ?? null
     await Device.create(
       [
         {
@@ -445,6 +500,7 @@ async function copyIntoLayer({ devices, connections }, { layer, building, keepId
           status: 'planned',
           layer,
           hldRef: hldRefOf(d),
+          originId: deviceOrigin ? oid(deviceOrigin) : null,
           role: d.role ?? null,
           hostname: d.hostname ?? null,
           label: d.label ?? null,
@@ -471,8 +527,8 @@ async function copyIntoLayer({ devices, connections }, { layer, building, keepId
   const full = { ...data, devices: fresh }
   for (const c of connections) {
     // A copy into a branch remembers the main connection it came from.
-    const originId = layer === MAIN ? null : keepIds ? c.originId ?? null : c.originId ?? c._id ?? c.id ?? null
-    const doc = new Connection({ _id: keepIds ? oid(c._id ?? c.id) : new mongoose.Types.ObjectId(), buildingId: building.id, layer, hldRef: c.hldRef ?? null, originId: originId ? oid(originId) : null, source: { deviceId: map(c.source.deviceId), portId: c.source.portId ?? null }, dest: { deviceId: map(c.dest.deviceId), portId: c.dest.portId ?? null }, media: c.media, speed: c.speed, createdBy: actor.userId, updatedBy: actor.userId })
+    const originId = layer === MAIN || asNew ? null : keepIds ? c.originId ?? null : c.originId ?? c._id ?? c.id ?? null
+    const doc = new Connection({ _id: keepIds ? oid(c._id ?? c.id) : new mongoose.Types.ObjectId(), buildingId: building.id, layer, hldRef: c.hldRef ?? null, originId: originId ? oid(originId) : null, source: { deviceId: map(c.source.deviceId), portId: c.source.portId ?? null }, dest: { deviceId: map(c.dest.deviceId), portId: c.dest.portId ?? null }, media: c.media, speed: c.speed, lengths: { installedM: c.lengths?.installedM ?? null }, createdBy: actor.userId, updatedBy: actor.userId })
     await writeConnection(
       doc,
       {
@@ -481,7 +537,7 @@ async function copyIntoLayer({ devices, connections }, { layer, building, keepId
         viaPatchPanel: Boolean(c.viaPatchPanel),
         cableId: carryCableIds ? c.cableId ?? null : null,
         engineerSelectedM: c.lengths?.engineerSelectedM ?? null,
-        hops: (c.hops ?? []).map((h) => ({ patchPanelId: String(map(h.patchPanelId)), inPort: h.inPort, outPort: h.outPort, segmentCableId: carryCableIds ? h.segmentCableId ?? null : null })),
+        hops: (c.hops ?? []).map((h) => ({ patchPanelId: String(map(h.patchPanelId)), inPort: h.inPort, outPort: h.outPort, segmentCableId: carryCableIds ? h.segmentCableId ?? null : null, lengths: { engineerSelectedM: h.lengths?.engineerSelectedM ?? null, installedM: h.lengths?.installedM ?? null } })),
       },
       { layer, data: full, isNew: true },
       session
@@ -510,6 +566,40 @@ export function createLldService({ storage }) {
     const file = await File.findById(fileId).lean()
     if (!file) throw notFound('Version snapshot not found')
     return JSON.parse((await storage.read(file.storageKey)).toString('utf8'))
+  }
+
+  async function hldSourceOf(req, building, branch, session = null) {
+    if (branch?.includesHld) {
+      const snap = await hldDesignSnapshot(building.id, req.project.id, { branchId: String(branch._id), session })
+      return { snapshot: snap, number: null, label: `CR branch ${branch.name}` }
+    }
+    const version = await latestApprovedHld(building.id)
+    if (!version) return null
+    return { snapshot: await readSnapshot(version.snapshotFileId), number: version.number, version, label: `HLD v${version.number}` }
+  }
+
+  // HLD ↔ LLD as reconcileWithHld reads them.
+  function lldSideOf(data) {
+    return { devices: data.devices.map((d) => ({ id: String(d._id), hldRef: id(d.hldRef), hostname: d.hostname, label: d.label, role: d.role, catalogueKey: d.catalogueKey, roomId: id(d.roomId) })), connections: data.connections.map((c) => ({ id: String(c._id), hldRef: id(c.hldRef), source: { deviceId: String(c.source.deviceId) }, dest: { deviceId: String(c.dest.deviceId) }, media: c.media, speed: c.speed, sourceSfpCode: c.sourceSfpCode ?? null, destSfpCode: c.destSfpCode ?? null })) }
+  }
+
+  // What a change request makes inconsistent between its HLD and its LLD
+  // (shared/lldDesign.js reconcileWithHld): items out of step on the branch
+  // that are in step on the approved design. Each blocks the submission.
+  async function consistencyOf(req, building, branch, session = null) {
+    const keys = (r) => {
+      const out = new Map()
+      for (const [kind, part] of [['device', r.devices], ['connection', r.connections]]) {
+        for (const [state, list] of [['inHldOnly', part.inHldOnly], ['inLldOnly', part.inLldOnly], ['changed', part.changed]]) for (const x of list) out.set(`${kind}:${state}:${x.id}`, { kind, state, id: x.id, label: x.label, fields: x.fields ?? null })
+      }
+      return out
+    }
+    const mainHld = await hldDesignSnapshot(building.id, req.project.id, { session })
+    const before = keys(reconcileWithHld(mainHld, lldSideOf(await loadLayer(building.id, MAIN, req.project.id, session))))
+    const branchHld = (await hldSourceOf(req, building, branch, session)).snapshot
+    const after = keys(reconcileWithHld(branchHld, lldSideOf(await loadLayer(building.id, layerOf(String(branch._id)), req.project.id, session))))
+    const problems = [...after.entries()].filter(([k]) => !before.has(k)).map(([, v]) => v)
+    return { consistent: problems.length === 0, problems }
   }
 
   async function latestApprovedHld(buildingId) {
@@ -542,7 +632,9 @@ export function createLldService({ storage }) {
   }
 
   async function audit(req, building, actor, action, extra) {
-    await recordAudit({ organisationId: req.org.id, projectId: req.project.id, buildingId: building.id, phaseKey: 'lld', actor: userActor(actor.userId, actor.role), action, changeType: 'design_intent', source: 'ui', ...extra })
+    // A client deciding through a share link (M5a) is recorded as the client.
+    const who = actor.client ? { type: 'client_link', clientName: actor.client.name, clientRole: actor.client.role ?? null, shareLinkId: actor.client.shareLinkId } : userActor(actor.userId, actor.role)
+    await recordAudit({ organisationId: req.org.id, projectId: req.project.id, buildingId: building.id, phaseKey: 'lld', actor: who, action, changeType: 'design_intent', source: actor.client ? 'client_link' : 'ui', ...extra })
   }
 
   async function deviceInLayer(req, deviceId) {
@@ -578,7 +670,141 @@ export function createLldService({ storage }) {
     return { versionId, number }
   }
 
+  // A new branch copied from a version or from the current main LLD (a
+  // change request's branch carries its id).
+  async function makeBranch(req, building, { name, fromVersionId = null, source = null, changeRequestId = null }, actor, session) {
+    const [branch] = await DesignBranch.create([{ buildingId: building.id, name, parentVersionId: fromVersionId, changeRequestId, includesHld: Boolean(changeRequestId), createdBy: actor.userId, lastEditedAt: new Date(), lastEditedBy: actor.userId }], { session })
+    const layer = layerOf(String(branch._id))
+    if (changeRequestId) await copyHldIntoBranch({ building, branchId: String(branch._id), projectId: req.project.id, session })
+    const raw = source ?? snapshotOf(await loadLayer(building.id, MAIN, req.project.id, session)).raw
+    const data = await loadLayer(building.id, layer, req.project.id, session)
+    await copyIntoLayer({ devices: raw.devices, connections: raw.connections }, { layer, building, data, actor }, session)
+    await audit(req, building, actor, 'lld.branch.created', { objectType: 'DesignBranch', objectId: branch._id, comment: name, session })
+    return { branch: { id: String(branch._id), name: branch.name, status: branch.status, revision: branch.revision } }
+  }
+
+  // Promotion replaces the main LLD with the branch; the branch closes.
+  // Records copied from the main design come back under their original ids
+  // (M5a), so a device or cable keeps its identity — procurement lines, the
+  // BOM's comparison with its approved version and later the CMDB rely on it.
+  async function promoteInto(req, building, branch, actor, session) {
+    const from = layerOf(String(branch._id))
+    const branchData = await loadLayer(building.id, from, req.project.id, session)
+    const raw = remapToMain(snapshotOf(branchData).raw, branchData)
+    const keys = (await CableIdRegistry.find({ layer: from }, { cableKey: 1 }).session(session).lean()).map((r) => r.cableKey)
+    const branchConns = branchData.connections.map((c) => c._id)
+    // The branch's own claims in the main registry pass to the ids its
+    // connections will carry in the main design.
+    for (const c of branchData.connections) {
+      if (c.originId) await CableIdRegistry.updateMany({ layer: MAIN, connectionId: c._id }, { $set: { connectionId: c.originId } }, { session })
+    }
+    const mainConns = await clearLayer(building.id, MAIN, session)
+    // The branch's IDs take over this building's main rows (and the
+    // branch's own claims) for the same IDs; an ID held anywhere else in
+    // the project blocks the promotion.
+    const clash = await CableIdRegistry.findOne({ layer: MAIN, cableKey: { $in: keys }, connectionId: { $nin: [...mainConns, ...branchConns] } }).session(session).lean()
+    if (clash) throw conflict('cable_id_in_use', `Cable ID ${clash.cableId} is already used elsewhere in this project — change it on the branch first`)
+    await clearLayer(building.id, from, session)
+    await CableIdRegistry.deleteMany({ layer: from }, { session })
+    const data = await loadLayer(building.id, MAIN, req.project.id, session)
+    await copyIntoLayer({ devices: raw.devices, connections: raw.connections }, { layer: MAIN, building, data, actor, keepIds: true }, session)
+    await DesignBranch.updateOne({ _id: branch._id }, { $set: { status: 'promoted', resolvedBy: actor.userId, resolvedAt: new Date() } }, { session })
+    await audit(req, building, actor, 'lld.branch.promoted', { objectType: 'DesignBranch', objectId: branch._id, comment: branch.name, session })
+  }
+
+  async function discardIn(req, building, branch, actor, session) {
+    const layer = layerOf(String(branch._id))
+    if (branch.includesHld) await discardHldBranch({ building, branchId: String(branch._id), session })
+    await clearLayer(building.id, layer, session)
+    await CableIdRegistry.deleteMany({ layer }, { session })
+    await DesignBranch.updateOne({ _id: branch._id }, { $set: { status: 'discarded', resolvedBy: actor.userId, resolvedAt: new Date() } }, { session })
+    await audit(req, building, actor, 'lld.branch.discarded', { objectType: 'DesignBranch', objectId: branch._id, comment: branch.name, session })
+  }
+
+  // The design as the BOM, Solution Package and change requests read it:
+  // the main LLD (or a branch), or the HLD before the LLD starts.
+  async function designData(req, buildingId, { branchId = null, session = null } = {}) {
+    const lld = await LldDesign.findOne({ buildingId }).session(session).lean()
+    const stage = lld ? 'lld' : 'hld'
+    const layer = stage === 'hld' ? HLD_LAYER : layerOf(branchId)
+    const data = await loadLayer(buildingId, layer, req.project.id, session)
+    const computed = inputs(data)
+    // A branch reads on the main design's ids (BOM impact compares line keys).
+    const { devices: views, connections } = branchId ? remapToMain({ devices: computed.views, connections: computed.connections }, data) : { devices: computed.views, connections: computed.connections }
+    const ownRaw = data.devices.filter((d) => d.origin === 'planned').map((d) => (branchId && d.originId ? String(d.originId) : String(d._id)))
+    const own = new Set(ownRaw)
+    const roomCode = new Map(data.rooms.map((r) => [String(r._id), r.code]))
+    const devices = views.filter((d) => own.has(d.id)).map((d) => ({ ...d, roomCode: roomCode.get(d.roomId) ?? null }))
+    const racks = data.racks.map((r) => ({
+      id: String(r._id),
+      code: r.code,
+      roomId: String(r.roomId),
+      roomCode: roomCode.get(String(r.roomId)) ?? null,
+      cageNutType: r.mountingPower?.cageNutType ?? null,
+      pduSocketType: r.mountingPower?.pduA?.socketType ?? r.mountingPower?.pduB?.socketType ?? null,
+    }))
+    const { summary } = runValidation(data)
+    return { stage, lld, devices, connections, racks, rooms: data.rooms, catalogue: data.catalogue, settings: data.settings, findings: summary }
+  }
+
   return {
+    designData,
+
+    // What a branch changes against the main LLD (a change request's design diff).
+    // A change request's branch also diffs its HLD (main → branch, main ids).
+    async diffBranch(req, buildingId, branchId, session = null) {
+      const main = snapshotOf(await loadLayer(buildingId, MAIN, req.project.id, session))
+      const branchData = await loadLayer(buildingId, layerOf(branchId), req.project.id, session)
+      const lldDiff = diffDesigns(main, remapToMain(snapshotOf(branchData), branchData))
+      const branch = await DesignBranch.findById(branchId).session(session).lean()
+      if (!branch?.includesHld) return lldDiff
+      const hldDiff = diffDesigns(await hldDesignSnapshot(buildingId, req.project.id, { session }), await hldDesignSnapshot(buildingId, req.project.id, { branchId, session }))
+      return { ...lldDiff, hld: hldDiff, total: lldDiff.total + hldDiff.total }
+    },
+
+    // HLD ↔ LLD consistency of a change request's branch.
+    async consistency(req, buildingId, branchId, session = null) {
+      const { building, branch } = await context(req, buildingId, branchId)
+      if (!branch.includesHld) return { consistent: true, problems: [] }
+      return consistencyOf(req, building, branch, session)
+    },
+
+    // Change requests (M5a): the branch a change request edits.
+    async createChangeRequestBranch(req, { building, name, changeRequestId }, actor, session) {
+      return makeBranch(req, building, { name, changeRequestId }, actor, session)
+    },
+
+    // An approved change request: its branch replaces the frozen LLD, which
+    // gets a new approved, frozen version. Runs in the approval's transaction.
+    async applyChangeRequest(req, { building, branchId, label }, actor, session) {
+      const branch = await DesignBranch.findById(branchId).session(session).lean()
+      if (!branch || branch.status !== 'open') throw conflict('branch_closed', 'The change request branch was promoted or discarded')
+      let hldVersion = null
+      // The HLD gets a new frozen version only when the change touched it.
+      const hldChanged = branch.includesHld && diffDesigns(await hldDesignSnapshot(building.id, req.project.id, { session }), await hldDesignSnapshot(building.id, req.project.id, { branchId: String(branch._id), session })).total > 0
+      if (branch.includesHld && !hldChanged) await discardHldBranch({ building, branchId: String(branch._id), session })
+      if (hldChanged) {
+        await promoteHldBranch({ building, branchId: String(branch._id), projectId: req.project.id, session })
+        const hldDoc = await HldDesign.findOne({ buildingId: building.id }).session(session).lean()
+        hldVersion = await writeHldVersion({ storage, building, projectId: req.project.id, design: hldDoc, actor, label, session })
+        await DesignVersion.updateOne({ _id: hldVersion.versionId }, { $set: { frozen: true, frozenAt: new Date() } }, { session })
+        await HldDesign.updateOne({ _id: hldDoc._id }, { $set: { latestApprovedVersionId: hldVersion.versionId, state: 'approved' }, $inc: { revision: 1 } }, { session })
+      }
+      await promoteInto(req, building, branch, actor, session)
+      const data = await loadLayer(building.id, MAIN, req.project.id, session)
+      const lld = await LldDesign.findOne({ buildingId: building.id }).session(session).lean()
+      const basedOn = hldVersion ? { basedOnHldVersionId: hldVersion.versionId, basedOnHldNumber: hldVersion.number } : {}
+      const { versionId, number } = await writeVersion({ building, data, actor, label, branchId: null, basedOnVersionId: basedOn.basedOnHldVersionId ?? lld.basedOnHldVersionId, session })
+      await DesignVersion.updateOne({ _id: versionId }, { $set: { frozen: true, frozenAt: new Date() } }, { session })
+      await LldDesign.updateOne({ _id: lld._id }, { $set: { latestApprovedVersionId: versionId, state: 'approved', ...basedOn }, $inc: { revision: 1 } }, { session })
+      return { versionId: String(versionId), number, hldVersionId: hldVersion ? String(hldVersion.versionId) : null, hldNumber: hldVersion?.number ?? null }
+    },
+
+    async discardChangeRequestBranch(req, { building, branchId }, actor, session) {
+      const branch = await DesignBranch.findById(branchId).session(session).lean()
+      if (branch && branch.status === 'open') await discardIn(req, building, branch, actor, session)
+    },
+
     // The LLD screen: the layer's devices (and the surveyed gear it shares),
     // connections with lengths, occupancy, racks and RU states, versions,
     // branches, approvals, the HLD baseline and a cable-ID suggestion.
@@ -613,7 +839,7 @@ export function createLldService({ storage }) {
         ...base,
         status: (await lldStatusByBuilding()).get(building.id) ?? 'in_progress',
         design: { revision: branch ? branch.revision : lld.revision, mainRevision: lld.revision, state: lld.state, lastEditedBy: names.get(String((branch ?? lld).lastEditedBy)) ?? null, lastEditedAt: (branch ?? lld).lastEditedAt },
-        branch: branch ? { id: String(branch._id), name: branch.name, status: branch.status } : null,
+        branch: branch ? { id: String(branch._id), name: branch.name, status: branch.status, changeRequestId: id(branch.changeRequestId), includesHld: Boolean(branch.includesHld) } : null,
         floors: data.floors.map((f) => ({ id: String(f._id), token: f.token, name: f.name, order: f.order })),
         rooms: data.rooms.map((r) => ({ id: String(r._id), floorId: String(r.floorId), code: r.code, isMainRoom: Boolean(r.isMainRoom) })),
         racks: rackViews,
@@ -621,9 +847,11 @@ export function createLldService({ storage }) {
         connections,
         cableIdSuggestion: suggestNextCableId(allIds.map((r) => r.cableKey)),
         versions: versions.map((v) => ({ id: String(v._id), number: v.number, label: v.label, frozen: v.frozen, branchId: id(v.branchId), counts: v.counts, createdAt: v.createdAt, createdBy: names.get(String(v.createdBy)) ?? null })),
-        branches: branches.map((b) => ({ id: String(b._id), name: b.name, status: b.status, parentVersionId: id(b.parentVersionId), createdAt: b.createdAt })),
+        branches: branches.map((b) => ({ id: String(b._id), name: b.name, status: b.status, parentVersionId: id(b.parentVersionId), changeRequestId: id(b.changeRequestId), createdAt: b.createdAt })),
         approvals: approvals.map((a) => ({ id: String(a._id), status: a.status, submittedBy: names.get(String(a.submittedBy)) ?? null, submittedById: String(a.submittedBy), submittedAt: a.submittedAt, versionNumber: versions.find((v) => String(v._id) === String(a.designVersionId))?.number ?? null, decision: a.decision ? { value: a.decision.value, decidedBy: names.get(String(a.decision.decidedBy)) ?? null, decidedAt: a.decision.decidedAt, comments: a.decision.comments ?? null } : null })),
-        renameLocked: Boolean(lld.latestApprovedVersionId),
+        renameLocked: Boolean(lld.latestApprovedVersionId) && !branch?.changeRequestId,
+        frozen: Boolean(lld.frozen),
+        changeRequestBranch: Boolean(branch?.changeRequestId),
         stockLengths: data.settings.stockLengths,
         // Optics for fibre ends (Rackium Editor).
         optics: data.catalogue.filter((i) => i.kind === 'optic').map((i) => ({ key: i.key, media: i.mediaSpeed?.media ?? null, speed: i.mediaSpeed?.speed ?? null })),
@@ -660,27 +888,32 @@ export function createLldService({ storage }) {
     },
 
     // Side-by-side HLD vs LLD (no automatic re-sync).
-    async reconciliation(req, buildingId) {
-      const { building, lld } = await context(req, buildingId)
+    // On a change request's branch: the branch's HLD against its LLD.
+    async reconciliation(req, buildingId, branchId = null) {
+      const { building, lld, branch, layer } = await context(req, buildingId, branchId)
       if (!lld) throw conflict('lld_not_started', 'Start the LLD from the approved HLD first')
-      const version = await latestApprovedHld(building.id)
-      const snapshot = await readSnapshot(version.snapshotFileId)
-      const data = await loadLayer(building.id, MAIN, req.project.id)
-      const lldSide = { devices: data.devices.map((d) => ({ id: String(d._id), hldRef: id(d.hldRef), hostname: d.hostname, label: d.label, role: d.role, catalogueKey: d.catalogueKey, roomId: id(d.roomId) })), connections: data.connections.map((c) => ({ id: String(c._id), hldRef: id(c.hldRef), source: { deviceId: String(c.source.deviceId) }, dest: { deviceId: String(c.dest.deviceId) }, media: c.media, speed: c.speed, sourceSfpCode: c.sourceSfpCode ?? null, destSfpCode: c.destSfpCode ?? null })) }
-      return { basedOnNumber: lld.basedOnHldNumber, hldNumber: version.number, changed: version.number > lld.basedOnHldNumber, ...reconcileWithHld({ devices: snapshot.devices, connections: snapshot.connections }, lldSide) }
+      const source = await hldSourceOf(req, building, branch)
+      const data = await loadLayer(building.id, layer, req.project.id)
+      const result = reconcileWithHld({ devices: source.snapshot.devices, connections: source.snapshot.connections }, lldSideOf(data))
+      if (branch?.includesHld) return { basedOnNumber: lld.basedOnHldNumber, hldNumber: lld.basedOnHldNumber, changed: result.total > 0, branch: true, ...result }
+      return { basedOnNumber: lld.basedOnHldNumber, hldNumber: source.number, changed: source.number > lld.basedOnHldNumber, ...result }
     },
 
     // Copies chosen HLD items into the LLD (explicit, per item).
-    async copyFromHld(req, { buildingId, hldDeviceIds, hldConnectionIds, baseRevision }, actor) {
-      const version = await latestApprovedHld(buildingId)
-      if (!version) throw conflict('hld_not_approved', 'No approved HLD to copy from')
-      const snapshot = await readSnapshot(version.snapshotFileId)
-      return write(req, { buildingId }, baseRevision, actor, async ({ building, data, session }) => {
+    async copyFromHld(req, { buildingId, branchId = null, hldDeviceIds, hldConnectionIds, baseRevision }, actor) {
+      const { building: b, branch } = await context(req, buildingId, branchId)
+      if (branch && !branch.includesHld) throw conflict('not_a_change_request', 'Copy from the HLD into the main LLD, or into a change request’s branch')
+      const source = await hldSourceOf(req, b, branch)
+      if (!source) throw conflict('hld_not_approved', 'No approved HLD to copy from')
+      const { snapshot } = source
+      const fromLabel = source.label
+      const into = branch ? layerOf(String(branch._id)) : MAIN
+      return write(req, { buildingId, branchId }, baseRevision, actor, async ({ building, data, session }) => {
         const devices = snapshot.devices.filter((d) => hldDeviceIds.includes(d.id))
         if (devices.length !== hldDeviceIds.length) throw notFound('A device is not in the approved HLD')
         const inLld = new Map(data.devices.filter((d) => d.hldRef).map((d) => [String(d.hldRef), String(d._id)]))
         for (const d of devices) if (inLld.has(d.id)) throw conflict('already_in_lld', `${d.hostname ?? d.label} is already in the LLD`)
-        const idMap = await copyIntoLayer({ devices: devices.map((d) => ({ ...d, _id: d.id, hldRef: d.id, ru: null })), connections: [] }, { layer: MAIN, building, data, actor, carryCableIds: false }, session)
+        const idMap = await copyIntoLayer({ devices: devices.map((d) => ({ ...d, _id: d.id, hldRef: d.id, ru: null })), connections: [] }, { layer: into, building, data, actor, carryCableIds: false, asNew: Boolean(branch) }, session)
         for (const [hldId, newId] of idMap) inLld.set(hldId, String(newId))
         const conns = snapshot.connections.filter((c) => hldConnectionIds.includes(c.id))
         if (conns.length !== hldConnectionIds.length) throw notFound('An uplink is not in the approved HLD')
@@ -691,9 +924,9 @@ export function createLldService({ storage }) {
           if (!s || !t) throw conflict('copy_device_first', 'Copy both of the uplink’s devices into the LLD first')
           return { ...c, _id: c.id, hldRef: c.id, source: { deviceId: s, portId: c.source.portId ?? null }, dest: { deviceId: t, portId: c.dest.portId ?? null } }
         })
-        const fresh = { ...data, devices: await Device.find({ buildingId: building.id, layer: MAIN }).session(session).lean() }
-        await copyIntoLayer({ devices: [], connections: mapped }, { layer: MAIN, building, data: fresh, actor, carryCableIds: false }, session)
-        await audit(req, building, actor, 'lld.copied_from_hld', { objectType: 'Building', objectId: building.id, comment: `${devices.length} device(s), ${conns.length} uplink(s) from HLD v${version.number}`, session })
+        const fresh = { ...data, devices: await Device.find({ buildingId: building.id, layer: into }).session(session).lean() }
+        await copyIntoLayer({ devices: [], connections: mapped }, { layer: into, building, data: fresh, actor, carryCableIds: false, asNew: Boolean(branch) }, session)
+        await audit(req, building, actor, 'lld.copied_from_hld', { objectType: 'Building', objectId: building.id, comment: `${devices.length} device(s), ${conns.length} uplink(s) from ${fromLabel}`, session })
         return { copied: { devices: devices.length, connections: conns.length } }
       })
     },
@@ -786,9 +1019,16 @@ export function createLldService({ storage }) {
         doc.updatedBy = actor.userId
         await writeConnection(doc, body, { layer, data, isNew: false }, session)
         const after = connectionView(doc.toObject(), {})
+        // Hop lengths are logged as cable lengths, not as a route change.
+        const audited = (v) => ({ ...v, hops: v.hops.map(({ lengths: _lengths, ...h }) => h) })
+        const [b, a] = [audited(before), audited(after)]
         const fields = ['source', 'dest', 'media', 'speed', 'sourceSfpCode', 'destSfpCode', 'cableId', 'hops']
-        const changes = fields.filter((f) => JSON.stringify(before[f]) !== JSON.stringify(after[f])).map((f) => ({ objectType: 'Connection', objectId: connectionId, field: f, before: before[f] ?? null, after: after[f] ?? null }))
+        const changes = fields.filter((f) => JSON.stringify(b[f]) !== JSON.stringify(a[f])).map((f) => ({ objectType: 'Connection', objectId: connectionId, field: f, before: b[f] ?? null, after: a[f] ?? null }))
         if (before.lengths.engineerSelectedM !== after.lengths.engineerSelectedM) changes.push({ objectType: 'Connection', objectId: connectionId, field: 'engineerSelectedM', before: before.lengths.engineerSelectedM, after: after.lengths.engineerSelectedM })
+        after.hops.forEach((h, i) => {
+          const was = before.hops[i]?.lengths.engineerSelectedM ?? null
+          if (before.hops[i] && h.patchPanelId === before.hops[i].patchPanelId && was !== h.lengths.engineerSelectedM) changes.push({ objectType: 'Connection', objectId: connectionId, field: `cable ${i + 2} engineerSelectedM`, before: was, after: h.lengths.engineerSelectedM })
+        })
         await audit(req, building, actor, 'lld.connection.updated', { objectType: 'Connection', objectId: doc._id, changes, session })
         data.connections = data.connections.map((c) => (String(c._id) === connectionId ? doc.toObject() : c))
         return { connection: inputs(data).connections.find((c) => c.id === connectionId) }
@@ -816,7 +1056,10 @@ export function createLldService({ storage }) {
 
     async rename(req, body, actor) {
       const lld = await LldDesign.findOne({ buildingId: body.buildingId }).lean()
-      if (lld?.latestApprovedVersionId) throw conflict('change_request_required', 'The LLD has been approved — a rename now goes through a change request (coming with M5)')
+      if (lld?.latestApprovedVersionId || lld?.frozen) {
+        const branch = body.branchId && mongoose.isValidObjectId(body.branchId) ? await DesignBranch.findById(body.branchId).lean() : null
+        if (!branch?.changeRequestId) throw conflict('change_request_required', 'The LLD has been approved — rename hostnames through a change request')
+      }
       return write(req, body, body.baseRevision, actor, async ({ building, data, session }) => {
         const rows = await renamePlan(building, data, body)
         const problems = rows.filter((r) => r.problem)
@@ -851,8 +1094,9 @@ export function createLldService({ storage }) {
         if (ref.startsWith('current')) {
           const branchId = ref.split(':')[1] ?? null
           const { layer } = await context(req, buildingId, branchId)
-          const snap = snapshotOf(await loadLayer(building.id, layer, req.project.id))
-          return { label: branchId ? 'Branch (current)' : 'Current LLD', snap }
+          const data = await loadLayer(building.id, layer, req.project.id)
+          // A branch is compared on the main design's ids (M5a).
+          return { label: branchId ? 'Branch (current)' : 'Current LLD', snap: branchId ? remapToMain(snapshotOf(data), data) : snapshotOf(data) }
         }
         const version = await DesignVersion.findOne({ _id: ref, buildingId: building.id, designType: 'lld' }).lean()
         if (!version) throw notFound('Version not found')
@@ -886,15 +1130,8 @@ export function createLldService({ storage }) {
         if (!version) throw notFound('Version not found')
         source = (await readSnapshot(version.snapshotFileId)).raw
       }
-      return withTransaction(async (session) => {
-        const [branch] = await DesignBranch.create([{ buildingId: building.id, name: body.name, parentVersionId: body.fromVersionId ?? null, createdBy: actor.userId, lastEditedAt: new Date(), lastEditedBy: actor.userId }], { session })
-        const layer = layerOf(String(branch._id))
-        if (!source) source = snapshotOf(await loadLayer(building.id, MAIN, req.project.id, session)).raw
-        const data = await loadLayer(building.id, layer, req.project.id, session)
-        await copyIntoLayer({ devices: source.devices, connections: source.connections }, { layer, building, data, actor }, session)
-        await audit(req, building, actor, 'lld.branch.created', { objectType: 'DesignBranch', objectId: branch._id, comment: body.name, session })
-        return { branch: { id: String(branch._id), name: branch.name, status: branch.status, revision: branch.revision } }
-      })
+      if (lld.frozen) throw conflict('change_request_required', FROZEN_MESSAGE)
+      return withTransaction((session) => makeBranch(req, building, { name: body.name, fromVersionId: body.fromVersionId ?? null, source }, actor, session))
     },
 
     // Promotion replaces the main LLD with the branch; the branch closes.
@@ -902,23 +1139,9 @@ export function createLldService({ storage }) {
       const branch = mongoose.isValidObjectId(branchId) ? await DesignBranch.findById(branchId).lean() : null
       if (!branch) throw notFound('Branch not found')
       if (branch.status !== 'open') throw conflict('branch_closed', 'This branch was promoted or discarded')
+      if (branch.changeRequestId) throw conflict('change_request_branch', 'This branch belongs to a change request — it is applied when the client approves the change')
       return write(req, { buildingId: String(branch.buildingId) }, baseRevision, actor, async ({ building, session }) => {
-        const from = layerOf(String(branch._id))
-        const keys = (await CableIdRegistry.find({ layer: from }, { cableKey: 1 }).session(session).lean()).map((r) => r.cableKey)
-        const branchConns = (await Connection.find({ buildingId: building.id, layer: from }, { _id: 1 }).session(session).lean()).map((c) => c._id)
-        const mainConns = await clearLayer(building.id, MAIN, session)
-        // The branch's IDs take over this building's main rows (and the
-        // branch's own claims) for the same IDs; an ID held anywhere else in
-        // the project blocks the promotion.
-        const clash = await CableIdRegistry.findOne({ layer: MAIN, cableKey: { $in: keys }, connectionId: { $nin: [...mainConns, ...branchConns] } }).session(session).lean()
-        if (clash) throw conflict('cable_id_in_use', `Cable ID ${clash.cableId} is already used elsewhere in this project — change it on the branch first`)
-        await CableIdRegistry.deleteMany({ layer: MAIN, cableKey: { $in: keys } }, { session })
-        await Device.updateMany({ buildingId: building.id, layer: from }, { $set: { layer: MAIN } }, { session })
-        await Connection.updateMany({ buildingId: building.id, layer: from }, { $set: { layer: MAIN, originId: null } }, { session })
-        await PortOccupancy.updateMany({ layer: from }, { $set: { layer: MAIN } }, { session })
-        await CableIdRegistry.updateMany({ layer: from }, { $set: { layer: MAIN } }, { session })
-        await DesignBranch.updateOne({ _id: branch._id }, { $set: { status: 'promoted', resolvedBy: actor.userId, resolvedAt: new Date() } }, { session })
-        await audit(req, building, actor, 'lld.branch.promoted', { objectType: 'DesignBranch', objectId: branch._id, comment: branch.name, session })
+        await promoteInto(req, building, branch, actor, session)
         return { promoted: String(branch._id) }
       })
     },
@@ -928,12 +1151,9 @@ export function createLldService({ storage }) {
       if (!branch) throw notFound('Branch not found')
       const building = await requireBuilding(req, branch.buildingId)
       if (branch.status !== 'open') throw conflict('branch_closed', 'This branch was promoted or discarded')
+      if (branch.changeRequestId) throw conflict('change_request_branch', 'This branch belongs to a change request — withdraw or reject the change instead')
       return withTransaction(async (session) => {
-        const layer = layerOf(String(branch._id))
-        await clearLayer(building.id, layer, session)
-        await CableIdRegistry.deleteMany({ layer }, { session })
-        await DesignBranch.updateOne({ _id: branch._id }, { $set: { status: 'discarded', resolvedBy: actor.userId, resolvedAt: new Date() } }, { session })
-        await audit(req, building, actor, 'lld.branch.discarded', { objectType: 'DesignBranch', objectId: branch._id, comment: branch.name, session })
+        await discardIn(req, building, branch, actor, session)
         return { discarded: String(branch._id) }
       })
     },
@@ -943,6 +1163,7 @@ export function createLldService({ storage }) {
     async submit(req, { buildingId, baseRevision }, actor) {
       const { building, lld } = await context(req, buildingId)
       if (!lld) throw conflict('lld_not_started', 'Start the LLD from the approved HLD first')
+      if (lld.frozen) throw conflict('change_request_required', FROZEN_MESSAGE)
       if (lld.state === 'awaiting_approval') throw conflict('lld_submitted', 'The LLD is already submitted for approval')
       if (lld.revision !== baseRevision) throw await staleError(lld, baseRevision, 'LLD')
       const data = await loadLayer(building.id, MAIN, req.project.id)

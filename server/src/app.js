@@ -21,6 +21,12 @@ import { createFileService } from './files/service.js'
 import { createDiskStorage } from './files/storage.js'
 import { createHldService } from './hld/service.js'
 import { createLldService } from './lld/service.js'
+import { createBomService } from './delivery/bom.js'
+import { createSolutionPackageService } from './delivery/solutionPackage.js'
+import { createChangeRequestService } from './delivery/changeRequests.js'
+import { createPublicApprovalService } from './delivery/publicApproval.js'
+import { createCommercialSettingsService } from './delivery/settings.js'
+import { createShareLinkAdmin } from './delivery/shareLinks.js'
 import { apiRouter, API_VERSION } from './routes/index.js'
 import { requireUser } from './http/middleware.js'
 import { membershipSummary, userSummary } from './routes/summaries.js'
@@ -45,6 +51,8 @@ export const DEFAULT_RATE_LIMITS = {
   refresh: { windowMs: 15 * 60 * 1000, limit: 60, message: 'Too many requests. Try again later.' },
   reset: { windowMs: 60 * 60 * 1000, limit: 5, message: 'Too many reset requests. Try again later.' },
   invite: { windowMs: 15 * 60 * 1000, limit: 10, message: 'Too many attempts. Try again later.' },
+  // M5a: the public client-approval page (each link also locks itself after wrong passwords).
+  shareLink: { windowMs: 15 * 60 * 1000, limit: 60, message: 'Too many requests. Try again later.' },
 }
 
 export function createApp({ config, logger, mailer, rateLimits = DEFAULT_RATE_LIMITS }) {
@@ -94,9 +102,17 @@ export function createApp({ config, logger, mailer, rateLimits = DEFAULT_RATE_LI
   const files = createFileService({ storage })
   const hld = createHldService({ storage })
   const lld = createLldService({ storage })
+  const delivery = {
+    bom: createBomService({ storage, lld }),
+    solutionPackage: createSolutionPackageService({ storage, lld }),
+    changeRequests: createChangeRequestService({ lld }),
+    publicApproval: createPublicApprovalService({ storage, lld }),
+    commercial: createCommercialSettingsService(),
+    shareLinkAdmin: createShareLinkAdmin(),
+  }
   const openapiDocument = () => buildOpenApiDocument({ version: VERSION })
 
-  const api = apiRouter({ config, auth, org, hierarchy, blockers, viewAs, dashboard, catalogue, cmo, survey, files, hld, lld, rateLimits, openapiDocument, version: VERSION })
+  const api = apiRouter({ config, auth, org, hierarchy, blockers, viewAs, dashboard, catalogue, cmo, survey, files, hld, lld, delivery, rateLimits, openapiDocument, version: VERSION })
   api.get('/me', requireUser(config), async (req, res) => {
     const memberships = await membershipsForUser(req.user._id)
     res.json({ user: userSummary(req.user), memberships: memberships.map(membershipSummary) })

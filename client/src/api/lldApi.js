@@ -2,6 +2,7 @@ import { API_MODE } from '../lib/apiMode.js'
 import { apiRequest } from './httpClient.js'
 import { MEDIA_LABEL, endLabel, buildPortGroups } from '@rackium/shared/lldModel.js'
 import { portKey, portOptions, suggestPort, routeSides, routeTrace, hopText } from '@rackium/shared/lldDesign.js'
+import { SEGMENT_KIND_LABEL } from '@rackium/shared/cableSegments.js'
 
 const real = API_MODE === 'real'
 const base = (orgId, projectId) => `/orgs/${orgId}/projects/${projectId}/lld`
@@ -14,7 +15,8 @@ const branchQuery = (branchId) => (branchId ? `?branchId=${branchId}` : '')
 export const lldApi = {
   view: (o, p, buildingId, branchId) => (real ? apiRequest(`${base(o, p)}/buildings/${buildingId}${branchQuery(branchId)}`) : none(null)),
   validate: (o, p, buildingId, branchId) => (real ? apiRequest(`${base(o, p)}/buildings/${buildingId}/validation${branchQuery(branchId)}`) : none({ findings: [], summary: { critical: 0, warning: 0, info: 0, blocksSubmit: false } })),
-  reconciliation: (o, p, buildingId) => (real ? apiRequest(`${base(o, p)}/buildings/${buildingId}/reconciliation`) : none(null)),
+  // On a change request's branch: the branch's own HLD against its LLD (M5a review).
+  reconciliation: (o, p, buildingId, branchId = null) => (real ? apiRequest(`${base(o, p)}/buildings/${buildingId}/reconciliation${branchId ? `?branchId=${branchId}` : ''}`) : none(null)),
   start: (o, p, body) => (real ? apiRequest(`${base(o, p)}/start`, { method: 'POST', body }) : none(null)),
   rebase: (o, p, body) => (real ? apiRequest(`${base(o, p)}/rebase`, { method: 'POST', body }) : none(null)),
   copyFromHld: (o, p, body) => (real ? apiRequest(`${base(o, p)}/copy-from-hld`, { method: 'POST', body }) : none(null)),
@@ -138,6 +140,16 @@ export function toLldContext(view, validation = null) {
           installed: c.lengths.installedM,
         },
         statusLabel: c.cableId ? 'Designed' : 'Cable ID pending',
+        // Every cable of the route with its own lengths (M5a review).
+        segments: (c.segments ?? []).map((s) => ({
+          index: s.index,
+          kind: s.kind,
+          kindLabel: SEGMENT_KIND_LABEL[s.kind] ?? s.kind,
+          cableId: s.cableId,
+          from: entityById[s.from.deviceId] ? endLabel(entityById[s.from.deviceId], s.from.portId) : '?',
+          to: entityById[s.to.deviceId] ? endLabel(entityById[s.to.deviceId], s.to.portId) : '?',
+          length: { suggested: s.suggestedM, engineerSelected: s.engineerSelectedM, effective: s.effectiveM, installed: s.installedM, estimated: s.lengthEstimated, estimateReason: s.estimateReason, placementPending: s.placementPending, customLengthRequired: s.customLengthRequired, rawMeters: s.lengthM },
+        })),
       }
     })
     .filter(Boolean)

@@ -7,7 +7,10 @@ import { canEditLld } from '../../lib/permissions.js'
 
 // `editable` (real mode) overrides the mock role check; `cableIdSuggestion`
 // pre-fills an empty Cable ID (a suggestion, saved only when the user saves).
-export default function CableScheduleTab({ rows, buildingCode, checks, onAssignCableId, onAssignAllMissing, onSetEngineerSelected, frozen, editable: editableProp, cableIdSuggestion = null }) {
+// Real mode: a routed connection's row is followed by one row per cable
+// (`row.segments`), each with its own Suggested, Engineer Selected
+// (`onSetSegmentLength`) and Installed length (M5a review).
+export default function CableScheduleTab({ rows, buildingCode, checks, onAssignCableId, onAssignAllMissing, onSetEngineerSelected, onSetSegmentLength, frozen, editable: editableProp, cableIdSuggestion = null }) {
   const { role } = useRole()
   const editable = (editableProp ?? canEditLld(role)) && !frozen
   const missing = rows.filter((r) => !r.cableId).length
@@ -59,7 +62,7 @@ export default function CableScheduleTab({ rows, buildingCode, checks, onAssignC
           </thead>
           <tbody>
             {rows.map((r) => (
-              <CableRow key={r.id} row={r} editable={editable} onAssignCableId={onAssignCableId} onSetEngineerSelected={onSetEngineerSelected} cableIdSuggestion={cableIdSuggestion} />
+              <CableRows key={r.id} row={r} editable={editable} onAssignCableId={onAssignCableId} onSetEngineerSelected={onSetEngineerSelected} onSetSegmentLength={onSetSegmentLength} cableIdSuggestion={cableIdSuggestion} />
             ))}
           </tbody>
         </table>
@@ -68,7 +71,19 @@ export default function CableScheduleTab({ rows, buildingCode, checks, onAssignC
   )
 }
 
-function CableRow({ row, editable, onAssignCableId, onSetEngineerSelected, cableIdSuggestion }) {
+function CableRows({ row, onSetSegmentLength, ...props }) {
+  const perCable = (row.segments?.length ?? 0) > 1
+  return (
+    <>
+      <CableRow row={row} perCable={perCable} {...props} />
+      {perCable && row.segments.map((s) => <SegmentRow key={s.index} row={row} segment={s} editable={props.editable && Boolean(onSetSegmentLength)} onSet={onSetSegmentLength} />)}
+    </>
+  )
+}
+
+const perCableNote = <span className="italic text-text-secondary">per cable ↓</span>
+
+function CableRow({ row, perCable = false, editable, onAssignCableId, onSetEngineerSelected, cableIdSuggestion }) {
   return (
     <tr className="border-b border-border/60 last:border-0">
       <td className="whitespace-nowrap px-3 py-1.5">
@@ -81,11 +96,9 @@ function CableRow({ row, editable, onAssignCableId, onSetEngineerSelected, cable
       <td className="whitespace-nowrap px-3 py-1.5 text-text-secondary">{row.dest.label}</td>
       <td className="whitespace-nowrap px-3 py-1.5 text-text-secondary">{row.mediaLabel}</td>
       <td className="whitespace-nowrap px-3 py-1.5 text-text-secondary">{row.speed}</td>
-      <td className="whitespace-nowrap px-3 py-1.5 text-text-secondary">{row.length.suggested ?? '—'}</td>
-      <td className="whitespace-nowrap px-3 py-1.5">
-        <EngineerLengthCell row={row} editable={editable} onSet={onSetEngineerSelected} />
-      </td>
-      <td className="whitespace-nowrap px-3 py-1.5 italic text-text-secondary">{DEPLOYMENT_PLACEHOLDER}</td>
+      <td className="whitespace-nowrap px-3 py-1.5 text-text-secondary">{perCable ? perCableNote : row.length.suggested ?? '—'}</td>
+      <td className="whitespace-nowrap px-3 py-1.5">{perCable ? perCableNote : <EngineerLengthCell row={row} editable={editable} onSet={onSetEngineerSelected} />}</td>
+      <td className="whitespace-nowrap px-3 py-1.5 italic text-text-secondary">{perCable ? perCableNote : row.length.installed ?? DEPLOYMENT_PLACEHOLDER}</td>
       <td className="whitespace-nowrap px-3 py-1.5">
         {row.length.estimated ? (
           <span title={row.length.estimateReason ?? ''} className="rounded border border-status-amber/40 px-1.5 py-0.5 text-status-amber">
@@ -97,6 +110,74 @@ function CableRow({ row, editable, onAssignCableId, onSetEngineerSelected, cable
       </td>
       <td className="whitespace-nowrap px-3 py-1.5 text-text-secondary">{row.statusLabel}</td>
     </tr>
+  )
+}
+
+// One cable of a routed connection: its own ID, ends, type and lengths.
+function SegmentRow({ row, segment: s, editable, onSet }) {
+  return (
+    <tr className="border-b border-border/60 bg-surface-muted/40 last:border-0" data-testid={`cable-${row.id}-${s.index}`}>
+      <td className="whitespace-nowrap px-3 py-1 pl-6 text-text-secondary">{s.cableId ?? <span className="text-status-amber">Pending</span>}</td>
+      <td colSpan={3} className="whitespace-nowrap px-3 py-1 text-text-secondary">
+        ↳ Cable {s.index + 1}: {s.from} → {s.to}
+      </td>
+      <td className="whitespace-nowrap px-3 py-1 text-text-secondary">{s.kindLabel}</td>
+      <td className="px-3 py-1" />
+      <td className="whitespace-nowrap px-3 py-1 text-text-secondary" title={s.length.estimateReason ?? undefined}>
+        {s.length.suggested ?? (s.length.placementPending ? 'Place both ends' : '—')}
+      </td>
+      <td className="whitespace-nowrap px-3 py-1">
+        <SegmentLengthCell row={row} segment={s} editable={editable} onSet={onSet} />
+      </td>
+      <td className="whitespace-nowrap px-3 py-1 italic text-text-secondary">{s.length.installed ?? DEPLOYMENT_PLACEHOLDER}</td>
+      <td className="whitespace-nowrap px-3 py-1">
+        {s.length.estimated ? (
+          <span title={s.length.estimateReason ?? ''} className="rounded border border-status-amber/40 px-1.5 py-0.5 text-status-amber">
+            Estimated
+          </span>
+        ) : (
+          <span className="text-status-green">Surveyed</span>
+        )}
+      </td>
+      <td className="px-3 py-1" />
+    </tr>
+  )
+}
+
+function SegmentLengthCell({ row, segment, editable, onSet }) {
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState(segment.length.engineerSelected ?? segment.length.suggested ?? '')
+  if (!editable) return segment.length.effective ?? '—'
+  if (!editing) {
+    return (
+      <button type="button" aria-label={`Cable ${segment.index + 1} of ${row.cableId ?? 'this connection'}: Engineer Selected length`} onClick={() => setEditing(true)} className="hover:underline">
+        {segment.length.effective ?? '—'}
+      </button>
+    )
+  }
+  async function save() {
+    const result = await onSet(row.id, segment.index, value === '' ? null : Number(value))
+    if (result.ok) setEditing(false)
+  }
+  return (
+    <div className="flex items-center gap-1">
+      <input
+        autoFocus
+        aria-label={`Cable ${segment.index + 1} Engineer Selected (m)`}
+        type="number"
+        min="0"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => e.key === 'Enter' && save()}
+        className="h-7 w-16 rounded border border-border px-1.5 text-xs focus:border-brand focus:outline-none"
+      />
+      <button type="button" onClick={save} className="text-status-green">
+        Save
+      </button>
+      <button type="button" onClick={() => setEditing(false)} className="text-text-secondary">
+        Cancel
+      </button>
+    </div>
   )
 }
 

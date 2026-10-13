@@ -10,8 +10,9 @@ const none = (value) => Promise.resolve(value)
 // 409 `stale_revision` with who changed it.
 export const hldApi = {
   library: (o, p) => (real ? apiRequest(`${base(o, p)}/library`) : none({ roles: [], optics: [], presets: [], variants: [] })),
-  view: (o, p, buildingId) => (real ? apiRequest(`${base(o, p)}/buildings/${buildingId}`) : none(null)),
-  validate: (o, p, buildingId) => (real ? apiRequest(`${base(o, p)}/buildings/${buildingId}/validation`) : none({ findings: [], summary: { critical: 0, warning: 0, info: 0, blocksSubmit: false } })),
+  // `branchId`: a change request's branch of the HLD (M5a review).
+  view: (o, p, buildingId, branchId = null) => (real ? apiRequest(`${base(o, p)}/buildings/${buildingId}${branchId ? `?branchId=${branchId}` : ''}`) : none(null)),
+  validate: (o, p, buildingId, branchId = null) => (real ? apiRequest(`${base(o, p)}/buildings/${buildingId}/validation${branchId ? `?branchId=${branchId}` : ''}`) : none({ findings: [], summary: { critical: 0, warning: 0, info: 0, blocksSubmit: false } })),
   generate: (o, p, body) => (real ? apiRequest(`${base(o, p)}/generate`, { method: 'POST', body }) : none(null)),
   addDevice: (o, p, body) => (real ? apiRequest(`${base(o, p)}/devices`, { method: 'POST', body }) : none(null)),
   updateDevice: (o, p, id, body) => (real ? apiRequest(`${base(o, p)}/devices/${id}`, { method: 'PATCH', body }) : none(null)),

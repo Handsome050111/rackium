@@ -9,10 +9,11 @@
 // browser) to recover verification and invitation links.
 import path from 'node:path'
 import fs from 'node:fs'
+import http from 'node:http'
 import { fileURLToPath } from 'node:url'
 import { createApp, DEFAULT_RATE_LIMITS } from '../src/app.js'
 import { createLogger } from '../src/logger.js'
-import { startReplSet } from '../test/helpers/memoryDb.js'
+import { startReplSet, stopReplSet } from '../test/helpers/memoryDb.js'
 import { seedPlatformCatalogue } from '../src/catalogue/seed.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
@@ -46,12 +47,41 @@ const config = {
   FILE_STORAGE_DIR: path.join(here, '.runtime-files'),
 }
 
+// Playwright force-kills its web servers on Windows (no signal reaches us), so
+// a killed server never removed its in-memory database. The Playwright global
+// teardown (client/playwright-support/globalTeardown.mjs) asks for a clean
+// shutdown first. The route lives on this harness's own HTTP server, in front
+// of the app, so the app under test stays exactly what production runs.
+export const SHUTDOWN_PATH = '/__e2e/shutdown'
+
+let shuttingDown = null
+function shutdown(server, replSet) {
+  shuttingDown ??= (async () => {
+    server.closeAllConnections()
+    await new Promise((resolve) => server.close(resolve))
+    await stopReplSet(replSet)
+  })()
+    .catch(() => {})
+    .finally(() => process.exit(0))
+  return shuttingDown
+}
+
 async function main() {
-  await startReplSet()
+  const replSet = await startReplSet()
   // Same boot step as src/index.js: the placeholder global catalogue.
   await seedPlatformCatalogue()
   const app = createApp({ config, logger: createLogger({ level: 'silent' }), mailer, rateLimits: { ...DEFAULT_RATE_LIMITS, enabled: false } })
-  app.listen(PORT, () => {
+  const server = http.createServer((req, res) => {
+    if (req.method === 'POST' && req.url === SHUTDOWN_PATH) {
+      // The pid lets the teardown wait until this process has really gone
+      // (its database folder is removed on the way out).
+      res.writeHead(202, { 'content-type': 'application/json' }).end(JSON.stringify({ stopping: true, pid: process.pid }), () => shutdown(server, replSet))
+      return
+    }
+    app(req, res)
+  })
+  for (const signal of ['SIGINT', 'SIGTERM', 'SIGBREAK']) process.on(signal, () => shutdown(server, replSet))
+  server.listen(PORT, () => {
     // eslint-disable-next-line no-console
     console.log(`e2e test server listening on ${PORT}, allowing ${CLIENT_ORIGIN}`)
   })

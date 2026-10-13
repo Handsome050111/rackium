@@ -17,6 +17,8 @@ import { cmoStatusByBuilding } from '../cmo/service.js'
 import { surveyStatusByBuilding } from '../survey/formService.js'
 import { hldStatusByBuilding } from '../hld/service.js'
 import { lldStatusByBuilding } from '../lld/service.js'
+import { spStatusByBuilding } from '../delivery/solutionPackage.js'
+import { bomStatusByBuilding } from '../delivery/bom.js'
 import { SurveyTabRecord } from '../models/surveyTabRecord.js'
 import { LldDesign } from '../models/lldDesign.js'
 import { applyActivePhases } from '@rackium/shared/phaseGating.js'
@@ -30,6 +32,7 @@ import { applyHierarchyPlan } from '../hierarchy/service.js'
 import { buildingsWithSal } from '../hierarchy/lookup.js'
 import { DEFAULT_ROLE_CODES, PROPOSED_ROLE_CODE_KEYS, resolveRoleCodes, duplicateRoleCodes } from '@rackium/shared/hldRoles.js'
 import { DEFAULT_STOCK_LENGTHS } from '@rackium/shared/cableLength.js'
+import { DEFAULT_CAGE_NUTS_PER_RU, cageNutsOf } from '@rackium/shared/bomCalc.js'
 import { scopeView, membershipScopes } from '../access/scope.js'
 
 const { ObjectId } = mongoose.Types
@@ -84,6 +87,8 @@ function settingsView(org) {
     proposedRoleCodeKeys: PROPOSED_ROLE_CODE_KEYS,
     stockLengths: org.settings?.stockLengths ?? DEFAULT_STOCK_LENGTHS,
     defaultStockLengths: DEFAULT_STOCK_LENGTHS,
+    cageNutsPerRu: cageNutsOf(org),
+    defaultCageNutsPerRu: DEFAULT_CAGE_NUTS_PER_RU,
   }
 }
 
@@ -291,6 +296,7 @@ export function createOrganisationService({ mailer, auth }) {
         org.set('settings.stockLengths', body.stockLengths)
         org.markModified('settings.stockLengths')
       }
+      if (body.cageNutsPerRu !== undefined) org.set('settings.cageNutsPerRu', body.cageNutsPerRu)
       await org.save()
       const after = settingsView(org.toObject())
       const changes = [
@@ -299,6 +305,7 @@ export function createOrganisationService({ mailer, auth }) {
           .filter((role) => before.namingRoleCodes[role] !== after.namingRoleCodes[role])
           .map((role) => ({ objectType: 'Organisation', objectId: String(org._id), field: `namingRoleCodes.${role}`, before: before.namingRoleCodes[role], after: after.namingRoleCodes[role] })),
         ...(JSON.stringify(before.stockLengths) !== JSON.stringify(after.stockLengths) ? [{ objectType: 'Organisation', objectId: String(org._id), field: 'stockLengths', before: before.stockLengths, after: after.stockLengths }] : []),
+        ...['front', 'rear'].filter((f) => before.cageNutsPerRu[f] !== after.cageNutsPerRu[f]).map((f) => ({ objectType: 'Organisation', objectId: String(org._id), field: `cageNutsPerRu.${f}`, before: before.cageNutsPerRu[f], after: after.cageNutsPerRu[f] })),
       ]
       if (changes.length) {
         await recordAudit({
@@ -456,7 +463,7 @@ export function createOrganisationService({ mailer, auth }) {
         const scopes = membershipScopes(membership, isOrgAdmin)
         const buildings = await runWithScope({ organisationId, projectId: p._id }, async () => {
           const view = scopeView(scopes, await buildingsWithSal())
-          const [buildingRows, statusRows, cmoStatuses, surveyStatuses, hldStatuses, lldStatuses] = await Promise.all([Building.find().lean(), PhaseStatus.find().lean(), cmoStatusByBuilding(), surveyStatusByBuilding(), hldStatusByBuilding(), lldStatusByBuilding()])
+          const [buildingRows, statusRows, cmoStatuses, surveyStatuses, hldStatuses, lldStatuses, spStatuses, bomStatuses] = await Promise.all([Building.find().lean(), PhaseStatus.find().lean(), cmoStatusByBuilding(), surveyStatusByBuilding(), hldStatusByBuilding(), lldStatusByBuilding(), spStatusByBuilding(), bomStatusByBuilding()])
           const statusByBuilding = new Map()
           for (const s of statusRows) {
             const key = String(s.buildingId)
@@ -464,7 +471,7 @@ export function createOrganisationService({ mailer, auth }) {
             statusByBuilding.get(key).set(s.phaseKey, s.status)
           }
           // CMO is computed from imported devices, not stored (same as the dashboard).
-          for (const [phaseKey, statuses] of [['cmo', cmoStatuses], ['survey', surveyStatuses], ['hld', hldStatuses], ['lld', lldStatuses]]) {
+          for (const [phaseKey, statuses] of [['cmo', cmoStatuses], ['survey', surveyStatuses], ['hld', hldStatuses], ['lld', lldStatuses], ['solution-package', spStatuses], ['bom', bomStatuses]]) {
             for (const [buildingId, status] of statuses) {
               if (!statusByBuilding.has(buildingId)) statusByBuilding.set(buildingId, new Map())
               statusByBuilding.get(buildingId).set(phaseKey, status)
