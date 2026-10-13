@@ -16,6 +16,8 @@ const schema = z
     EMAIL_PROVIDER: z.enum(['console', 'resend']).default('console'),
     RESEND_API_KEY: z.string().optional(),
     EMAIL_FROM: z.string().min(3).default('Rackium <no-reply@localhost>'),
+    // The daily notification digest's time (UTC, HH:MM; M5b).
+    DIGEST_AT_UTC: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'DIGEST_AT_UTC must be HH:MM').default('07:00'),
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
     // Local-disk file store (DATA-MODEL §9, hosting: files on the VPS disk behind a storage interface).
     FILE_STORAGE_DIR: z.string().min(1).default('var/files'),

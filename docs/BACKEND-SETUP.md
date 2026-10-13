@@ -149,6 +149,16 @@ The Playwright suite runs against the production build in mock mode:
 npm run test:e2e --workspace client
 ```
 
+### Scheduled jobs
+
+The API process runs a small scheduler (M5b) for notification email (every
+minute), task due-date reminders (every 15 minutes) and the daily digest
+email, at `DIGEST_AT_UTC` in `server/.env` (HH:MM, UTC, default `07:00`).
+Jobs are stored in the `scheduledjobs` collection and claimed with a lock,
+so running several API processes never sends anything twice. Tests never
+start the scheduler; they call the jobs directly. In development, mail goes
+to the console provider (the server log).
+
 ### Test database folders
 
 Each in-memory database keeps its data on disk while tests run, in

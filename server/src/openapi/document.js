@@ -177,9 +177,9 @@ export function buildRegistry() {
   registry.registerPath({
     method: 'get',
     path: '/api/v1/orgs/{orgId}/audit',
-    summary: 'Audit entries, newest first (policy: view audit log)',
+    summary: 'Audit entries, newest first, filtered (date range, user, action type, module, object type, building) and paged (Org Admin: the organisation; PM, Architect: their project, in scope)',
     request: { params: z.object({ orgId: z.string() }), query: C.auditQuery },
-    responses: { 200: ok('Entries', z.object({ entries: z.array(z.any()) })), 403: err('Forbidden') },
+    responses: { 200: ok('Entries', z.object({ entries: z.array(z.any()), nextBefore: z.string().nullable() })), 403: err('Forbidden') },
   })
   registry.registerPath({
     method: 'get',
@@ -461,6 +461,26 @@ export function buildRegistry() {
   route('get', PUB, 'Public: whether an approval link can be used (no package content)', { params: tok })
   route('post', `${PUB}/view`, 'Public: the package (or change request) behind a link, read-only; password required, 5 wrong passwords lock the link for 15 minutes', { params: tok, body: C.publicViewBody, errors: { 401: err('Wrong password'), 410: err('Expired or revoked'), 429: err('Locked') } })
   route('post', `${PUB}/decision`, "Public: the client's decision (approve, request changes, reject) with name, role, comments, acceptance and an optional signature; expiry checked at submit", { params: tok, body: C.publicDecisionBody, errors: { 401: err('Wrong password'), 409: err('Already decided'), 410: err('Expired or revoked'), 429: err('Locked') } })
+
+  // --- M5b: tasks, notifications, audit log screen ---
+  const T = `${PR}/tasks`
+  route('get', T, 'Tasks of the project in the caller’s scope, filtered by status, assignee, building, related object and overdue', { query: C.taskListQuery })
+  route('get', `${T}/assignees`, 'Who a task can be assigned to: active members whose scope covers the building', { query: z.object({ buildingId: z.string().optional() }) })
+  route('post', T, 'Create and assign a task (PM, Architect within scope); the assignee is notified', { body: C.taskCreateBody, status: 201, errors: { 400: err('Assignee not a member covering the building') } })
+  route('post', `${T}/from-resources`, 'Bill of Resources → one assigned task per room and task kind (open ones skipped)', { body: C.tasksFromResourcesBody, status: 201, errors: { 409: err('Nothing to create') } })
+  route('patch', `${T}/{id}`, 'Change a task: status (assignee or PM forward; assigner or PM reopens), details (assigner or PM); reassigning notifies', { params: p({ id: 1 }), body: C.taskUpdateBody })
+  route('delete', `${T}/{id}`, 'Delete a task (assigner or PM)', { params: p({ id: 1 }) })
+  const O = '/api/v1/orgs/{orgId}'
+  const orgP = (extra = {}) => z.object({ orgId: z.string(), ...Object.fromEntries(Object.keys(extra).map((k) => [k, z.string()])) })
+  route('get', `${O}/tasks/mine`, 'My tasks: assigned to the caller in every project of the organisation', { params: orgP(), query: C.myTasksQuery })
+  route('get', `${O}/notifications`, 'The caller’s notifications (All / Unread / Mentions), newest first, paged by createdAt', { params: orgP(), query: C.notificationListQuery })
+  route('get', `${O}/notifications/unread-count`, 'The caller’s unread notification count', { params: orgP() })
+  route('post', `${O}/notifications/read-all`, 'Mark all the caller’s notifications read', { params: orgP() })
+  route('post', `${O}/notifications/{id}/read`, 'Mark one of the caller’s notifications read', { params: orgP({ id: 1 }) })
+  route('get', `${O}/notification-preferences`, 'The caller’s delivery mode per notification type (in-app, email, both, daily digest)', { params: orgP() })
+  route('put', `${O}/notification-preferences`, 'Change delivery modes (only the types sent)', { params: orgP(), body: C.notificationPreferencesBody })
+  route('get', `${O}/audit/export.csv`, 'The audit entries the filters select as CSV (at most 10,000 rows)', { params: orgP(), query: C.auditExportQuery })
+  route('get', `${O}/audit/{id}`, 'One audit entry with its field-level changes', { params: orgP({ id: 1 }), query: C.auditEntryQuery })
 
   registry.registerPath({
     method: 'get',

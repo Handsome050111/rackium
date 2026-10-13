@@ -213,6 +213,16 @@ three webServers now have `reuseExistingServer: false`, and
 stops the run in seconds with a message naming the port and how to find
 and kill the process.
 
+**M5b full run (2026-10-13): one flaky test, not fixed.**
+`e2e-real/lld.spec.js` "the LLD, the Rackium Editor and the stock-length
+settings fit every width" failed once and passed on its retry: the LLD
+page's first load took more than the 5-second default of its
+`not.toContainText('Loading…')` check while the mock-mode projects were
+running in parallel. Two separate runs of the LLD spec passed (the test
+took about 8 seconds, the page well inside the limit). Nothing in M5b
+touches the LLD screen's loading; noted here so a repeat is recognised.
+Full run: 419 passed, 29 skipped, 1 flaky, 0 failed.
+
 ### CI
 
 `.github/workflows/ci.yml` now runs Playwright (mock and real projects)
@@ -490,3 +500,27 @@ Found and fixed, each with a test:
   force-killed it half-way. The teardown now waits for the process itself to
   exit (the shutdown reply carries its pid). Test:
   `client/playwright-support/globalTeardown.test.mjs` (waits for the process).
+
+## Part 8: M5b — Tasks, notifications and the audit log
+
+Found and fixed while building and testing M5b, each with a test:
+
+- **Task edits recorded no role in the audit** (found while building): the
+  task update and delete routes did not load the caller's roles, so the
+  audit entry's role was empty. Test: `api.m5b.test.js` (audit detail shows
+  the Field Engineer's role).
+- **CR-branch banner wording** (M5a review leftover): the LLD page said a
+  change request's branch is "promoted"; it now says the change is applied on
+  client approval. Test: `e2e-real/m5a.spec.js` (the CR branch banner).
+
+- **Accepting an invitation could fail with a 500 under load** (since M1;
+  found as an intermittent failure of the full server run): the driver
+  retries a transaction's callback after a transient error (a write
+  conflict); the callback had set the new user outside itself, so the retry
+  skipped creating the user and the membership pointed at nobody. Each
+  attempt now works on its own user, and only the committed one is kept. A
+  scan of every transaction callback found no other assignment to an
+  outside variable. Test:  (one simulated
+  write conflict during acceptance).
+
+Interpretations to confirm are marked ★ in DATA-MODEL §5.11.1 and §8.3.

@@ -5,6 +5,7 @@ import { LldDesign } from '../models/lldDesign.js'
 import { Approval } from '../models/approval.js'
 import { withTransaction } from '../db/transaction.js'
 import { recordAudit, userActor } from '../audit/audit.js'
+import { notifyQuietly, paths } from '../notifications/notify.js'
 import { AppError, conflict, notFound } from '../http/errors.js'
 import { requireBuilding } from '../access/scope.js'
 import { computeBom, namesOf, id } from './common.js'
@@ -128,6 +129,8 @@ export function createChangeRequestService({ lld }) {
       const updated = await ChangeRequest.findOneAndUpdate({ _id: cr._id, status: { $in: EDITABLE } }, { $set: { status: 'submitted', impact, affectedItems, submittedBy: actor.userId, submittedAt: new Date() } }, { returnDocument: 'after' }).lean()
       if (!updated) throw conflict('change_request_locked', 'The change request was submitted meanwhile — reload')
       await audit(req, building, actor, 'change_request.submitted', { objectType: 'ChangeRequest', objectId: cr._id, comment: `CR-${cr.number}: ${impact.design.total} design change(s), ${impact.bom.total} BOM line change(s)` })
+      // The PMs send it to the client.
+      await notifyQuietly({ type: 'cr_submitted', buildingId: building.id, title: `CR-${cr.number} ${cr.title} submitted (${building.code})`, body: `${impact.design.total} design change(s), ${impact.bom.total} BOM line change(s)`, relatedObjectType: 'change_request', relatedObjectId: cr._id, link: paths.building(req.org.id, req.project.id, building.id, 'solution-package'), actorId: actor.userId, to: { roles: ['pm'] } })
       return { changeRequest: { id: String(cr._id), status: 'submitted', impact } }
     },
 
@@ -139,7 +142,7 @@ export function createChangeRequestService({ lld }) {
       const pending = await Approval.exists({ buildingId: building.id, gate: 'change_request', status: 'pending' })
       if (pending) throw conflict('change_request_pending', 'Another change request of this building is with the client — one at a time')
       const secrets = await prepareSecrets(body.password)
-      return withTransaction(async (session) => {
+      const sent = await withTransaction(async (session) => {
         const [approval] = await Approval.create([{ buildingId: building.id, phaseKey: 'solution-package', gate: 'change_request', designVersionId: null, changeRequestId: cr._id, submittedBy: actor.userId, submittedAt: new Date(), status: 'pending' }], { session })
         const link = await createLink({ building, kind: 'change_request', approvalId: approval._id, changeRequestId: cr._id, secrets, expiryDays: body.expiryDays, actor, session })
         const updated = await ChangeRequest.findOneAndUpdate({ _id: cr._id, status: 'submitted' }, { $set: { status: 'awaiting_client', approvalId: approval._id } }, { session, returnDocument: 'after' })
@@ -147,6 +150,9 @@ export function createChangeRequestService({ lld }) {
         await audit(req, building, actor, 'change_request.sent', { objectType: 'ChangeRequest', objectId: cr._id, comment: `CR-${cr.number} sent for client approval (link ${link._id})`, session })
         return { shareLink: { id: String(link._id), expiresAt: link.expiresAt, token: secrets.token, password: secrets.password, generatedPassword: secrets.generatedPassword, path: `/approve/${secrets.token}` } }
       })
+      // The Architects (who drafted it) hear it is with the client.
+      await notifyQuietly({ type: 'cr_sent', buildingId: building.id, title: `CR-${cr.number} ${cr.title} sent to the client (${building.code})`, relatedObjectType: 'change_request', relatedObjectId: cr._id, link: paths.building(req.org.id, req.project.id, building.id, 'solution-package'), actorId: actor.userId, to: { roles: ['architect'] } })
+      return sent
     },
 
     async withdraw(req, crId, actor) {

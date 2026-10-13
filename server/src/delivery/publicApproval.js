@@ -11,6 +11,7 @@ import { Project } from '../models/project.js'
 import { File } from '../models/file.js'
 import { withTransaction } from '../db/transaction.js'
 import { currentScope } from '../tenancy/scopeContext.js'
+import { notifyQuietly, paths } from '../notifications/notify.js'
 import { recordAudit } from '../audit/audit.js'
 import { AppError } from '../http/errors.js'
 import { buildingWithScopeIds } from '../access/scope.js'
@@ -76,7 +77,7 @@ export function createPublicApprovalService({ storage, lld }) {
         const signature = await storeSignature(link, scope, body.signature)
         const req = { org: { id: scope.organisationId }, project: { id: scope.projectId } }
         try {
-          return await withTransaction(async (session) => {
+          const result = await withTransaction(async (session) => {
             const now = new Date()
             // Expiry and single use, inside the transaction: the link is claimed for this decision.
             const claimed = await ShareLink.findOneAndUpdate({ _id: link._id, decidedAt: null, revokedAt: null, expiresAt: { $gt: now } }, { $set: { decidedAt: now } }, { session, returnDocument: 'after' })
@@ -110,8 +111,16 @@ export function createPublicApprovalService({ storage, lld }) {
               changes: [{ objectType: 'Approval', objectId: String(approval._id), field: 'status', before: 'pending', after: body.decision }],
               session,
             })
-            return { decision: body.decision, ...outcome }
+            return { decision: body.decision, ...outcome, crId: link.changeRequestId ? String(link.changeRequestId) : null }
           })
+          // PMs and Architects of the building hear the client's decision.
+          const kind = link.kind === 'solution_package' ? 'sp' : 'cr'
+          const cr = kind === 'cr' ? await ChangeRequest.findById(link.changeRequestId, { number: 1, title: 1 }).lean() : null
+          const what = kind === 'sp' ? 'the Solution Package' : `CR-${cr?.number} ${cr?.title ?? ''}`.trim()
+          const verb = { approved: 'approved', changes_requested: 'requested changes to', rejected: 'rejected' }[body.decision]
+          await notifyQuietly({ type: `${kind}_${body.decision}`, buildingId: String(link.buildingId), title: `${body.name} (client) ${verb} ${what}`, body: body.comments || null, relatedObjectType: kind === 'sp' ? 'solution_package' : 'change_request', relatedObjectId: kind === 'sp' ? link._id : link.changeRequestId, link: paths.building(scope.organisationId, scope.projectId, String(link.buildingId), 'solution-package'), to: { roles: ['pm', 'architect'] } })
+          const { crId: _crId, ...out } = result
+          return out
         } catch (err) {
           if (signature) await storage.remove(signature.storageKey).catch(() => {})
           throw err

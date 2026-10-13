@@ -4,7 +4,6 @@ import { computeOverallProgress } from '@rackium/shared/phaseCalculations.js'
 import { Membership } from '../models/membership.js'
 import { Invitation } from '../models/invitation.js'
 import { Project } from '../models/project.js'
-import { AuditEntry } from '../models/auditEntry.js'
 import { User } from '../models/user.js'
 import { Organisation } from '../models/organisation.js'
 import { Country } from '../models/country.js'
@@ -583,23 +582,5 @@ export function createOrganisationService({ mailer, auth }) {
       return this.getProject({ organisationId, projectId: project._id, scope })
     },
 
-    async listAudit({ organisationId, projectId, limit }) {
-      const filter = projectId ? { projectId: new ObjectId(projectId) } : {}
-      const rows = await AuditEntry.find(filter).sort({ occurredAt: -1 }).limit(limit).lean()
-      return rows.map((e) => ({
-        id: String(e._id),
-        occurredAt: e.occurredAt,
-        action: e.action,
-        objectType: e.objectType,
-        objectId: e.objectId,
-        actor: { type: e.actor.type, userId: e.actor.userId ? String(e.actor.userId) : null, role: e.actor.role ?? null },
-        changeType: e.changeType,
-        source: e.source,
-        offlineQueuedAt: e.offlineQueuedAt ?? null,
-        conflict: Boolean(e.conflict),
-        comment: e.comment ?? null,
-        changes: e.changes,
-      }))
-    },
   }
 }

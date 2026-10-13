@@ -66,6 +66,9 @@ export const ACTIONS = {
   EDIT_SOLUTION_PACKAGE: 'edit_solution_package',
   SET_COMMERCIAL_STANDARDS: 'set_commercial_standards',
   MANAGE_CHANGE_REQUESTS: 'manage_change_requests',
+  // M5b, brief v2.2 §8: tasks are created and assigned by a PM or an
+  // Architect (within their membership scope; checked in the service).
+  MANAGE_TASKS: 'manage_tasks',
 }
 
 // Who may perform each action. An Org Admin's organisation-level role grants
@@ -87,7 +90,8 @@ const MATRIX = {
   [ACTIONS.CMDB_OPERATIONAL_EDITS]: ['pm', 'architect'],
   [ACTIONS.SEE_PRICES_MARGINS]: ['org_admin', 'pm', 'reviewer'],
   [ACTIONS.DOWNLOAD_PORT_CABLE_SCHEDULES]: ['org_admin', 'pm', 'architect', 'reviewer', 'field_engineer', 'viewer'],
-  [ACTIONS.VIEW_AUDIT_LOG]: ['org_admin', 'pm', 'architect', 'reviewer'],
+  // M5b (client audit 16): Org Admin, PM (project level) and Architect (read).
+  [ACTIONS.VIEW_AUDIT_LOG]: ['org_admin', 'pm', 'architect'],
   [ACTIONS.MANAGE_PROJECT_SETTINGS]: ['org_admin', 'pm'],
   [ACTIONS.MANAGE_HIERARCHY_TOP]: ['org_admin', 'pm'],
   [ACTIONS.MANAGE_HIERARCHY_DETAIL]: ['org_admin', 'pm', 'architect'],
@@ -103,6 +107,7 @@ const MATRIX = {
   [ACTIONS.EDIT_SOLUTION_PACKAGE]: ['architect', 'pm'],
   [ACTIONS.SET_COMMERCIAL_STANDARDS]: ['pm'],
   [ACTIONS.MANAGE_CHANGE_REQUESTS]: ['architect'],
+  [ACTIONS.MANAGE_TASKS]: ['pm', 'architect'],
 }
 
 // Roles a user may hold at each level. Invitations and memberships are

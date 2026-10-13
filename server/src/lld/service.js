@@ -34,6 +34,7 @@ import { projectCatalogue } from '../catalogue/service.js'
 import { withTransaction } from '../db/transaction.js'
 import { currentScope } from '../tenancy/scopeContext.js'
 import { recordAudit, userActor } from '../audit/audit.js'
+import { notifyQuietly, paths } from '../notifications/notify.js'
 import { AppError, badRequest, conflict, forbidden, notFound } from '../http/errors.js'
 import { callerAccess, requireBuilding } from '../access/scope.js'
 
@@ -1170,7 +1171,7 @@ export function createLldService({ storage }) {
       if (!data.devices.length) throw conflict('empty_lld', 'There is nothing to submit')
       const { findings, summary } = runValidation(data)
       if (summary.blocksSubmit) throw new AppError(409, 'validation_blocked', `${summary.critical} Critical finding(s) must be fixed before the LLD can be submitted`, { summary, findings: findings.filter((f) => f.severity === 'critical') })
-      return withTransaction(async (session) => {
+      const submitted = await withTransaction(async (session) => {
         const claimed = await LldDesign.findOneAndUpdate({ buildingId: building.id, revision: baseRevision, state: { $ne: 'awaiting_approval' } }, { $inc: { revision: 1 }, $set: { state: 'awaiting_approval' } }, { session, returnDocument: 'after' })
         if (!claimed) throw await staleError(await LldDesign.findOne({ buildingId: building.id }).session(session), baseRevision, 'LLD')
         const { versionId, number } = await writeVersion({ building, data, actor, label: 'Submitted for approval', branchId: null, basedOnVersionId: lld.basedOnHldVersionId, session })
@@ -1179,6 +1180,8 @@ export function createLldService({ storage }) {
         await audit(req, building, actor, 'lld.submitted', { objectType: 'DesignVersion', objectId: versionId, comment: `LLD v${number} submitted (${summary.warning} warning(s))`, session })
         return { revision: claimed.revision, versionNumber: number, approvalId: String(approval._id) }
       })
+      await notifyQuietly({ type: 'lld_submitted', buildingId: building.id, title: `LLD v${submitted.versionNumber} of ${building.code} submitted for approval`, relatedObjectType: 'lld', relatedObjectId: submitted.approvalId, link: paths.building(req.org.id, req.project.id, building.id, 'lld'), actorId: actor.userId, to: { roles: ['pm', 'reviewer'] } })
+      return submitted
     },
 
     async decide(req, { buildingId, decision, comment }, actor) {
@@ -1190,7 +1193,7 @@ export function createLldService({ storage }) {
         throw forbidden(String(actor.userId) === String(approval.submittedBy) ? 'You submitted this LLD — someone else must decide on it' : 'Only a PM or Reviewer decides on the LLD')
       }
       if (decision === 'changes_requested' && !String(comment ?? '').trim()) throw badRequest('Say what needs to change')
-      return withTransaction(async (session) => {
+      const result = await withTransaction(async (session) => {
         const decided = await Approval.findOneAndUpdate({ _id: approval._id, status: 'pending' }, { $set: { status: decision, reviewerId: actor.userId, decision: { value: decision, decidedAt: new Date(), decidedBy: actor.userId, decidedByRole: actor.role, comments: String(comment ?? '').trim() || null } } }, { session, returnDocument: 'after' })
         if (!decided) throw conflict('already_decided', 'This submission was decided meanwhile — reload')
         const set = { state: decision === 'approved' ? 'approved' : 'changes_requested', pendingApprovalId: null }
@@ -1202,6 +1205,8 @@ export function createLldService({ storage }) {
         await audit(req, building, actor, decision === 'approved' ? 'lld.approved' : 'lld.changes_requested', { objectType: 'Approval', objectId: approval._id, comment: String(comment ?? '').trim() || null, session })
         return { revision: design.revision, state: design.state }
       })
+      await notifyQuietly({ type: decision === 'approved' ? 'lld_approved' : 'lld_changes_requested', buildingId: building.id, title: decision === 'approved' ? `LLD of ${building.code} approved` : `Changes requested to the LLD of ${building.code}`, body: String(comment ?? '').trim() || null, relatedObjectType: 'lld', relatedObjectId: approval._id, link: paths.building(req.org.id, req.project.id, building.id, 'lld'), actorId: actor.userId, to: { userIds: [approval.submittedBy] } })
+      return result
     },
   }
 }

@@ -236,7 +236,8 @@ export default function RealLld() {
       {view.branch && (
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-brand/40 bg-brand/5 px-3 py-2 text-xs text-brand" data-testid="lld-branch-banner">
           <GitBranch size={14} strokeWidth={2} />
-          Editing branch <strong>{view.branch.name}</strong> ({view.branch.status}) — the main LLD is unchanged until the branch is promoted.
+          Editing branch <strong>{view.branch.name}</strong> ({view.branch.status}) —{' '}
+          {view.branch.changeRequestId ? 'the main LLD is unchanged until the change is applied on client approval.' : 'the main LLD is unchanged until the branch is promoted.'}
           <button type="button" onClick={() => openBranch(null)} className="font-medium underline">
             Back to main LLD
           </button>

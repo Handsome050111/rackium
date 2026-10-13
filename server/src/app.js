@@ -27,6 +27,10 @@ import { createChangeRequestService } from './delivery/changeRequests.js'
 import { createPublicApprovalService } from './delivery/publicApproval.js'
 import { createCommercialSettingsService } from './delivery/settings.js'
 import { createShareLinkAdmin } from './delivery/shareLinks.js'
+import { createTaskService } from './tasks/service.js'
+import { createNotificationService } from './notifications/service.js'
+import { configureNotifications } from './notifications/notify.js'
+import { createAuditLogService } from './audit/log.js'
 import { apiRouter, API_VERSION } from './routes/index.js'
 import { requireUser } from './http/middleware.js'
 import { membershipSummary, userSummary } from './routes/summaries.js'
@@ -112,7 +116,13 @@ export function createApp({ config, logger, mailer, rateLimits = DEFAULT_RATE_LI
   }
   const openapiDocument = () => buildOpenApiDocument({ version: VERSION })
 
-  const api = apiRouter({ config, auth, org, hierarchy, blockers, viewAs, dashboard, catalogue, cmo, survey, files, hld, lld, delivery, rateLimits, openapiDocument, version: VERSION })
+  // Tasks, notifications and the audit log (M5b). Links in notification
+  // emails point at the public app.
+  configureNotifications({ appUrl: config.PUBLIC_APP_URL })
+  const tasks = createTaskService({ lld })
+  const notifications = createNotificationService()
+  const auditLog = createAuditLogService()
+  const api = apiRouter({ config, auth, org, auditLog, hierarchy, blockers, viewAs, dashboard, catalogue, cmo, survey, files, hld, lld, delivery, tasks, notifications, rateLimits, openapiDocument, version: VERSION })
   api.get('/me', requireUser(config), async (req, res) => {
     const memberships = await membershipsForUser(req.user._id)
     res.json({ user: userSummary(req.user), memberships: memberships.map(membershipSummary) })

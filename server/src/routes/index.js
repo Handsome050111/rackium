@@ -11,13 +11,14 @@ import { catalogueRoutes } from './catalogue.js'
 import { cmoRoutes } from './cmo.js'
 import { surveyRoutes } from './survey.js'
 import { hldRoutes } from './hld.js'
+import { taskRoutes, meRoutes } from './tasks.js'
 import { lldRoutes } from './lld.js'
 import { deliveryRoutes, publicRoutes } from './delivery.js'
 import { fileRoutes } from './files.js'
 
 export const API_VERSION = '1'
 
-export function apiRouter({ config, auth, org, hierarchy, blockers, viewAs, dashboard, catalogue, cmo, survey, files, hld, lld, delivery, rateLimits, openapiDocument, version }) {
+export function apiRouter({ config, auth, org, auditLog, hierarchy, blockers, viewAs, dashboard, catalogue, cmo, survey, files, hld, lld, delivery, tasks, notifications, rateLimits, openapiDocument, version }) {
   const r = recordingRouter()
 
   r.get('/health', (req, res) => {
@@ -35,7 +36,9 @@ export function apiRouter({ config, auth, org, hierarchy, blockers, viewAs, dash
   // reflects exactly what app.use() wires up — nothing is duplicated by hand.
   const mounts = [
     ['/auth', authRoutes({ config, auth, rateLimits })],
-    ['/orgs/:orgId', organisationRoutes({ config, org, rateLimits })],
+    ['/orgs/:orgId', organisationRoutes({ config, org, auditLog, rateLimits })],
+    ['/orgs/:orgId', meRoutes({ config, tasks, notifications })],
+    ['/orgs/:orgId/projects/:projectId/tasks', taskRoutes({ config, tasks })],
     ['/orgs/:orgId/projects/:projectId/hierarchy', hierarchyRoutes({ config, hierarchy })],
     ['/orgs/:orgId/projects/:projectId/blockers', blockersRoutes({ config, blockers })],
     ['/orgs/:orgId/projects/:projectId/dashboard', dashboardRoutes({ config, dashboard })],

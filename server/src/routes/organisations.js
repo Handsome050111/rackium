@@ -1,7 +1,7 @@
 import { recordingRouter } from '../http/routeRecorder.js'
 import { z } from 'zod'
 import { ACTIONS, canCreateProjects } from '@rackium/shared/policy.js'
-import { inviteCreateBody, membershipUpdateBody, projectCreateBody, projectUpdateBody, auditQuery, projectCreationBody, organisationSettingsBody } from '@rackium/shared/contracts.js'
+import { inviteCreateBody, membershipUpdateBody, projectCreateBody, projectUpdateBody, auditQuery, auditExportQuery, auditEntryQuery, projectCreationBody, organisationSettingsBody } from '@rackium/shared/contracts.js'
 import { validate } from '../http/validate.js'
 import { requireUser, requireOrg, requireProject, requireAction, applyViewAs, actorOf } from '../http/middleware.js'
 import { rolesIn } from '../organisations/service.js'
@@ -15,7 +15,7 @@ const userIdParam = z.object({ userId: z.string().regex(/^[a-f0-9]{24}$/) })
 
 // Every route here sits under /orgs/:orgId. The chain is always:
 // signed in -> member of this organisation -> policy action -> validated input.
-export function organisationRoutes({ config, org, rateLimits }) {
+export function organisationRoutes({ config, org, auditLog, rateLimits }) {
   const r = recordingRouter({ mergeParams: true })
   const base = [requireUser(config), requireOrg()]
 
@@ -170,16 +170,24 @@ export function organisationRoutes({ config, org, rateLimits }) {
     }
   )
 
-  r.get(
-    '/audit',
-    ...base,
-    validate({ query: auditQuery }),
-    requireAction(ACTIONS.VIEW_AUDIT_LOG, { projectIdFrom: (req) => req.input.query.projectId ?? null }),
-    async (req, res) => {
-      const entries = await org.listAudit({ organisationId: req.org.id, projectId: req.input.query.projectId, limit: req.input.query.limit })
-      res.json({ entries })
-    }
-  )
+  // The audit log (M5b): the Org Admin reads the organisation; a PM or an
+  // Architect names their project (and sees only their scope).
+  const auditRead = requireAction(ACTIONS.VIEW_AUDIT_LOG, { projectIdFrom: (req) => req.input.query.projectId ?? null })
+  const who = (req) => ({ user: req.user, organisationId: req.org.id, roles: req.roles })
+  r.get('/audit', ...base, validate({ query: auditQuery }), auditRead, async (req, res) => {
+    res.json(await auditLog.list({ ...who(req), query: req.input.query }))
+  })
+  r.get('/audit/export.csv', ...base, validate({ query: auditExportQuery }), auditRead, async (req, res) => {
+    const { csv, count, truncated } = await auditLog.exportCsv({ ...who(req), query: req.input.query })
+    res.set('Content-Type', 'text/csv; charset=utf-8')
+    res.set('Content-Disposition', `attachment; filename="audit-log-${new Date().toISOString().slice(0, 10)}.csv"`)
+    res.set('X-Row-Count', String(count))
+    if (truncated) res.set('X-Truncated', 'true')
+    res.send(`\ufeff${csv}`)
+  })
+  r.get('/audit/:id', ...base, validate({ params: z.object({ id: z.string().regex(/^[a-f0-9]{24}$/) }), query: auditEntryQuery }), auditRead, async (req, res) => {
+    res.json(await auditLog.get({ ...who(req), id: req.input.params.id, projectId: req.input.query.projectId }))
+  })
 
   return r
 }

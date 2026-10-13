@@ -35,6 +35,7 @@ import { surveyStatusByBuilding } from '../survey/formService.js'
 import { withTransaction } from '../db/transaction.js'
 import { currentScope } from '../tenancy/scopeContext.js'
 import { recordAudit, userActor } from '../audit/audit.js'
+import { notifyQuietly, paths } from '../notifications/notify.js'
 import { AppError, badRequest, conflict, forbidden, notFound } from '../http/errors.js'
 import { callerAccess, requireBuilding } from '../access/scope.js'
 
@@ -888,7 +889,7 @@ export function createHldService({ storage }) {
       if (summary.blocksSubmit) throw new AppError(409, 'validation_blocked', `${summary.critical} Critical finding(s) must be fixed before the HLD can be submitted`, { summary, findings: findings.filter((f) => f.severity === 'critical') })
 
       const { projectId } = currentScope()
-      return withTransaction(async (session) => {
+      const submitted = await withTransaction(async (session) => {
           const claimed = await HldDesign.findOneAndUpdate(
             { buildingId: building.id, revision: baseRevision, state: { $ne: 'awaiting_approval' } },
             { $inc: { revision: 1 }, $set: { state: 'awaiting_approval' } },
@@ -901,6 +902,9 @@ export function createHldService({ storage }) {
           await recordAudit({ organisationId: req.org.id, projectId: req.project.id, buildingId: building.id, phaseKey: 'hld', actor: userActor(actor.userId, actor.role), action: 'hld.submitted', objectType: 'DesignVersion', objectId: versionId, changeType: 'design_intent', source: 'ui', comment: `HLD v${number} submitted (${summary.warning} warning(s), ${summary.info} info)`, session })
           return { revision: claimed.revision, versionNumber: number, approvalId: String(approval._id) }
       })
+      // PMs and Reviewers decide on it.
+      await notifyQuietly({ type: 'hld_submitted', buildingId: building.id, title: `HLD v${submitted.versionNumber} of ${building.code} submitted for approval`, relatedObjectType: 'hld', relatedObjectId: submitted.approvalId, link: paths.building(req.org.id, req.project.id, building.id, 'hld'), actorId: actor.userId, to: { roles: ['pm', 'reviewer'] } })
+      return submitted
     },
 
     // PM or Reviewer decides; never the submitter (brief §4.3, D06).
@@ -913,7 +917,7 @@ export function createHldService({ storage }) {
         throw forbidden(String(actor.userId) === String(approval.submittedBy) ? 'You submitted this HLD — someone else must decide on it' : 'Only a PM or Reviewer decides on the HLD')
       }
       if (decision === 'changes_requested' && !String(comment ?? '').trim()) throw badRequest('Say what needs to change')
-      return withTransaction(async (session) => {
+      const result = await withTransaction(async (session) => {
         const decided = await Approval.findOneAndUpdate(
           { _id: approval._id, status: 'pending' },
           { $set: { status: decision, reviewerId: actor.userId, decision: { value: decision, decidedAt: new Date(), decidedBy: actor.userId, decidedByRole: actor.role, comments: String(comment ?? '').trim() || null } } },
@@ -929,6 +933,9 @@ export function createHldService({ storage }) {
         await recordAudit({ organisationId: req.org.id, projectId: req.project.id, buildingId: building.id, phaseKey: 'hld', actor: userActor(actor.userId, actor.role), action: decision === 'approved' ? 'hld.approved' : 'hld.changes_requested', objectType: 'Approval', objectId: approval._id, changeType: 'design_intent', source: 'ui', comment: String(comment ?? '').trim() || null, session })
         return { revision: design.revision, state: design.state }
       })
+      // The Architect who submitted it hears the decision.
+      await notifyQuietly({ type: decision === 'approved' ? 'hld_approved' : 'hld_changes_requested', buildingId: building.id, title: decision === 'approved' ? `HLD of ${building.code} approved` : `Changes requested to the HLD of ${building.code}`, body: String(comment ?? '').trim() || null, relatedObjectType: 'hld', relatedObjectId: approval._id, link: paths.building(req.org.id, req.project.id, building.id, 'hld'), actorId: actor.userId, to: { userIds: [approval.submittedBy] } })
+      return result
     },
   }
 }
