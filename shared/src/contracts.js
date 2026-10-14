@@ -5,6 +5,8 @@ import { BLUEPRINT_KEYS, BLUEPRINT_VARIANT_KEYS, blueprintProblem } from './hldB
 import { z } from 'zod'
 import { ALL_ROLES, PROJECT_ROLES, ORG_MEMBER_ROLE } from './policy.js'
 import { PHASE_KEYS } from './phaseCalculations.js'
+import { NOTIFICATION_TYPE_KEYS, DELIVERY_MODE_KEYS, TASK_STATUSES, TASK_RELATED_TYPES } from './notifications.js'
+import { isValidTimeZone } from './timeZone.js'
 import { catalogueItemSchema, CATEGORY_GROUPS, CATALOGUE_CATEGORIES, OPTIC_MEDIA } from './catalogue.js'
 
 export const PASSWORD_MIN = 12
@@ -391,9 +393,12 @@ export const stockLengthsSchema = z.object({
 })
 // Cage nuts per RU on each face a device is fixed to (M5a review).
 export const cageNutsPerRuSchema = z.object({ front: z.number().int().min(0).max(20), rear: z.number().int().min(0).max(20) })
+// The organisation's time zone (IANA name) and the daily digest's local send time (M5b review).
+export const timeZoneSchema = z.string().trim().refine(isValidTimeZone, 'Not a time zone (use an IANA name such as Europe/Berlin)')
+export const digestTimeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use HH:MM (24-hour)')
 export const organisationSettingsBody = z
-  .object({ architectsSeePrices: z.boolean().optional(), namingRoleCodes: namingRoleCodesSchema.optional(), stockLengths: stockLengthsSchema.optional(), cageNutsPerRu: cageNutsPerRuSchema.optional() })
-  .refine((b) => b.architectsSeePrices !== undefined || b.namingRoleCodes !== undefined || b.stockLengths !== undefined || b.cageNutsPerRu !== undefined, { message: 'Nothing to update' })
+  .object({ architectsSeePrices: z.boolean().optional(), namingRoleCodes: namingRoleCodesSchema.optional(), stockLengths: stockLengthsSchema.optional(), cageNutsPerRu: cageNutsPerRuSchema.optional(), timeZone: timeZoneSchema.optional(), digestTime: digestTimeSchema.optional() })
+  .refine((b) => Object.values(b).some((v) => v !== undefined), { message: 'Nothing to update' })
 
 // --- M3a: catalogue -------------------------------------------------------
 // Create and replace take the whole item (shared/src/catalogue.js is the one
@@ -438,10 +443,69 @@ export const cmoImportBody = z.object({
 })
 export const cmoAssignBody = z.object({ buildingId: objectId })
 
-export const auditQuery = z.object({
+// The audit log screen (M5b): filters, newest first, cursor pagination (`before` = the previous page's nextBefore).
+const dayField = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD')
+export const auditFilters = {
   projectId: objectId.optional(),
+  from: dayField.optional(),
+  to: dayField.optional(),
+  userId: objectId.optional(),
+  action: z.string().trim().min(1).max(80).regex(/^[a-z_.]+$/, 'Letters, dots and underscores').optional(),
+  module: z.string().trim().min(1).max(40).optional(),
+  objectType: z.string().trim().min(1).max(60).optional(),
+  buildingId: objectId.optional(),
+  changeType: z.string().trim().min(1).max(40).optional(),
+}
+export const auditQuery = z.object({
+  ...auditFilters,
+  before: z.string().regex(/^[0-9TZ:.-]+_[a-f0-9]{24}$/).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 })
+export const auditExportQuery = z.object(auditFilters)
+export const auditEntryQuery = z.object({ projectId: objectId.optional() })
+
+// --- M5b: tasks and notifications ------------------------------------------
+const deadlineField = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD')
+export const taskCreateBody = z.object({
+  title: z.string().trim().min(1).max(200),
+  relatedObjectType: z.enum(TASK_RELATED_TYPES).nullable().optional(),
+  relatedObjectId: z.string().trim().min(1).max(40).nullable().optional(),
+  buildingId: objectId.nullable().optional(),
+  assignedTo: objectId,
+  deadline: deadlineField.nullable().optional(),
+  notes: z.string().trim().max(2000).nullable().optional(),
+})
+export const taskUpdateBody = z
+  .object({
+    title: z.string().trim().min(1).max(200).optional(),
+    assignedTo: objectId.optional(),
+    deadline: deadlineField.nullable().optional(),
+    notes: z.string().trim().max(2000).nullable().optional(),
+    status: z.enum(TASK_STATUSES).optional(),
+  })
+  .refine((b) => Object.keys(b).length > 0, { message: 'Nothing to update' })
+export const taskListQuery = z.object({
+  status: z.enum(TASK_STATUSES).optional(),
+  assignedTo: z.union([objectId, z.literal('me')]).optional(),
+  buildingId: objectId.optional(),
+  relatedObjectType: z.enum(TASK_RELATED_TYPES).optional(),
+  relatedObjectId: z.string().trim().min(1).max(40).optional(),
+  overdue: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
+})
+export const myTasksQuery = z.object({ status: z.enum(TASK_STATUSES).optional(), includeComplete: z.enum(['true', 'false']).transform((v) => v === 'true').optional() })
+export const tasksFromResourcesBody = z.object({
+  buildingId: objectId,
+  roomCodes: z.array(z.string().trim().min(1).max(40)).max(200).optional(),
+  taskIds: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
+  assignedTo: objectId,
+  deadline: deadlineField.nullable().optional(),
+})
+export const notificationListQuery = z.object({
+  tab: z.enum(['all', 'unread', 'mentions']).default('all'),
+  before: z.iso.datetime().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(30),
+})
+export const notificationPreferencesBody = z.object({ modes: z.partialRecord(z.enum(NOTIFICATION_TYPE_KEYS), z.enum(DELIVERY_MODE_KEYS)) })
 
 export const errorResponse = z.object({
   error: z.object({

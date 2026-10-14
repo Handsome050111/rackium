@@ -9,6 +9,7 @@ import { DesignVersion } from '../models/designVersion.js'
 import { LldDesign } from '../models/lldDesign.js'
 import { HldDesign } from '../models/hldDesign.js'
 import { withTransaction } from '../db/transaction.js'
+import { notifyQuietly, paths } from '../notifications/notify.js'
 import { recordAudit, userActor } from '../audit/audit.js'
 import { AppError, badRequest, conflict, notFound } from '../http/errors.js'
 import { callerAccess, requireBuilding } from '../access/scope.js'
@@ -128,7 +129,7 @@ export function createBomService({ storage, lld }) {
       if (body.actualDelivery !== undefined) patch.actualDelivery = day(body.actualDelivery)
       const problem = procurementProblem(current ?? { status: 'not_ordered' }, { ...patch, actualDelivery: patch.actualDelivery !== undefined ? patch.actualDelivery : current?.actualDelivery })
       if (problem) throw badRequest(problem)
-      return withTransaction(async (session) => {
+      const updated = await withTransaction(async (session) => {
         let saved
         const now = new Date()
         if (current) {
@@ -150,6 +151,11 @@ export function createBomService({ storage, lld }) {
         await audit(req, building, actor, 'procurement.line.updated', { objectType: 'ProcurementLine', objectId: saved._id, comment: `${line?.item ?? body.lineKey}${patch.status ? ` → ${PROCUREMENT_LABELS[patch.status]}` : ''}`, changes, session })
         return { line: { key: body.lineKey, status: saved.status, version: saved.version } }
       })
+      const before = current?.status ?? 'not_ordered'
+      if (patch.status && patch.status !== before) {
+        await notifyQuietly({ type: 'procurement_status_changed', buildingId: building.id, title: `${line?.item ?? body.lineKey}: ${PROCUREMENT_LABELS[before]} → ${PROCUREMENT_LABELS[patch.status]} (${building.code})`, body: [patch.poNumber ? `PO ${patch.poNumber}` : null, patch.vendor ? `Vendor ${patch.vendor}` : null].filter(Boolean).join(' · ') || null, relatedObjectType: 'procurement_line', relatedObjectId: body.lineKey, link: paths.building(req.org.id, req.project.id, building.id, 'bom'), actorId: actor.userId, to: { roles: ['pm', 'architect'] } })
+      }
+      return updated
     },
   }
 }

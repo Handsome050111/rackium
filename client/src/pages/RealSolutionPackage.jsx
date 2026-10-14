@@ -9,6 +9,7 @@ import KvForm from '../components/solutionPackage/KvForm.jsx'
 import ValidationResultsTable from '../components/solutionPackage/ValidationResultsTable.jsx'
 import AcceptedWarningsTable from '../components/solutionPackage/AcceptedWarningsTable.jsx'
 import ResourceEstimatePanel from '../components/solutionPackage/ResourceEstimatePanel.jsx'
+import ResourceTasksAction from '../components/tasks/ResourceTasksAction.jsx'
 import ShareLinksPanel from '../components/solutionPackage/real/ShareLinksPanel.jsx'
 import ChangeRequestsPanel from '../components/solutionPackage/real/ChangeRequestsPanel.jsx'
 import { deliveryApi, toRegisterGroups, toWarningRows, toAreaRows, editList } from '../api/deliveryApi.js'
@@ -240,6 +241,7 @@ export default function RealSolutionPackage() {
             <ValidationResultsTable areas={toAreaRows(view.validationAreas)} canAccept={editable} onAccept={(area) => write((rev) => deliveryApi.acceptWarning(orgId, projectId, { buildingId, areaKey: area.key, baseRevision: rev }), `${area.name} accepted`)} />
             <AcceptedWarningsTable warnings={toWarningRows(view.acceptedWarnings)} />
             <ResourceEstimatePanel estimate={view.resourceEstimate} minutesById={view.resourceMinutes} editable={!readOnly && view.permissions.standards} onSetMinutes={(taskId, minutes) => write(() => deliveryApi.setCommercial(orgId, projectId, { resourceMinutes: { [taskId]: minutes } }), 'Standard time saved')} />
+            {!readOnly && (has('pm') || has('architect')) && <ResourceTasksAction orgId={orgId} projectId={projectId} buildingId={buildingId} estimate={view.resourceEstimate} />}
           </div>
           <div className="w-full shrink-0 space-y-4 xl:w-96">
             <ShareLinksPanel view={view} canShare={!readOnly && view.permissions.share} orgId={orgId} projectId={projectId} buildingId={buildingId} onChanged={reload} onError={setError} />

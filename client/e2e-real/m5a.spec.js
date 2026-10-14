@@ -265,6 +265,9 @@ test('a change request changes a cable on its branch; the client approves it; th
   // Edit the cable on the change request's branch (the LLD itself stays frozen).
   await panel.getByRole('link', { name: 'Edit the LLD on its branch' }).click()
   await expect(architect.getByTestId('lld-frozen')).toContainText("This is a change request's branch")
+  // M5b: a change request's branch is applied on client approval, never "promoted".
+  await expect(architect.getByTestId('lld-branch-banner')).toContainText('until the change is applied on client approval')
+  await expect(architect.getByTestId('lld-branch-banner')).not.toContainText('promoted')
   await architect.getByRole('tab', { name: 'Cable Schedule' }).click()
   const row = architect.locator('tbody tr', { hasText: 'C-BE-1' })
   await row.getByRole('button', { name: '50' }).click()

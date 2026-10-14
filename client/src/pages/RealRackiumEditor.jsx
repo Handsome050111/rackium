@@ -140,7 +140,7 @@ export default function RealRackiumEditor() {
   }
 
   if (error && !view) return <div className="p-6 text-sm text-status-red">{error}</div>
-  if (!view) return <div className="p-6 text-sm text-text-secondary">Loading…</div>
+  if (!view) return <div className="p-6 text-sm text-text-secondary" data-page-state="loading">Loading…</div>
   if (!view.started) return <div className="p-6 text-sm text-text-secondary">Start the LLD first.</div>
 
   const lldPath = `/orgs/${orgId}/projects/${projectId}/buildings/${buildingId}/lld${branchId ? `?branch=${branchId}` : ''}`
@@ -156,7 +156,7 @@ export default function RealRackiumEditor() {
   const fibre = draft.media === 'os2' || draft.media === 'om4'
 
   return (
-    <div className="mx-auto max-w-[1700px] space-y-4 p-4 sm:p-6">
+    <div className="mx-auto max-w-[1700px] space-y-4 p-4 sm:p-6" data-page-state="ready">
       <Link to={lldPath} className="inline-flex items-center gap-1 text-xs font-medium text-brand hover:underline">
         <ArrowLeft size={14} strokeWidth={2} />
         Back to LLD

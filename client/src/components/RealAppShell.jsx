@@ -27,7 +27,7 @@ export default function RealAppShell() {
 
   return (
     <div className="flex h-screen flex-col">
-      <TopBar onMenuClick={() => setMobileOpen(true)} settingsTo={settingsTo} />
+      <TopBar onMenuClick={() => setMobileOpen(true)} settingsTo={settingsTo} orgId={orgId} />
       <ViewAsBanner />
       <div className="flex min-h-0 flex-1">
         <RealSidebar mobileOpen={mobileOpen} onCloseMobile={() => setMobileOpen(false)} />

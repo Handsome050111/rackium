@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
-import { Plus, X, Building2, Boxes, Settings2 } from 'lucide-react'
+import { Plus, X, Building2, Boxes, Settings2, ListChecks, ScrollText } from 'lucide-react'
 import { ACTIONS } from '@rackium/shared/policy.js'
 import { useAuth } from '../lib/AuthContext.jsx'
 import { canIn, canCreateProjectsIn } from '../lib/realRoles.js'
@@ -29,10 +29,11 @@ function navLinkClass({ isActive }) {
   }`
 }
 
-function SidebarContent({ showLabels, orgId, projectId, buildingId, onNavigate }) {
-  const { memberships } = useAuth()
-  const canCreate = canCreateProjectsIn(memberships, orgId)
-  const isOrgAdmin = canIn(memberships, orgId, null, ACTIONS.MANAGE_USERS_SETTINGS_CATALOGUE)
+// The sidebar's data, loaded ONCE for every rail that shows it (the desktop
+// rail and the tablet icon rail are both mounted; only CSS hides one). Each
+// rail used to load its own copy, so every page fetched the project list and
+// the building dashboard twice (found measuring the LLD page load, M5b review).
+function useSidebarData(orgId, projectId, buildingId) {
   const [projects, setProjects] = useState(null)
   const [phases, setPhases] = useState(null)
 
@@ -57,6 +58,16 @@ function SidebarContent({ showLabels, orgId, projectId, buildingId, onNavigate }
       active = false
     }
   }, [orgId, projectId, buildingId])
+
+  return { projects, phases }
+}
+
+function SidebarContent({ showLabels, orgId, projectId, buildingId, onNavigate, projects, phases }) {
+  const { memberships } = useAuth()
+  const canCreate = canCreateProjectsIn(memberships, orgId)
+  const isOrgAdmin = canIn(memberships, orgId, null, ACTIONS.MANAGE_USERS_SETTINGS_CATALOGUE)
+  // The audit log: the Org Admin, or a PM / Architect / Reviewer of some project here.
+  const readsAudit = isOrgAdmin || memberships.some((m) => m.level === 'project' && String(m.organisationId) === String(orgId) && canIn(memberships, orgId, m.projectId, ACTIONS.VIEW_AUDIT_LOG))
 
   const currentProject = projects?.find((p) => p.id === projectId) ?? null
 
@@ -91,6 +102,16 @@ function SidebarContent({ showLabels, orgId, projectId, buildingId, onNavigate }
           <Boxes size={16} strokeWidth={2} className="shrink-0" />
           {showLabels && <span className="truncate">Equipment catalogue</span>}
         </NavLink>
+        <NavLink to={`/orgs/${orgId}/tasks`} onClick={onNavigate} className={navLinkClass} title="My tasks">
+          <ListChecks size={16} strokeWidth={2} className="shrink-0" />
+          {showLabels && <span className="truncate">My tasks</span>}
+        </NavLink>
+        {readsAudit && (
+          <NavLink to={`/orgs/${orgId}/audit`} onClick={onNavigate} className={navLinkClass} title="Audit log">
+            <ScrollText size={16} strokeWidth={2} className="shrink-0" />
+            {showLabels && <span className="truncate">Audit log</span>}
+          </NavLink>
+        )}
         {isOrgAdmin && (
           <NavLink to={`/orgs/${orgId}/settings`} onClick={onNavigate} className={navLinkClass} title="Organisation settings">
             <Settings2 size={16} strokeWidth={2} className="shrink-0" />
@@ -102,7 +123,13 @@ function SidebarContent({ showLabels, orgId, projectId, buildingId, onNavigate }
       {currentProject && (
         <>
           <div className="mx-3 my-2 border-t border-border" />
-          {showLabels && <div className="px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-text-secondary">Buildings</div>}
+          <nav aria-label="Project" className="px-2">
+            <NavLink to={`/orgs/${orgId}/projects/${projectId}/tasks`} onClick={onNavigate} className={navLinkClass} title="Project tasks">
+              <ListChecks size={16} strokeWidth={2} className="shrink-0" />
+              {showLabels && <span className="truncate">Tasks</span>}
+            </NavLink>
+          </nav>
+          {showLabels && <div className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-text-secondary">Buildings</div>}
           <nav aria-label="Buildings" className="px-2">
             {currentProject.buildings.map((b) => (
               <NavLink key={b.id} to={`/orgs/${orgId}/projects/${projectId}/buildings/${b.id}`} onClick={onNavigate} className={navLinkClass}>
@@ -151,12 +178,13 @@ function SidebarContent({ showLabels, orgId, projectId, buildingId, onNavigate }
 
 export default function RealSidebar({ mobileOpen, onCloseMobile }) {
   const { orgId, projectId, buildingId } = useRealRouteIds()
+  const data = useSidebarData(orgId, projectId, buildingId)
 
   return (
     <>
       {/* Desktop / iPad: full rail with labels */}
       <aside className="hidden w-64 shrink-0 border-r border-border bg-surface md:block">
-        <SidebarContent showLabels orgId={orgId} projectId={projectId} buildingId={buildingId} />
+        <SidebarContent showLabels orgId={orgId} projectId={projectId} buildingId={buildingId} {...data} />
       </aside>
 
       {/* Tablet portrait: icon-only rail */}
@@ -165,7 +193,7 @@ export default function RealSidebar({ mobileOpen, onCloseMobile }) {
           <Mark />
         </div>
         <div className="min-h-0 flex-1">
-          <SidebarContent showLabels={false} orgId={orgId} projectId={projectId} buildingId={buildingId} />
+          <SidebarContent showLabels={false} orgId={orgId} projectId={projectId} buildingId={buildingId} {...data} />
         </div>
       </aside>
 
@@ -186,7 +214,7 @@ export default function RealSidebar({ mobileOpen, onCloseMobile }) {
               </button>
             </div>
             <div className="flex-1 overflow-y-auto">
-              <SidebarContent showLabels orgId={orgId} projectId={projectId} buildingId={buildingId} onNavigate={onCloseMobile} />
+              <SidebarContent showLabels orgId={orgId} projectId={projectId} buildingId={buildingId} onNavigate={onCloseMobile} {...data} />
             </div>
           </aside>
         </div>

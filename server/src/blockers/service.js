@@ -2,6 +2,9 @@ import { Blocker } from '../models/blocker.js'
 import { recordAudit, userActor, diffChanges } from '../audit/audit.js'
 import { notFound, forbidden, badRequest, conflict } from '../http/errors.js'
 import { salIdForBuilding } from '../hierarchy/lookup.js'
+import { notifyQuietly, paths } from '../notifications/notify.js'
+
+const blockerLink = (organisationId, projectId, b) => (b.buildingId ? paths.building(organisationId, projectId, String(b.buildingId)) : null)
 
 const optionalId = (v) => (v ? String(v) : null)
 
@@ -59,6 +62,8 @@ export function createBlockersService() {
         changeType: 'design_intent',
         source: 'ui',
       })
+      // PMs, and the owner when one is named.
+      await notifyQuietly({ type: 'blocker_raised', projectId, buildingId: body.buildingId, title: `Blocker raised: ${blocker.description.slice(0, 120)}`, body: `Priority ${blocker.priority}`, relatedObjectType: 'blocker', relatedObjectId: blocker._id, link: blockerLink(organisationId, projectId, blocker), actorId: actor.userId, to: { roles: ['pm'], userIds: blocker.ownerId ? [blocker.ownerId] : [] } })
       return toBlocker(blocker)
     },
 
@@ -114,6 +119,9 @@ export function createBlockersService() {
           changes,
         })
       }
+      const common = { projectId, buildingId: blocker.buildingId, relatedObjectType: 'blocker', relatedObjectId: blocker._id, link: blockerLink(organisationId, projectId, blocker), actorId: actor.userId }
+      if (blocker.ownerId && String(blocker.ownerId) !== String(before.ownerId ?? '')) await notifyQuietly({ ...common, type: 'blocker_assigned', title: `Blocker assigned to you: ${blocker.description.slice(0, 120)}`, to: { userIds: [blocker.ownerId] } })
+      if (before.status !== 'resolved' && blocker.status === 'resolved') await notifyQuietly({ ...common, type: 'blocker_resolved', title: `Blocker resolved: ${blocker.description.slice(0, 120)}`, to: { userIds: [blocker.raisedBy] } })
       return toBlocker(blocker)
     },
   }

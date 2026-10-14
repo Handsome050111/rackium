@@ -135,7 +135,8 @@ function UserMenu() {
 // settingsTo overrides the mock prototype's default (/b/:buildingId/settings):
 // pass a path for real-mode screens with their own settings, or null to hide
 // the icon where there is nothing to settle (e.g. the org-level project list).
-export default function TopBar({ onMenuClick, settingsTo }) {
+// `orgId` (real mode) gives the bell its notifications; the mock prototype passes none.
+export default function TopBar({ onMenuClick, settingsTo, orgId = null }) {
   const { buildingId = 'b001' } = useParams()
   const resolvedSettingsTo = settingsTo === null ? null : settingsTo ?? `/b/${buildingId}/settings`
   return (
@@ -165,7 +166,7 @@ export default function TopBar({ onMenuClick, settingsTo }) {
       </div>
 
       <div className="ml-auto flex items-center gap-1 sm:gap-2">
-        <NotificationsPanel />
+        <NotificationsPanel orgId={orgId} />
         {resolvedSettingsTo && (
           <Link
             to={resolvedSettingsTo}

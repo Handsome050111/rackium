@@ -21,6 +21,9 @@ import RealSolutionPackage from './pages/RealSolutionPackage.jsx'
 import RealClientApproval from './pages/RealClientApproval.jsx'
 import { API_MODE } from './lib/apiMode.js'
 import OrganisationSettings from './pages/OrganisationSettings.jsx'
+import RealTasks from './pages/RealTasks.jsx'
+import AuditLog from './pages/AuditLog.jsx'
+import NotificationPreferences from './pages/NotificationPreferences.jsx'
 import Catalogue from './pages/Catalogue.jsx'
 import CatalogueItem from './pages/CatalogueItem.jsx'
 import CatalogueItemForm from './pages/CatalogueItemForm.jsx'
@@ -129,6 +132,10 @@ export default function App() {
         <Route path="projects/:projectId/buildings/:buildingId/bom" element={<RealBom />} />
         <Route path="projects/:projectId/buildings/:buildingId/:phaseKey" element={<RealPhasePlaceholder />} />
         <Route path="settings" element={<OrganisationSettings />} />
+        <Route path="tasks" element={<RealTasks key="mine" />} />
+        <Route path="projects/:projectId/tasks" element={<RealTasks key="project" />} />
+        <Route path="audit" element={<AuditLog />} />
+        <Route path="notifications/preferences" element={<NotificationPreferences />} />
         <Route path="catalogue" element={<Catalogue />} />
         <Route path="catalogue/new" element={<CatalogueItemForm />} />
         <Route path="catalogue/:itemId" element={<CatalogueItem />} />

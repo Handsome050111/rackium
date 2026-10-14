@@ -9,6 +9,7 @@ import { ChangeRequest } from '../models/changeRequest.js'
 import { Membership } from '../models/membership.js'
 import { surveyStatusByBuilding } from '../survey/formService.js'
 import { withTransaction } from '../db/transaction.js'
+import { notifyQuietly, paths } from '../notifications/notify.js'
 import { recordAudit, userActor } from '../audit/audit.js'
 import { AppError, badRequest, conflict } from '../http/errors.js'
 import { callerAccess, requireBuilding } from '../access/scope.js'
@@ -150,7 +151,7 @@ export function createSolutionPackageService({ storage, lld }) {
       const { evaluation, bom, hld, lld: lldDoc } = await packageFacts(lld, req, building, sp)
       if (!evaluation.readyForSubmission) throw new AppError(409, 'not_ready', `Not ready for client approval: ${evaluation.blockers.join('; ')}`, { blockers: evaluation.blockers })
       const secrets = await prepareSecrets(body.password)
-      return withTransaction(async (session) => {
+      const sent = await withTransaction(async (session) => {
         let doc = sp
         if (!doc) [doc] = await SolutionPackage.create([{ buildingId: building.id }], { session })
         const payload = {
@@ -172,6 +173,8 @@ export function createSolutionPackageService({ storage, lld }) {
         await audit(req, building, actor, 'solution_package.submitted', { objectType: 'DesignVersion', objectId: versionId, comment: `Solution Package v${number} sent for client approval (link ${link._id}, expires ${link.expiresAt.toISOString().slice(0, 10)})`, session })
         return { versionNumber: number, shareLink: { id: String(link._id), expiresAt: link.expiresAt, token: secrets.token, password: secrets.password, generatedPassword: secrets.generatedPassword, path: `/approve/${secrets.token}` } }
       })
+      await notifyQuietly({ type: 'sp_sent', buildingId: building.id, title: `Solution Package v${sent.versionNumber} of ${building.code} sent to the client`, body: `The link expires on ${new Date(sent.shareLink.expiresAt).toISOString().slice(0, 10)}.`, relatedObjectType: 'solution_package', relatedObjectId: sent.shareLink.id, link: paths.building(req.org.id, req.project.id, building.id, 'solution-package'), actorId: actor.userId, to: { roles: ['pm', 'architect'] } })
+      return sent
     },
   }
 }

@@ -8,6 +8,7 @@ import { blockersApi } from '../api/blockersApi.js'
 import KpiStrip from '../components/KpiStrip.jsx'
 import PhaseCard from '../components/PhaseCard.jsx'
 import RecentHistoryPanel from '../components/RecentHistoryPanel.jsx'
+import BuildingTasksPanel from '../components/tasks/BuildingTasksPanel.jsx'
 
 const PHASE_META = {
   cmo: { name: 'CMO Inventory Validation', icon: 'ClipboardCheck' },
@@ -191,6 +192,8 @@ export default function RealBuildingDashboard() {
 
         <RecentHistoryPanel items={historyItems} activityTo={null} />
       </div>
+
+      <BuildingTasksPanel orgId={orgId} projectId={projectId} buildingId={buildingId} userId={user?.id} isPm={isPm} />
     </div>
   )
 }

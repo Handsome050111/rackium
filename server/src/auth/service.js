@@ -296,17 +296,23 @@ export function createAuthService({ config, mailer, logger }) {
       const isDuplicate = Boolean(sameSlot) && !upgradeOrgMember
       if (isDuplicate) throw conflict('already_member', 'You already have access to this')
 
+      // The driver may run this callback again after a transient error (a
+      // write conflict under load): each attempt works on its own `member`,
+      // and only the committed attempt's becomes `user`. Setting `user` inside
+      // an aborted attempt skipped the user's creation on the retry.
+      const existingUser = user
       await withTransaction(async (session) => {
-        if (!user) {
+        let member = existingUser
+        if (!member) {
           const passwordHash = await hashPassword(password)
           const [created] = await User.create([{ email: invitation.email, name, passwordHash, status: 'active', emailVerifiedAt: new Date() }], { session })
-          user = created
+          member = created
         }
         if (upgradeOrgMember) {
           await runWithScope({ organisationId }, () => Membership.updateOne({ _id: sameSlot._id }, { $set: { role: ORG_ROLE } }, { session }))
         } else {
           await runWithScope({ organisationId, projectId: invitation.projectId }, () =>
-            Membership.create([{ userId: user._id, level: invitation.level, projectId: invitation.projectId ?? null, role: invitation.role, scopes: invitation.scopes, invitedBy: invitation.invitedBy }], { session })
+            Membership.create([{ userId: member._id, level: invitation.level, projectId: invitation.projectId ?? null, role: invitation.role, scopes: invitation.scopes, invitedBy: invitation.invitedBy }], { session })
           )
         }
         // Joining through a project also makes the user an organisation member
@@ -315,10 +321,10 @@ export function createAuthService({ config, mailer, logger }) {
         // first created, so a later PM invitation can't undo an Org Admin's revoke.
         if (invitation.level === 'project') {
           await runWithScope({ organisationId }, async () => {
-            const existing = await Membership.findOne({ userId: user._id, level: 'organisation', active: true }).session(session)
+            const existing = await Membership.findOne({ userId: member._id, level: 'organisation', active: true }).session(session)
             if (existing) return
             const canCreate = invitation.role === 'pm'
-            const [orgRow] = await Membership.create([{ userId: user._id, level: 'organisation', role: ORG_MEMBER_ROLE, canCreateProjects: canCreate, invitedBy: invitation.invitedBy }], { session })
+            const [orgRow] = await Membership.create([{ userId: member._id, level: 'organisation', role: ORG_MEMBER_ROLE, canCreateProjects: canCreate, invitedBy: invitation.invitedBy }], { session })
             if (canCreate) {
               await recordAudit({
                 organisationId,
@@ -341,7 +347,7 @@ export function createAuthService({ config, mailer, logger }) {
         await recordAudit({
           organisationId,
           projectId: invitation.projectId,
-          actor: userActor(user._id, invitation.role),
+          actor: userActor(member._id, invitation.role),
           action: 'invitation.accepted',
           objectType: 'Invitation',
           objectId: invitation._id,
@@ -349,6 +355,7 @@ export function createAuthService({ config, mailer, logger }) {
           source: 'ui',
           session,
         })
+        user = member
       })
 
       // The invitation was sent to this address, so accepting it proves ownership.

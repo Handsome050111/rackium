@@ -10,6 +10,9 @@ import { seedPlatformCatalogue } from './catalogue/seed.js'
 import { Device } from './models/device.js'
 import { PortOccupancy } from './models/portOccupancy.js'
 import { CableIdRegistry } from './models/cableIdRegistry.js'
+import { createScheduler } from './jobs/scheduler.js'
+import { deliverOutbox, taskReminders, dailyDigest } from './notifications/jobs.js'
+import { configureNotifications } from './notifications/notify.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 dotenv.config({ path: path.join(here, '..', '.env'), quiet: true })
@@ -39,8 +42,23 @@ async function main() {
   const app = createApp({ config, logger, mailer })
   const server = app.listen(config.PORT, () => logger.info({ port: config.PORT }, 'api listening'))
 
+  // Scheduled jobs (M5b): notification mail, task reminders, the daily digest.
+  const scheduler = createScheduler({
+    logger,
+    jobs: [
+      { name: 'email-outbox', every: 60_000, run: ({ now }) => deliverOutbox({ mailer, now }) },
+      { name: 'task-reminders', every: 15 * 60_000, run: ({ now }) => taskReminders({ now }) },
+      // Every 15 minutes: each organisation's digest goes once its local digest time has passed.
+      { name: 'daily-digest', every: 15 * 60_000, run: ({ now }) => dailyDigest({ now }) },
+    ],
+  })
+  // Queued notification mail goes out promptly, not only on the minute.
+  configureNotifications({ onOutbox: () => scheduler.runNow('email-outbox').catch((err) => logger.error({ err: err.message }, 'outbox send failed')) })
+  await scheduler.start()
+
   const shutdown = (signal) => {
     logger.info({ signal }, 'shutting down')
+    scheduler.stop()
     server.close(async () => {
       await disconnectDatabase()
       process.exit(0)

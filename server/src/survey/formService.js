@@ -26,6 +26,7 @@ import { SerialRegistry } from '../models/serialRegistry.js'
 import { registerDeleteGuard } from '../hierarchy/service.js'
 import { withTransaction } from '../db/transaction.js'
 import { currentScope } from '../tenancy/scopeContext.js'
+import { notifyQuietly, paths } from '../notifications/notify.js'
 import { recordAudit, userActor } from '../audit/audit.js'
 import { AppError, badRequest, conflict, forbidden, notFound } from '../http/errors.js'
 import { callerAccess, requireBuilding } from '../access/scope.js'
@@ -267,6 +268,19 @@ export function createSurveyFormService() {
         source: 'ui',
         comment: `${tabDef.tab}${room ? ` · ${room.code}` : ''}${input.action === 'reject' ? ` — ${input.reason.trim()}` : ''}`,
         changes: [{ objectType: 'SurveyTabRecord', objectId: String(record._id), field: 'status', before: record.status, after: next }],
+      })
+      // Submitted → the Architects verify it; verified or rejected → whoever submitted it.
+      const where = `${tabDef.tab}${room ? ` · ${room.code}` : ''} — ${building.code}`
+      await notifyQuietly({
+        type: `survey_${next}`,
+        buildingId: building.id,
+        title: next === 'submitted' ? `Survey tab submitted: ${where}` : next === 'verified' ? `Survey tab verified: ${where}` : `Survey tab rejected: ${where}`,
+        body: input.action === 'reject' ? input.reason.trim() : null,
+        relatedObjectType: 'survey_tab',
+        relatedObjectId: record._id,
+        link: paths.building(req.org.id, req.project.id, building.id, 'survey'),
+        actorId: actor.userId,
+        to: next === 'submitted' ? { roles: ['architect'] } : { userIds: [record.submitted?.by].filter(Boolean) },
       })
       return recordView(req, target, updated)
     },
