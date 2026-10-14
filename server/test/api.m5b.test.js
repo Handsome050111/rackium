@@ -10,6 +10,9 @@ import { deliverOutbox, taskReminders, dailyDigest } from '../src/notifications/
 import { notifyDguvExpiry, notifyMention } from '../src/notifications/notify.js'
 import { runWithScope } from '../src/tenancy/scopeContext.js'
 import { createScheduler } from '../src/jobs/scheduler.js'
+import { localDate, localTime, startOfLocalDay } from '@rackium/shared/timeZone.js'
+import { fillTab, transition } from './helpers/survey.js'
+import { BUILDING_TABS } from '@rackium/shared/surveyForm.js'
 
 // M5b: tasks, notifications (fan-out, preferences, digest, reminders) and the
 // audit log screen.
@@ -104,18 +107,46 @@ describe('Tasks', () => {
     expect(names).not.toContain('fe-b001@example.com')
   })
 
-  it('reminders: due within 24 hours once to the assignee; overdue once to the assignee and the assigner', async () => {
+  it('reminders (Europe/Berlin): due within 24 hours once to the assignee; overdue once to the assignee and the assigner', async () => {
     const p = await project()
-    const soon = expectStatus(await p.admin.agent.post(`${p.base}/tasks`).send({ title: 'Due today', relatedObjectType: 'building', relatedObjectId: p.b001, assignedTo: p.ids.fe, deadline: day(0) }), 201).body.task
-    const late = expectStatus(await p.architect.post(`${p.base}/tasks`).send({ title: 'Was due', relatedObjectType: 'building', relatedObjectId: p.b001, assignedTo: p.ids.fe, deadline: day(-1) }), 201).body.task
-    expectStatus(await p.admin.agent.post(`${p.base}/tasks`).send({ title: 'Later', relatedObjectType: 'building', relatedObjectId: p.b001, assignedTo: p.ids.fe, deadline: day(5) }), 201)
-    expect(await taskReminders()).toEqual({ dueSoon: 1, overdue: 1 })
-    expect(await taskReminders()).toEqual({ dueSoon: 0, overdue: 0 })
+    const soon = expectStatus(await p.admin.agent.post(`${p.base}/tasks`).send({ title: 'Due today', relatedObjectType: 'building', relatedObjectId: p.b001, assignedTo: p.ids.fe, deadline: '2030-06-10' }), 201).body.task
+    const late = expectStatus(await p.architect.post(`${p.base}/tasks`).send({ title: 'Was due', relatedObjectType: 'building', relatedObjectId: p.b001, assignedTo: p.ids.fe, deadline: '2030-06-09' }), 201).body.task
+    expectStatus(await p.admin.agent.post(`${p.base}/tasks`).send({ title: 'Later', relatedObjectType: 'building', relatedObjectId: p.b001, assignedTo: p.ids.fe, deadline: '2030-06-20' }), 201)
+    const now = new Date('2030-06-10T12:00:00Z') // 14:00 in Berlin
+    expect(await taskReminders({ now })).toEqual({ dueSoon: 1, overdue: 1 })
+    expect(await taskReminders({ now })).toEqual({ dueSoon: 0, overdue: 0 })
     const fe = (await bell(p.fe, p)).items
     expect(fe.filter((n) => n.type === 'task_due_soon').map((n) => n.relatedObjectId)).toEqual([soon.id])
     expect(fe.filter((n) => n.type === 'task_overdue').map((n) => n.relatedObjectId)).toEqual([late.id])
     expect(await types(p.architect, p)).toEqual(['task_overdue'])
     expect(await types(p.admin.agent, p)).toEqual([])
+  })
+
+  it('the organisation time zone decides "overdue": local midnight, near midnight and across DST; the Org Admin changes it, audited', async () => {
+    const p = await project()
+    const settings = `${org(p)}/settings`
+    expect((await p.admin.agent.get(settings).expect(200)).body.settings).toMatchObject({ timeZone: 'Europe/Berlin', digestTime: '07:00', defaultTimeZone: 'Europe/Berlin' })
+    // 25 October 2030 is the day Berlin's clocks go back (a 25-hour day).
+    const task = expectStatus(await p.admin.agent.post(`${p.base}/tasks`).send({ title: 'Patch on the DST day', relatedObjectType: 'building', relatedObjectId: p.b001, assignedTo: p.ids.fe, deadline: '2030-10-27' }), 201).body.task
+    // 2030-10-27 ends at local midnight = 23:00 UTC (CET). One minute before: not overdue.
+    expect(await taskReminders({ now: new Date('2030-10-27T22:59:00Z') })).toEqual({ dueSoon: 1, overdue: 0 })
+    expect(await taskReminders({ now: new Date('2030-10-27T23:00:00Z') })).toEqual({ dueSoon: 0, overdue: 1 })
+    // In New York the same deadline ends at 04:00 UTC the next day.
+    await p.architect.patch(settings).send({ timeZone: 'America/New_York' }).expect(403)
+    await p.admin.agent.patch(settings).send({ timeZone: 'Mars/Base' }).expect(400)
+    await p.admin.agent.patch(settings).send({ timeZone: 'America/New_York', digestTime: '06:30' }).expect(200)
+    const ny = expectStatus(await p.admin.agent.post(`${p.base}/tasks`).send({ title: 'New York deadline', relatedObjectType: 'building', relatedObjectId: p.b001, assignedTo: p.ids.fe, deadline: '2030-10-27' }), 201).body.task
+    expect(await taskReminders({ now: new Date('2030-10-28T03:59:00Z') })).toEqual({ dueSoon: 1, overdue: 0 })
+    expect(await taskReminders({ now: new Date('2030-10-28T04:00:00Z') })).toEqual({ dueSoon: 0, overdue: 1 })
+    expect((await bell(p.architect, p)).items).toEqual([])
+    // The assigner's two overdue reminders (the job, in one building) are one notification.
+    expect((await bell(p.admin.agent, p)).items.map((n) => [n.type, n.title, n.count])).toEqual([['task_overdue', '2 tasks overdue (B001)', 2]])
+    expect(task.id).not.toBe(ny.id)
+    const audit = await col('auditentries').find({ action: 'organisation.settings.updated' }).sort({ occurredAt: -1 }).limit(1).next()
+    expect(audit.changes.map((c) => [c.field, c.before, c.after])).toEqual([
+      ['timeZone', 'Europe/Berlin', 'America/New_York'],
+      ['digestTime', '07:00', '06:30'],
+    ])
   })
 
   it('Bill of Resources → one task per room and task kind, assigned; a second run skips what exists', async () => {
@@ -239,25 +270,91 @@ describe('Notifications: delivery events', () => {
 })
 
 describe('The bell', () => {
-  it('tabs, unread count, mark one and all read; only your own notifications', async () => {
+  it('tabs, unread count, mark one and all read, paging; a burst is one notification; only your own', async () => {
     const p = await project()
-    for (const title of ['One', 'Two', 'Three']) await p.admin.agent.post(`${p.base}/tasks`).send({ title, assignedTo: p.ids.fe, relatedObjectType: 'building', relatedObjectId: p.b001 }).expect(201)
+    const assign = (agent, title, buildingId) => agent.post(`${p.base}/tasks`).send({ title, assignedTo: p.ids.fe, relatedObjectType: 'building', relatedObjectId: buildingId }).expect(201)
+    for (const title of ['One', 'Two', 'Three']) await assign(p.admin.agent, title, p.b001)
+    await assign(p.admin.agent, 'Four', p.b002)
+    await assign(p.architect, 'Five', p.b001)
     let fe = await bell(p.fe, p)
-    expect(fe.items.map((n) => n.title)).toEqual(['Task assigned: Three', 'Task assigned: Two', 'Task assigned: One'])
+    // The PM's three B001 tasks are one notification, pointing at the task list.
+    expect(fe.items.map((n) => [n.title, n.count])).toEqual([
+      ['Task assigned: Five', 1],
+      ['Task assigned: Four', 1],
+      ['3 tasks assigned to you (B001)', 3],
+    ])
+    expect(fe.items[2].link).toBe(`/orgs/${p.admin.orgId}/projects/${p.projectId}/tasks`)
+    expect(fe.items[0].link).toMatch(/\/tasks\?task=/)
     expect((await p.fe.get(`${org(p)}/notifications/unread-count`).expect(200)).body).toEqual({ unread: 3 })
     // Somebody else cannot read or mark it.
-    await p.architect.post(`${org(p)}/notifications/${fe.items[0].id}/read`).expect(404)
-    expectStatus(await p.fe.post(`${org(p)}/notifications/${fe.items[0].id}/read`), 200)
-    expect((await bell(p.fe, p, '?tab=unread')).items.map((n) => n.title)).toEqual(['Task assigned: Two', 'Task assigned: One'])
+    await p.architect.post(`${org(p)}/notifications/${fe.items[2].id}/read`).expect(404)
+    expectStatus(await p.fe.post(`${org(p)}/notifications/${fe.items[2].id}/read`), 200)
+    // Once read, the group is closed: the next one starts a new notification.
+    await assign(p.admin.agent, 'Six', p.b001)
+    fe = await bell(p.fe, p)
+    expect(fe.items.map((n) => [n.title, n.read])).toEqual([
+      ['Task assigned: Six', false],
+      ['Task assigned: Five', false],
+      ['Task assigned: Four', false],
+      ['3 tasks assigned to you (B001)', true],
+    ])
+    expect((await bell(p.fe, p, '?tab=unread')).items).toHaveLength(3)
     // Paging.
     const first = await bell(p.fe, p, '?limit=2')
     expect(first.items).toHaveLength(2)
-    expect((await bell(p.fe, p, `?limit=2&before=${encodeURIComponent(first.nextBefore)}`)).items.map((n) => n.title)).toEqual(['Task assigned: One'])
-    expect((await p.fe.post(`${org(p)}/notifications/read-all`).expect(200)).body).toEqual({ marked: 2 })
-    fe = await bell(p.fe, p)
-    expect(fe.unread).toBe(0)
+    expect((await bell(p.fe, p, `?limit=2&before=${encodeURIComponent(first.nextBefore)}`)).items.map((n) => n.title)).toEqual(['Task assigned: Four', '3 tasks assigned to you (B001)'])
+    expect(first.timeZone).toBe('Europe/Berlin')
+    expect((await p.fe.post(`${org(p)}/notifications/read-all`).expect(200)).body).toEqual({ marked: 3 })
+    expect((await bell(p.fe, p)).unread).toBe(0)
+  })
+
+  it('verifying a whole survey: one notification with the count and a link to the survey — in the bell, in one email and in the digest', async () => {
+    const p = await project()
+    const tabs = BUILDING_TABS.slice(0, 3)
+    const target = (tab) => ({ buildingId: p.b002, roomId: null, tab })
+    for (const tab of tabs) {
+      await fillTab(p.fe, p.base, target(tab))
+      await transition(p.fe, p.base, target(tab), 'submit').expect(200)
+    }
+    // The Architects: one "submitted" notification for the burst.
+    expect((await bell(p.architect, p)).items.map((n) => [n.title, n.count])).toEqual([['Survey for B002 submitted — 3 tabs', 3]])
+    for (const tab of tabs) await transition(p.architect, p.base, target(tab), 'verify').expect(200)
+    const fe = (await bell(p.fe, p)).items
+    expect(fe.map((n) => [n.type, n.title, n.count, n.body])).toEqual([['survey_verified', 'Survey for B002 verified — 3 tabs', 3, null]])
+    expect(fe[0].link).toBe(`/orgs/${p.admin.orgId}/projects/${p.projectId}/buildings/${p.b002}/survey`)
+    expect(await col('notifications').countDocuments({ type: 'survey_verified' })).toBe(1)
+
+    // By email: the burst waits a minute and goes out as one message.
+    const mails = () => p.ctx.mailer.sent.filter((m) => m.to === 'architect@example.com' && m.subject.startsWith('Rackium'))
+    await p.architect.put(`${org(p)}/notification-preferences`).send({ modes: { survey_submitted: 'email' } }).expect(200)
+    const more = BUILDING_TABS.slice(3, 6)
+    for (const tab of more) {
+      await fillTab(p.fe, p.base, target(tab))
+      await transition(p.fe, p.base, target(tab), 'submit').expect(200)
+    }
+    expect(await deliverOutbox({ mailer: p.ctx.mailer })).toEqual({ sent: 0, failed: 0 })
+    expect(await deliverOutbox({ mailer: p.ctx.mailer, now: new Date(Date.now() + 61000) })).toEqual({ sent: 1, failed: 0 })
+    expect(mails().map((m) => m.subject)).toEqual(['Rackium: Survey for B002 submitted — 3 tabs'])
+    expect(mails()[0].text).toContain(`/buildings/${p.b002}/survey`)
+
+    // In the daily digest: one line for the burst.
+    await p.fe.put(`${org(p)}/notification-preferences`).send({ modes: { survey_verified: 'digest' } }).expect(200)
+    for (const tab of more) await transition(p.architect, p.base, target(tab), 'verify').expect(200)
+    const at = digestTime(new Date())
+    expect(await dailyDigest({ now: at })).toEqual({ emails: 1, notifications: 3 })
+    await deliverOutbox({ mailer: p.ctx.mailer, now: at })
+    const digest = p.ctx.mailer.sent.find((m) => m.to === 'fe@example.com' && m.subject.startsWith('Rackium daily digest'))
+    expect(digest.subject).toBe('Rackium daily digest — 3 notification(s)')
+    expect(digest.text.split('\n').filter((l) => l.startsWith('- '))).toEqual([`- Survey for B002 verified — 3 tabs — http://localhost:5173/orgs/${p.admin.orgId}/projects/${p.projectId}/buildings/${p.b002}/survey`])
   })
 })
+
+// An instant at or after 07:00 Berlin time on the same local day as `from`
+// (the digest only goes out from the organisation's digest time on).
+function digestTime(from) {
+  if (localTime(from, 'Europe/Berlin') >= '07:00') return from
+  return new Date(startOfLocalDay(localDate(from, 'Europe/Berlin'), 'Europe/Berlin').getTime() + 7 * 3600000)
+}
 
 describe('Preferences, email and the daily digest', () => {
   it('in-app (default), email, both, or a daily digest; mail goes through the outbox once; the digest job is idempotent', async () => {
@@ -268,41 +365,67 @@ describe('Preferences, email and the daily digest', () => {
     const assign = (title) => p.admin.agent.post(`${p.base}/tasks`).send({ title, assignedTo: p.ids.fe, relatedObjectType: 'building', relatedObjectId: p.b001 }).expect(201)
     // (The invitation mail went to the same address; only notification mail counts.)
     const mails = () => p.ctx.mailer.sent.filter((m) => m.to === 'fe@example.com' && m.subject.startsWith('Rackium'))
+    const later = () => new Date(Date.now() + 61000)
 
-    // Email only: no bell entry, one mail.
+    // Email only: no bell entry; the mail waits a minute (a burst would join it), then goes once.
     expect((await p.fe.put(`${org(p)}/notification-preferences`).send({ modes: { task_assigned: 'email' } }).expect(200)).body.modes.task_assigned).toBe('email')
     await assign('Email me')
     expect(await types(p.fe, p)).toEqual([])
-    expect(await deliverOutbox({ mailer: p.ctx.mailer })).toEqual({ sent: 1, failed: 0 })
     expect(await deliverOutbox({ mailer: p.ctx.mailer })).toEqual({ sent: 0, failed: 0 })
+    expect(await deliverOutbox({ mailer: p.ctx.mailer, now: later() })).toEqual({ sent: 1, failed: 0 })
+    expect(await deliverOutbox({ mailer: p.ctx.mailer, now: later() })).toEqual({ sent: 0, failed: 0 })
     expect(mails().map((m) => m.subject)).toEqual(['Rackium: Task assigned: Email me'])
     expect(mails()[0].text).toContain(`http://localhost:5173/orgs/${p.admin.orgId}/projects/${p.projectId}/tasks?task=`)
+    // A burst: one mail with the count.
+    await assign('Email A')
+    await assign('Email B')
+    await deliverOutbox({ mailer: p.ctx.mailer, now: later() })
+    expect(mails().map((m) => m.subject)).toEqual(['Rackium: Task assigned: Email me', 'Rackium: 2 tasks assigned to you (B001)'])
 
     // Both.
     await p.fe.put(`${org(p)}/notification-preferences`).send({ modes: { task_assigned: 'both' } }).expect(200)
     await assign('Both')
     expect(await types(p.fe, p)).toEqual(['task_assigned'])
-    await deliverOutbox({ mailer: p.ctx.mailer })
-    expect(mails()).toHaveLength(2)
+    await deliverOutbox({ mailer: p.ctx.mailer, now: later() })
+    expect(mails()).toHaveLength(3)
 
-    // Daily digest: in the bell now, one summary mail a day.
+    // Daily digest: in the bell now, one summary mail a day (from 07:00 local).
     await p.fe.put(`${org(p)}/notification-preferences`).send({ modes: { task_assigned: 'digest' } }).expect(200)
     await assign('Digest A')
     await assign('Digest B')
-    await deliverOutbox({ mailer: p.ctx.mailer })
-    expect(mails()).toHaveLength(2)
-    const today = new Date()
+    await deliverOutbox({ mailer: p.ctx.mailer, now: later() })
+    expect(mails()).toHaveLength(3)
+    const today = digestTime(new Date())
     expect(await dailyDigest({ now: today })).toEqual({ emails: 1, notifications: 2 })
     expect(await dailyDigest({ now: today })).toEqual({ emails: 0, notifications: 0 })
     await assign('Digest C')
     // Same day: already sent — it waits for tomorrow's.
     expect(await dailyDigest({ now: new Date(today.getTime() + 1000) })).toEqual({ emails: 0, notifications: 0 })
-    await deliverOutbox({ mailer: p.ctx.mailer })
+    await deliverOutbox({ mailer: p.ctx.mailer, now: later() })
     const digest = mails().find((m) => m.subject.startsWith('Rackium daily digest'))
-    expect(digest.text).toContain('Task assigned: Digest A')
-    expect(digest.text).toContain('Task assigned: Digest B')
+    expect(digest.text).toContain('- 2 tasks assigned to you (B001)')
     expect(await dailyDigest({ now: new Date(today.getTime() + 86400000) })).toEqual({ emails: 1, notifications: 1 })
-    expect(await types(p.fe, p)).toEqual(['task_assigned', 'task_assigned', 'task_assigned', 'task_assigned'])
+    // In the bell: "Both", the digested burst, and "Digest C".
+    expect((await bell(p.fe, p)).items.map((n) => [n.title, n.count])).toEqual([
+      ['Task assigned: Digest C', 1],
+      ['2 tasks assigned to you (B001)', 2],
+      ['Task assigned: Both', 1],
+    ])
+  })
+
+  it('the digest goes out at the organisation’s local digest time, once per local day', async () => {
+    const p = await project()
+    await p.fe.put(`${org(p)}/notification-preferences`).send({ modes: { task_assigned: 'digest' } }).expect(200)
+    await p.admin.agent.post(`${p.base}/tasks`).send({ title: 'Morning', assignedTo: p.ids.fe }).expect(201)
+    // Berlin, 07:00 by default (CEST: 05:00 UTC). The notification exists from now on.
+    const day = new Date(Date.UTC(new Date().getUTCFullYear() + 1, 6, 15))
+    expect(await dailyDigest({ now: new Date(day.getTime() + 4 * 3600000 + 59 * 60000) })).toEqual({ emails: 0, notifications: 0 }) // 06:59
+    expect(await dailyDigest({ now: new Date(day.getTime() + 5 * 3600000) })).toEqual({ emails: 1, notifications: 1 }) // 07:00
+    await p.admin.agent.post(`${p.base}/tasks`).send({ title: 'Late evening', assignedTo: p.ids.fe }).expect(201)
+    // 23:30 UTC is already the next local day in Berlin (01:30), but before 07:00: nothing yet.
+    expect(await dailyDigest({ now: new Date(day.getTime() + 23.5 * 3600000) })).toEqual({ emails: 0, notifications: 0 })
+    expect(await dailyDigest({ now: new Date(day.getTime() + 29 * 3600000) })).toEqual({ emails: 1, notifications: 1 })
+    expect((await col('emailoutboxes').find({ kind: 'digest' }).toArray()).map((m) => m.dedupeKey.split(':').pop()).sort()).toEqual([localDate(new Date(day.getTime() + 5 * 3600000)), localDate(new Date(day.getTime() + 29 * 3600000))].sort())
   })
 
   it('a failed send is retried, and given up after five attempts', async () => {
@@ -310,7 +433,7 @@ describe('Preferences, email and the daily digest', () => {
     await p.fe.put(`${org(p)}/notification-preferences`).send({ modes: { task_assigned: 'email' } }).expect(200)
     await p.admin.agent.post(`${p.base}/tasks`).send({ title: 'Flaky mail', assignedTo: p.ids.fe }).expect(201)
     const broken = { send: async () => { throw new Error('SMTP down') } }
-    let now = new Date()
+    let now = new Date(Date.now() + 61000) // after the grouping hold
     for (let i = 0; i < 5; i++) {
       expect(await deliverOutbox({ mailer: broken, now })).toEqual({ sent: 0, failed: 1 })
       now = new Date(now.getTime() + 10 * 60000)
@@ -344,12 +467,17 @@ describe('The audit log screen', () => {
     return p
   }
 
-  it('who may read: Org Admin (organisation), PM and Architect (their project); not Reviewer, Field Engineer or Viewer; other organisations 404', async () => {
+  it('who may read (v2.3 role table): Org Admin (organisation), PM, Architect and Reviewer (their project); not Field Engineer or Viewer; other organisations 404', async () => {
     const p = await withHistory()
     expectStatus(await p.admin.agent.get(`${org(p)}/audit`), 200)
-    expectStatus(await p.architect.get(`${org(p)}/audit?projectId=${p.projectId}`), 200)
+    for (const who of ['architect', 'reviewer']) expectStatus(await p[who].get(`${org(p)}/audit?projectId=${p.projectId}`), 200)
+    expect((await p.reviewer.get(`${org(p)}/audit?projectId=${p.projectId}&action=task.created`).expect(200)).body.entries).toHaveLength(2)
+    await p.reviewer.get(`${org(p)}/audit/export.csv?projectId=${p.projectId}`).expect(200)
+    // A Reviewer scoped to B002 sees B002's entries only.
+    expect((await p.reviewerB002.get(`${org(p)}/audit?projectId=${p.projectId}&action=task.created`).expect(200)).body.entries.map((e) => e.comment)).toEqual(['B002 task'])
     await p.architect.get(`${org(p)}/audit`).expect(403)
-    for (const who of ['reviewer', 'fe', 'viewer']) await p[who].get(`${org(p)}/audit?projectId=${p.projectId}`).expect(403)
+    await p.reviewer.get(`${org(p)}/audit`).expect(403)
+    for (const who of ['fe', 'viewer']) await p[who].get(`${org(p)}/audit?projectId=${p.projectId}`).expect(403)
     const outsider = await signedInOrgAdmin(p.ctx, { email: 'o@example.com', organisationName: 'O' })
     await outsider.agent.get(`${org(p)}/audit`).expect(404)
     await outsider.agent.get(`/api/v1/orgs/${outsider.orgId}/audit?projectId=${p.projectId}`).expect(200).then((r) => expect(r.body.entries.filter((e) => e.projectId === p.projectId)).toEqual([]))

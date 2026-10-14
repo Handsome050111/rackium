@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { ALL_ROLES, PROJECT_ROLES, ORG_MEMBER_ROLE } from './policy.js'
 import { PHASE_KEYS } from './phaseCalculations.js'
 import { NOTIFICATION_TYPE_KEYS, DELIVERY_MODE_KEYS, TASK_STATUSES, TASK_RELATED_TYPES } from './notifications.js'
+import { isValidTimeZone } from './timeZone.js'
 import { catalogueItemSchema, CATEGORY_GROUPS, CATALOGUE_CATEGORIES, OPTIC_MEDIA } from './catalogue.js'
 
 export const PASSWORD_MIN = 12
@@ -392,9 +393,12 @@ export const stockLengthsSchema = z.object({
 })
 // Cage nuts per RU on each face a device is fixed to (M5a review).
 export const cageNutsPerRuSchema = z.object({ front: z.number().int().min(0).max(20), rear: z.number().int().min(0).max(20) })
+// The organisation's time zone (IANA name) and the daily digest's local send time (M5b review).
+export const timeZoneSchema = z.string().trim().refine(isValidTimeZone, 'Not a time zone (use an IANA name such as Europe/Berlin)')
+export const digestTimeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use HH:MM (24-hour)')
 export const organisationSettingsBody = z
-  .object({ architectsSeePrices: z.boolean().optional(), namingRoleCodes: namingRoleCodesSchema.optional(), stockLengths: stockLengthsSchema.optional(), cageNutsPerRu: cageNutsPerRuSchema.optional() })
-  .refine((b) => b.architectsSeePrices !== undefined || b.namingRoleCodes !== undefined || b.stockLengths !== undefined || b.cageNutsPerRu !== undefined, { message: 'Nothing to update' })
+  .object({ architectsSeePrices: z.boolean().optional(), namingRoleCodes: namingRoleCodesSchema.optional(), stockLengths: stockLengthsSchema.optional(), cageNutsPerRu: cageNutsPerRuSchema.optional(), timeZone: timeZoneSchema.optional(), digestTime: digestTimeSchema.optional() })
+  .refine((b) => Object.values(b).some((v) => v !== undefined), { message: 'Nothing to update' })
 
 // --- M3a: catalogue -------------------------------------------------------
 // Create and replace take the whole item (shared/src/catalogue.js is the one

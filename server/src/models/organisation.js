@@ -22,6 +22,10 @@ const organisationSchema = new mongoose.Schema({
     stockLengths: { type: mongoose.Schema.Types.Mixed, default: null },
     // Cage nuts per RU on each face a device is fixed to (BOM; M5a review).
     // A device is fixed on its mounting face; a full-depth one on both.
+    // The organisation's time zone (IANA; M5b review): task deadlines, due
+    // soon / overdue and the daily digest's send time (local HH:MM).
+    timeZone: { type: String, default: 'Europe/Berlin' },
+    digestTime: { type: String, default: '07:00' },
     cageNutsPerRu: {
       front: { type: Number, default: 4, min: 0, max: 20 },
       rear: { type: Number, default: 4, min: 0, max: 20 },

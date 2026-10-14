@@ -140,7 +140,7 @@ export default function NotificationsPanel({ orgId = null }) {
           {real && data && data.items.length === 0 && <p className="px-2 py-6 text-center text-sm text-text-secondary">{tab === 'unread' ? 'Nothing unread' : tab === 'mentions' ? 'No mentions yet' : 'No notifications yet'}</p>}
           {real && data && data.items.length > 0 && (
             <div className="max-h-[min(28rem,70vh)] overflow-y-auto pt-1" data-testid="notification-list">
-              {groupByDay(data.items).map((g) => (
+              {groupByDay(data.items, new Date(), data.timeZone).map((g) => (
                 <div key={g.key}>
                   <div className="px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-text-secondary">{g.label}</div>
                   <ul>

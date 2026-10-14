@@ -48,7 +48,7 @@ export function taskRoutes({ config, tasks }) {
 export function meRoutes({ config, tasks, notifications }) {
   const r = recordingRouter({ mergeParams: true })
   const base = [requireUser(config), requireOrg()]
-  const me = (req) => ({ userId: req.user._id })
+  const me = (req) => ({ userId: req.user._id, organisationId: req.org.id })
 
   r.get('/tasks/mine', ...base, validate({ query: C.myTasksQuery }), async (req, res) => {
     res.json(await tasks.mine(req, req.input.query))

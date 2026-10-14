@@ -31,7 +31,7 @@ const ACTION_TYPES = [
 const MODULES = [...Object.entries(PHASE_LABELS), ['tasks', 'Tasks']]
 
 // The audit log (client audit item 16; M5b). The Org Admin reads the whole
-// organisation; a PM or Architect picks one of their projects. Filters, pages,
+// organisation; a PM, Architect or Reviewer picks one of their projects. Filters, pages,
 // a detail view with field-level before → after, and a CSV export of what the
 // filters select.
 export default function AuditLog() {
@@ -55,13 +55,18 @@ export default function AuditLog() {
       .then((r) => setProjects(r.projects))
       .catch((err) => setError(err.message))
   }, [orgId])
-  // A PM or Architect starts on their first readable project.
+  // A PM, Architect or Reviewer reads one project: their first readable one
+  // until they choose. Filters applied before the projects arrived get it too
+  // (regression: they stayed without a project and the log never loaded).
+  const needsProject = !isOrgAdmin && readable.length > 0
   useEffect(() => {
-    if (applied || !projects.length) return
-    const start = isOrgAdmin ? { ...form } : { ...form, projectId: readable[0]?.id ?? '' }
-    setForm(start)
-    setApplied(start)
-  }, [projects, readable, isOrgAdmin, applied, form])
+    if (!projects.length) return
+    if (needsProject && !form.projectId) {
+      const projectId = readable[0].id
+      setForm((f) => ({ ...f, projectId }))
+      setApplied((a) => ({ ...(a ?? form), projectId }))
+    } else if (!applied) setApplied({ ...form })
+  }, [projects, readable, needsProject, applied, form])
 
   // The user filter's choices: the organisation's members (Org Admin) or the project's.
   useEffect(() => {
@@ -110,7 +115,7 @@ export default function AuditLog() {
     }
   }
 
-  if (projects.length && !isOrgAdmin && !readable.length) return <div className="mx-auto max-w-3xl p-6 text-sm text-text-secondary">The audit log is open to the Org Admin, PMs and Architects.</div>
+  if (projects.length && !isOrgAdmin && !readable.length) return <div className="mx-auto max-w-3xl p-6 text-sm text-text-secondary">The audit log is open to the Org Admin, PMs, Architects and Reviewers.</div>
 
   return (
     <div className="mx-auto max-w-[1300px] space-y-4 p-4 sm:p-6">
@@ -205,7 +210,7 @@ export default function AuditLog() {
           </select>
         </label>
         <div className="flex gap-2 sm:col-span-2 lg:col-span-4">
-          <button type="submit" className="h-9 rounded-lg bg-brand px-4 font-medium text-white">
+          <button type="submit" disabled={!projects.length || (!isOrgAdmin && !form.projectId)} className="h-9 rounded-lg bg-brand px-4 font-medium text-white disabled:bg-status-grey">
             Apply filters
           </button>
           <button

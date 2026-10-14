@@ -18,6 +18,8 @@ import { membershipsForUser } from '../auth/service.js'
 import { runWithScope } from '../tenancy/scopeContext.js'
 import { notify, projectMembers, paths } from '../notifications/notify.js'
 import { projectSettings, resourceEstimateOf } from '../delivery/common.js'
+import { orgTimeSettings } from '../organisations/timeSettings.js'
+import { DEFAULT_TIME_ZONE } from '@rackium/shared/timeZone.js'
 
 const id = (v) => (v ? String(v) : null)
 const oid = (v) => new mongoose.Types.ObjectId(String(v))
@@ -29,7 +31,8 @@ async function namesOf(ids) {
   return new Map((await User.find({ _id: { $in: list } }, { name: 1, email: 1 }).lean()).map((u) => [String(u._id), u.name || u.email]))
 }
 
-function toTask(t, names, now = new Date()) {
+// `tz`: the organisation's time zone (deadlines are local dates).
+function toTask(t, names, now = new Date(), tz = DEFAULT_TIME_ZONE) {
   return {
     id: String(t._id),
     projectId: id(t.projectId),
@@ -47,8 +50,8 @@ function toTask(t, names, now = new Date()) {
     notes: t.notes ?? null,
     status: t.status,
     statusLabel: TASK_STATUS_LABELS[t.status],
-    overdue: isOverdue(t, now),
-    dueSoon: isDueSoon(t, now),
+    overdue: isOverdue(t, now, tz),
+    dueSoon: isDueSoon(t, now, tz),
     resourceTask: t.resourceTask ?? null,
     completedAt: t.completedAt ?? null,
     createdAt: t.createdAt,
@@ -61,6 +64,12 @@ function toTask(t, names, now = new Date()) {
 // member whose scope covers the task's building. Every project member reads
 // the tasks of the buildings they may see.
 export function createTaskService({ lld }) {
+  // The organisation's time zone, read once per request.
+  async function zoneOf(req) {
+    req.timeZone ??= (await orgTimeSettings(req.org.id)).timeZone
+    return req.timeZone
+  }
+
   // The task's object, checked against the caller's scope: its building and a label.
   async function resolveRelated(req, { relatedObjectType = null, relatedObjectId = null, buildingId = null, phaseKey = null }) {
     const bad = (what) => notFound(`${what} not found`)
@@ -148,6 +157,7 @@ export function createTaskService({ lld }) {
       relatedObjectType: 'task',
       relatedObjectId: task._id,
       link: paths.tasks(req.org.id, req.project.id, task._id),
+      groupLink: paths.tasks(req.org.id, req.project.id),
       actorId: actor.userId,
       to: { userIds: [task.assignedTo] },
     })
@@ -203,15 +213,16 @@ export function createTaskService({ lld }) {
       if (query.relatedObjectId) filter.relatedObjectId = String(query.relatedObjectId)
       const scope = await projectScope(req)
       const now = new Date()
+      const tz = await zoneOf(req)
       let rows = (await Task.find(filter).sort({ deadline: 1, createdAt: -1 }).lean()).filter((t) => !t.buildingId || scope.coversBuilding(t.buildingId))
-      if (query.overdue) rows = rows.filter((t) => isOverdue(t, now))
+      if (query.overdue) rows = rows.filter((t) => isOverdue(t, now, tz))
       const names = await namesOf(rows.flatMap((t) => [t.assignedTo, t.assignedBy]))
-      return { tasks: rows.map((t) => toTask(t, names, now)), canAssign: roles.some((r) => ['pm', 'architect'].includes(r)) }
+      return { tasks: rows.map((t) => toTask(t, names, now, tz)), canAssign: roles.some((r) => ['pm', 'architect'].includes(r)) }
     },
 
     async create(req, body, actor) {
       const task = await create(req, body, actor)
-      return { task: toTask(task.toObject(), await namesOf([task.assignedTo, task.assignedBy])) }
+      return { task: toTask(task.toObject(), await namesOf([task.assignedTo, task.assignedBy]), new Date(), await zoneOf(req)) }
     },
 
     // Bill of Resources → tasks (brief §5.5): one task per room and task kind,
@@ -221,6 +232,7 @@ export function createTaskService({ lld }) {
       const building = await requireBuilding(req, body.buildingId)
       const design = await lld.designData(req, building.id)
       const settings = await projectSettings()
+      const tz = await zoneOf(req)
       const estimate = resourceEstimateOf(design, settings.resourceMinutes)
       const rooms = await Room.find({ buildingId: building.id }).lean()
       const created = []
@@ -255,7 +267,7 @@ export function createTaskService({ lld }) {
       }
       if (!created.length && !skipped.length) throw conflict('nothing_to_create', 'The Bill of Resources has no tasks for that selection')
       const names = await namesOf(created.flatMap((t) => [t.assignedTo, t.assignedBy]))
-      return { tasks: created.map((t) => toTask(t.toObject(), names)), skipped }
+      return { tasks: created.map((t) => toTask(t.toObject(), names, new Date(), tz)), skipped }
     },
 
     async update(req, taskId, body, actor) {
@@ -291,7 +303,7 @@ export function createTaskService({ lld }) {
       const changes = diffChanges({ objectType: 'Task', objectId: task._id, before, after, fields: ['title', 'notes', 'deadline', 'assignedTo', 'status'] })
       if (changes.length) await audit(req, actor, body.status === 'complete' && before.status !== 'complete' ? 'task.completed' : 'task.updated', task, { changes })
       if (before.assignedTo !== after.assignedTo) await notifyAssigned(req, task, actor)
-      return { task: toTask(task.toObject(), await namesOf([task.assignedTo, task.assignedBy])) }
+      return { task: toTask(task.toObject(), await namesOf([task.assignedTo, task.assignedBy]), new Date(), await zoneOf(req)) }
     },
 
     async remove(req, taskId, actor) {
@@ -309,6 +321,7 @@ export function createTaskService({ lld }) {
       const memberships = (await membershipsForUser(req.user._id)).filter((m) => m.active !== false && m.level === 'project' && String(m.organisationId) === String(req.org.id))
       const projectIds = [...new Set(memberships.map((m) => String(m.projectId)))]
       const now = new Date()
+      const tz = await zoneOf(req)
       const out = []
       for (const projectId of projectIds) {
         await runWithScope({ organisationId: req.org.id, projectId }, async () => {
@@ -319,7 +332,7 @@ export function createTaskService({ lld }) {
           else if (!query.includeComplete) filter.status = { $ne: 'complete' }
           const rows = await Task.find(filter).lean()
           const names = await namesOf(rows.flatMap((t) => [t.assignedTo, t.assignedBy]))
-          for (const t of rows) out.push({ ...toTask(t, names, now), projectName: project.name, projectCode: project.code ?? null })
+          for (const t of rows) out.push({ ...toTask(t, names, now, tz), projectName: project.name, projectCode: project.code ?? null })
         })
       }
       out.sort((a, b) => (a.deadline ?? '9999').localeCompare(b.deadline ?? '9999') || String(b.createdAt).localeCompare(String(a.createdAt)))

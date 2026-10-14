@@ -158,7 +158,7 @@ export default function RealLld() {
   }
 
   if (error && !view) return <div className="p-6 text-sm text-status-red">{error}</div>
-  if (!view) return <div className="p-6 text-sm text-text-secondary">Loading…</div>
+  if (!view) return <div className="p-6 text-sm text-text-secondary" data-page-state="loading">Loading…</div>
 
   const header = (
     <>
@@ -204,8 +204,9 @@ export default function RealLld() {
   const summary = validation?.summary ?? { critical: 0, warning: 0, info: 0, blocksSubmit: false }
   const racksForPicker = view.racks.map((r) => ({ id: r.id, label: `${view.rooms.find((x) => x.id === r.roomId)?.code ?? ''} / ${r.code}` }))
 
+  // data-page-state: "ready" once the design and its validation are loaded (tests wait for it).
   return (
-    <div className="mx-auto max-w-[1700px] space-y-4 p-4 sm:p-6">
+    <div className="mx-auto max-w-[1700px] space-y-4 p-4 sm:p-6" data-page-state={validation ? 'ready' : 'loading'}>
       {header}
 
       <div className="flex flex-wrap items-center gap-2">

@@ -1,6 +1,6 @@
 import mongoose from 'mongoose'
 import { scopeCoversBuilding } from '@rackium/shared/scope.js'
-import { channelsFor, resolvePreferences, typeLabel } from '@rackium/shared/notifications.js'
+import { channelsFor, resolvePreferences, typeLabel, groupKeyOf, groupedTitle, GROUP_WINDOW_MS, EMAIL_GROUP_HOLD_MS } from '@rackium/shared/notifications.js'
 import { Membership } from '../models/membership.js'
 import { User } from '../models/user.js'
 import { Notification } from '../models/notification.js'
@@ -47,8 +47,18 @@ export async function actorNameOf(userId, session = null) {
   return u?.name || u?.email || null
 }
 
+// The mail for one event, or for a group of `count`.
+function mailOf({ type, title, body, actorName, link, groupLink, buildingCode, count }) {
+  const grouped = count > 1
+  const subject = `Rackium: ${grouped ? groupedTitle(type, count, buildingCode) : title}`
+  const open = grouped ? groupLink ?? link : link
+  const text = [grouped ? groupedTitle(type, count, buildingCode) : title, grouped ? null : body, actorName ? `By ${actorName}.` : null, open ? `Open: ${settings.appUrl}${open}` : null, '', `You receive "${typeLabel(type)}" by email — change it in your notification preferences.`].filter((x) => x !== null).join('\n')
+  return { subject, text }
+}
+
 // `to`: { roles: [...], userIds: [...] } — the union, filtered as above.
-export async function notify({ type, projectId = null, buildingId = null, title, body = null, relatedObjectType = null, relatedObjectId = null, link = null, actorId = null, to = {}, session = null }) {
+// `groupLink`: where a group of these events points (default: `link`).
+export async function notify({ type, projectId = null, buildingId = null, title, body = null, relatedObjectType = null, relatedObjectId = null, link = null, groupLink = null, actorId = null, to = {}, session = null }) {
   const { organisationId } = currentScope() ?? {}
   if (!organisationId) throw new Error('notify needs a tenant scope')
   const pid = projectId ?? currentScope().projectId
@@ -61,22 +71,41 @@ export async function notify({ type, projectId = null, buildingId = null, title,
   const prefs = new Map((await NotificationPreference.find({ userId: { $in: recipients.map((u) => new mongoose.Types.ObjectId(u)) } }).session(session).lean()).map((p) => [String(p.userId), p.modes instanceof Map ? Object.fromEntries(p.modes) : p.modes ?? {}]))
   const users = new Map((await User.find({ _id: { $in: recipients } }, { email: 1, name: 1 }).session(session).lean()).map((u) => [String(u._id), u]))
   const actorName = await actorNameOf(actorId, session)
+  const now = new Date()
+  const groupKey = groupKeyOf({ type, buildingId: buildingId ? String(buildingId) : null, actorId: actorId ? String(actorId) : null })
+  const buildingCode = building?.code ?? null
+  const gLink = groupLink ?? link
   const created = []
   let queued = 0
   for (const userId of recipients) {
     const channels = channelsFor(resolvePreferences(prefs.get(userId))[type])
+    const delivered = channels.digest ? ['in_app', 'digest'] : ['in_app']
     if (channels.inApp) {
-      const [n] = await Notification.create([{ recipientId: userId, projectId: pid, type, title, body, relatedObjectType, relatedObjectId: relatedObjectId ? String(relatedObjectId) : null, buildingId: buildingId ?? null, link, actorName, deliveredChannels: channels.digest ? ['in_app', 'digest'] : ['in_app'] }], { session })
-      created.push(n)
+      // Part of a burst: the open group (unread, not yet in a digest, recent) counts it.
+      const grouped = await Notification.findOneAndUpdate(
+        { recipientId: new mongoose.Types.ObjectId(userId), groupKey, readAt: null, digestedAt: null, deliveredChannels: { $size: delivered.length, $all: delivered }, createdAt: { $gte: new Date(now.getTime() - GROUP_WINDOW_MS) } },
+        { $inc: { count: 1 }, $set: { createdAt: now } },
+        { session, returnDocument: 'after', sort: { createdAt: -1 } }
+      )
+      if (grouped) created.push(grouped)
+      else {
+        const [n] = await Notification.create([{ recipientId: userId, projectId: pid, type, title, body, relatedObjectType, relatedObjectId: relatedObjectId ? String(relatedObjectId) : null, buildingId: buildingId ?? null, buildingCode, link, groupLink: gLink, groupKey, actorName, deliveredChannels: delivered }], { session })
+        created.push(n)
+      }
     }
     const email = users.get(userId)?.email
     if (channels.emailNow && email) {
-      const text = [title, body, actorName ? `By ${actorName}.` : null, link ? `Open: ${settings.appUrl}${link}` : null, '', `You receive "${typeLabel(type)}" by email — change it in your notification preferences.`].filter((x) => x !== null).join('\n')
-      await EmailOutbox.create([{ organisationId, userId, to: email, subject: `Rackium: ${title}`, text, kind: 'notification', dedupeKey: `notification:${new mongoose.Types.ObjectId()}` }], { session })
-      queued += 1
+      // A mail still waiting for this group takes the event; otherwise a new one waits a minute.
+      const waiting = await EmailOutbox.findOneAndUpdate({ userId: new mongoose.Types.ObjectId(userId), groupKey, kind: 'notification', status: 'pending', attempts: 0 }, { $inc: { count: 1 } }, { session, returnDocument: 'after' })
+      if (waiting) {
+        await EmailOutbox.updateOne({ _id: waiting._id }, { $set: mailOf({ type, title, body, actorName, link, groupLink: gLink, buildingCode, count: waiting.count }) }, { session })
+      } else {
+        await EmailOutbox.create([{ organisationId, userId, to: email, ...mailOf({ type, title, body, actorName, link, groupLink: gLink, buildingCode, count: 1 }), kind: 'notification', groupKey, notBefore: new Date(now.getTime() + EMAIL_GROUP_HOLD_MS), dedupeKey: `notification:${new mongoose.Types.ObjectId()}` }], { session })
+        queued += 1
+      }
     }
   }
-  if (queued && settings.onOutbox) setTimeout(() => settings.onOutbox(), 250).unref?.()
+  if (queued && settings.onOutbox) setTimeout(() => settings.onOutbox(), EMAIL_GROUP_HOLD_MS + 1000).unref?.()
   return created
 }
 

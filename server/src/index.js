@@ -48,7 +48,8 @@ async function main() {
     jobs: [
       { name: 'email-outbox', every: 60_000, run: ({ now }) => deliverOutbox({ mailer, now }) },
       { name: 'task-reminders', every: 15 * 60_000, run: ({ now }) => taskReminders({ now }) },
-      { name: 'daily-digest', dailyAtUtc: config.DIGEST_AT_UTC ?? '07:00', run: ({ now }) => dailyDigest({ now }) },
+      // Every 15 minutes: each organisation's digest goes once its local digest time has passed.
+      { name: 'daily-digest', every: 15 * 60_000, run: ({ now }) => dailyDigest({ now }) },
     ],
   })
   // Queued notification mail goes out promptly, not only on the minute.

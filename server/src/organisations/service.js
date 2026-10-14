@@ -32,6 +32,7 @@ import { buildingsWithSal } from '../hierarchy/lookup.js'
 import { DEFAULT_ROLE_CODES, PROPOSED_ROLE_CODE_KEYS, resolveRoleCodes, duplicateRoleCodes } from '@rackium/shared/hldRoles.js'
 import { DEFAULT_STOCK_LENGTHS } from '@rackium/shared/cableLength.js'
 import { DEFAULT_CAGE_NUTS_PER_RU, cageNutsOf } from '@rackium/shared/bomCalc.js'
+import { DEFAULT_TIME_ZONE, DEFAULT_DIGEST_TIME } from '@rackium/shared/timeZone.js'
 import { scopeView, membershipScopes } from '../access/scope.js'
 
 const { ObjectId } = mongoose.Types
@@ -88,6 +89,10 @@ function settingsView(org) {
     defaultStockLengths: DEFAULT_STOCK_LENGTHS,
     cageNutsPerRu: cageNutsOf(org),
     defaultCageNutsPerRu: DEFAULT_CAGE_NUTS_PER_RU,
+    timeZone: org.settings?.timeZone ?? DEFAULT_TIME_ZONE,
+    digestTime: org.settings?.digestTime ?? DEFAULT_DIGEST_TIME,
+    defaultTimeZone: DEFAULT_TIME_ZONE,
+    defaultDigestTime: DEFAULT_DIGEST_TIME,
   }
 }
 
@@ -296,6 +301,8 @@ export function createOrganisationService({ mailer, auth }) {
         org.markModified('settings.stockLengths')
       }
       if (body.cageNutsPerRu !== undefined) org.set('settings.cageNutsPerRu', body.cageNutsPerRu)
+      if (body.timeZone !== undefined) org.set('settings.timeZone', body.timeZone)
+      if (body.digestTime !== undefined) org.set('settings.digestTime', body.digestTime)
       await org.save()
       const after = settingsView(org.toObject())
       const changes = [
@@ -304,6 +311,7 @@ export function createOrganisationService({ mailer, auth }) {
           .filter((role) => before.namingRoleCodes[role] !== after.namingRoleCodes[role])
           .map((role) => ({ objectType: 'Organisation', objectId: String(org._id), field: `namingRoleCodes.${role}`, before: before.namingRoleCodes[role], after: after.namingRoleCodes[role] })),
         ...(JSON.stringify(before.stockLengths) !== JSON.stringify(after.stockLengths) ? [{ objectType: 'Organisation', objectId: String(org._id), field: 'stockLengths', before: before.stockLengths, after: after.stockLengths }] : []),
+        ...diffChanges({ objectType: 'Organisation', objectId: org._id, before, after, fields: ['timeZone', 'digestTime'] }),
         ...['front', 'rear'].filter((f) => before.cageNutsPerRu[f] !== after.cageNutsPerRu[f]).map((f) => ({ objectType: 'Organisation', objectId: String(org._id), field: `cageNutsPerRu.${f}`, before: before.cageNutsPerRu[f], after: after.cageNutsPerRu[f] })),
       ]
       if (changes.length) {

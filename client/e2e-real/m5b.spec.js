@@ -177,10 +177,45 @@ test('the audit log: filtered by action type, an entry opened with its field cha
   const text = await (await import('node:fs')).promises.readFile(await file.path(), 'utf8')
   expect(text.replace(/^﻿/, '').split('\r\n')).toHaveLength(4)
   expect(text).toContain('task.completed')
-  // A Reviewer has no audit log.
+  // The Reviewer reads it too (v2.3 role table), for their project; the Field Engineer does not.
   await reviewer.goto(`/orgs/${orgId}/audit`)
-  await expect(reviewer.getByText('The audit log is open to the Org Admin, PMs and Architects.')).toBeVisible()
-  await expect(reviewer.getByRole('link', { name: 'Audit log' })).toHaveCount(0)
+  await expect(reviewer.getByRole('link', { name: 'Audit log' })).toBeVisible()
+  await reviewer.getByTestId('audit-filters').getByLabel('Action type').selectOption('task')
+  await reviewer.getByTestId('audit-filters').getByRole('button', { name: 'Apply filters' }).click()
+  await expect(reviewer.getByTestId('audit-row')).toHaveCount(3)
+  await fe.goto(`/orgs/${orgId}/audit`)
+  await expect(fe.getByText('The audit log is open to the Org Admin, PMs, Architects and Reviewers.')).toBeVisible()
+  await expect(fe.getByRole('link', { name: 'Audit log' })).toHaveCount(0)
+})
+
+// Regression (M5b review, found measuring the LLD page load): the desktop and
+// tablet sidebar rails each loaded their own data, so every page fetched the
+// project list and the building dashboard twice.
+test('a page loads the sidebar data once: the project list and the building dashboard', async () => {
+  const calls = []
+  const onReq = (r) => r.url().includes('/api/') && calls.push(new URL(r.url()).pathname)
+  owner.on('request', onReq)
+  await owner.goto(`/orgs/${orgId}/projects/${projectId}/buildings/${b001}/hld`)
+  await expect(owner.getByRole('link', { name: 'B001' }).first()).toBeVisible()
+  await owner.waitForLoadState('networkidle')
+  owner.off('request', onReq)
+  expect(calls.filter((c) => c === `/api/v1/orgs/${orgId}/projects`)).toHaveLength(1)
+  expect(calls.filter((c) => c === `/api/v1/orgs/${orgId}/projects/${projectId}/dashboard/buildings/${b001}`)).toHaveLength(1)
+})
+
+test('the Org Admin sets the organisation time zone and digest time', async () => {
+  await owner.goto(`/orgs/${orgId}/settings`)
+  const section = owner.getByTestId('time-zone')
+  await expect(section.getByLabel('Organisation time zone')).toHaveValue('Europe/Berlin')
+  await expect(section.getByLabel('Daily digest time')).toHaveValue('07:00')
+  await section.getByLabel('Organisation time zone').selectOption('America/New_York')
+  await section.getByLabel('Daily digest time').fill('06:30')
+  await section.getByRole('button', { name: 'Save time zone' }).click()
+  await expect(owner.getByTestId('time-zone').getByLabel('Organisation time zone')).toHaveValue('America/New_York')
+  await owner.reload()
+  await expect(owner.getByTestId('time-zone').getByLabel('Organisation time zone')).toHaveValue('America/New_York')
+  await expect(owner.getByTestId('time-zone').getByLabel('Daily digest time')).toHaveValue('06:30')
+  await fitsEveryWidth(owner, 'org-settings')
 })
 
 test('no console errors on the new screens', async () => {

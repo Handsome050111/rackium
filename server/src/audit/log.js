@@ -15,7 +15,7 @@ const ADMIN_ONLY_CHANGE_TYPES = ['view_as_access', 'platform_access']
 export const AUDIT_EXPORT_LIMIT = 10000
 
 // The audit log screen (client audit item 16; DATA-MODEL §8; M5b). The Org
-// Admin reads the whole organisation; a PM or Architect reads one project
+// Admin reads the whole organisation; a PM, Architect or Reviewer reads one project
 // (the route checks the role), limited to the buildings their membership
 // scope covers and without the View-As / platform-access entries. Filters:
 // date range, user, action type, module (phase), object type, building.

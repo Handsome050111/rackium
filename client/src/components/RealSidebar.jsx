@@ -29,12 +29,11 @@ function navLinkClass({ isActive }) {
   }`
 }
 
-function SidebarContent({ showLabels, orgId, projectId, buildingId, onNavigate }) {
-  const { memberships } = useAuth()
-  const canCreate = canCreateProjectsIn(memberships, orgId)
-  const isOrgAdmin = canIn(memberships, orgId, null, ACTIONS.MANAGE_USERS_SETTINGS_CATALOGUE)
-  // The audit log: the Org Admin, or a PM / Architect of some project here.
-  const readsAudit = isOrgAdmin || memberships.some((m) => m.level === 'project' && String(m.organisationId) === String(orgId) && canIn(memberships, orgId, m.projectId, ACTIONS.VIEW_AUDIT_LOG))
+// The sidebar's data, loaded ONCE for every rail that shows it (the desktop
+// rail and the tablet icon rail are both mounted; only CSS hides one). Each
+// rail used to load its own copy, so every page fetched the project list and
+// the building dashboard twice (found measuring the LLD page load, M5b review).
+function useSidebarData(orgId, projectId, buildingId) {
   const [projects, setProjects] = useState(null)
   const [phases, setPhases] = useState(null)
 
@@ -59,6 +58,16 @@ function SidebarContent({ showLabels, orgId, projectId, buildingId, onNavigate }
       active = false
     }
   }, [orgId, projectId, buildingId])
+
+  return { projects, phases }
+}
+
+function SidebarContent({ showLabels, orgId, projectId, buildingId, onNavigate, projects, phases }) {
+  const { memberships } = useAuth()
+  const canCreate = canCreateProjectsIn(memberships, orgId)
+  const isOrgAdmin = canIn(memberships, orgId, null, ACTIONS.MANAGE_USERS_SETTINGS_CATALOGUE)
+  // The audit log: the Org Admin, or a PM / Architect / Reviewer of some project here.
+  const readsAudit = isOrgAdmin || memberships.some((m) => m.level === 'project' && String(m.organisationId) === String(orgId) && canIn(memberships, orgId, m.projectId, ACTIONS.VIEW_AUDIT_LOG))
 
   const currentProject = projects?.find((p) => p.id === projectId) ?? null
 
@@ -169,12 +178,13 @@ function SidebarContent({ showLabels, orgId, projectId, buildingId, onNavigate }
 
 export default function RealSidebar({ mobileOpen, onCloseMobile }) {
   const { orgId, projectId, buildingId } = useRealRouteIds()
+  const data = useSidebarData(orgId, projectId, buildingId)
 
   return (
     <>
       {/* Desktop / iPad: full rail with labels */}
       <aside className="hidden w-64 shrink-0 border-r border-border bg-surface md:block">
-        <SidebarContent showLabels orgId={orgId} projectId={projectId} buildingId={buildingId} />
+        <SidebarContent showLabels orgId={orgId} projectId={projectId} buildingId={buildingId} {...data} />
       </aside>
 
       {/* Tablet portrait: icon-only rail */}
@@ -183,7 +193,7 @@ export default function RealSidebar({ mobileOpen, onCloseMobile }) {
           <Mark />
         </div>
         <div className="min-h-0 flex-1">
-          <SidebarContent showLabels={false} orgId={orgId} projectId={projectId} buildingId={buildingId} />
+          <SidebarContent showLabels={false} orgId={orgId} projectId={projectId} buildingId={buildingId} {...data} />
         </div>
       </aside>
 
@@ -204,7 +214,7 @@ export default function RealSidebar({ mobileOpen, onCloseMobile }) {
               </button>
             </div>
             <div className="flex-1 overflow-y-auto">
-              <SidebarContent showLabels orgId={orgId} projectId={projectId} buildingId={buildingId} onNavigate={onCloseMobile} />
+              <SidebarContent showLabels orgId={orgId} projectId={projectId} buildingId={buildingId} onNavigate={onCloseMobile} {...data} />
             </div>
           </aside>
         </div>

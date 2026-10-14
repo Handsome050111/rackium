@@ -313,6 +313,11 @@ test('the LLD, the Rackium Editor and the stock-length settings fit every width'
     for (const [width, height] of [[1440, 900], [1024, 768], [768, 1024], [390, 844]]) {
       await page.setViewportSize({ width, height })
       await page.goto(url)
+      // Wait for the page's own ready state (design and validation loaded), not
+      // a fixed 5 s: a first load under a busy full run once took longer
+      // (measured: real 0.5–1.6 s, mock 0.7–1.3 s; see docs/BUG-SWEEP.md).
+      if (!url.includes('/settings')) await expect(page.locator('[data-page-state]')).toHaveAttribute('data-page-state', 'ready', { timeout: 30_000 })
+      else await expect(page.getByTestId('stock-lengths')).toBeVisible({ timeout: 30_000 })
       await expect(page.locator('main')).not.toContainText('Loading…')
       for (const tab of url.endsWith('/lld') ? ['Physical Connections', 'Rack Elevations', 'Port Schedule', 'Cable Schedule'] : [null]) {
         if (tab) await page.getByRole('tab', { name: tab }).click()

@@ -18,6 +18,11 @@ const emailOutboxSchema = new mongoose.Schema({
   attempts: { type: Number, default: 0 },
   lastError: { type: String, default: null },
   lockedUntil: { type: Date, default: null },
+  // Grouping (M5b review): an immediate mail waits until `notBefore`, so a
+  // burst of the same event becomes one email with a count.
+  notBefore: { type: Date, default: null },
+  groupKey: { type: String, default: null },
+  count: { type: Number, default: 1 },
   createdAt: { type: Date, default: () => new Date() },
   sentAt: { type: Date, default: null },
 })

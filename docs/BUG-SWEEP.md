@@ -223,6 +223,16 @@ took about 8 seconds, the page well inside the limit). Nothing in M5b
 touches the LLD screen's loading; noted here so a repeat is recognised.
 Full run: 419 passed, 29 skipped, 1 flaky, 0 failed.
 
+*Follow-up (M5b review):* the LLD page load was measured (six loads each,
+navigation → tabs shown and "Loading…" gone): **real mode** 482–1554 ms,
+median 813 ms (first load the slowest); **mock mode** 743–1270 ms, median
+862 ms — not slow. The measurement found every real-mode page fetching the
+project list and the building dashboard **twice** (both sidebar rails loaded
+their own data; fixed below): after the fix 6 API calls instead of 8, real
+mode 481–800 ms, median 643 ms. The width test now waits for the page's own
+ready state (`data-page-state="ready"`: the design and its validation
+loaded, 30-second ceiling) instead of a fixed 5 seconds.
+
 ### CI
 
 `.github/workflows/ci.yml` now runs Playwright (mock and real projects)
@@ -524,3 +534,18 @@ Found and fixed while building and testing M5b, each with a test:
   write conflict during acceptance).
 
 Interpretations to confirm are marked ★ in DATA-MODEL §5.11.1 and §8.3.
+
+### M5b review round: time zone, grouping, Reviewer audit access, the LLD load
+
+Found and fixed, each with a test:
+
+- **Every real-mode page loaded the sidebar's data twice** (since M2): the
+  desktop rail and the tablet icon rail are both mounted (CSS hides one) and
+  each fetched the project list and the building dashboard. Loaded once now
+  and passed to both. Test: `e2e-real/m5b.spec.js` (one request each).
+- **The audit log never loaded for a PM, Architect or Reviewer who applied
+  filters before the project list arrived** (found while testing the
+  Reviewer's access): the filters went out without a project and the
+  start-up step that picks one had already been skipped. The project is now
+  filled in when the list arrives, and Apply waits for it. Test:
+  `e2e-real/m5b.spec.js` (the Reviewer filters straight away).

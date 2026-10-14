@@ -1,3 +1,5 @@
+import { DEFAULT_TIME_ZONE, localDate, addDays, startOfLocalDay } from './timeZone.js'
+
 // Tasks and notifications (brief v2.2 §8, §9; DATA-MODEL §5.11; M5b). Pure:
 // the notification types with their labels, the delivery modes a user picks
 // per type, the bell panel's day grouping, and the task status rules.
@@ -56,14 +58,14 @@ export function resolvePreferences(stored = {}) {
   return Object.fromEntries(NOTIFICATION_TYPE_KEYS.map((k) => [k, DELIVERY_MODE_KEYS.includes(stored[k]) ? stored[k] : DEFAULT_DELIVERY_MODE]))
 }
 
-// The bell panel groups by calendar day (UTC): Today, Yesterday, then the date.
-const dayKey = (d) => new Date(d).toISOString().slice(0, 10)
-export function groupByDay(items, now = new Date()) {
-  const today = dayKey(now)
-  const yesterday = dayKey(new Date(new Date(now).getTime() - 86400000))
+// The bell panel groups by calendar day in the organisation's time zone:
+// Today, Yesterday, then the date.
+export function groupByDay(items, now = new Date(), tz = DEFAULT_TIME_ZONE) {
+  const today = localDate(now, tz)
+  const yesterday = addDays(today, -1)
   const groups = []
   for (const item of items) {
-    const key = dayKey(item.createdAt)
+    const key = localDate(item.createdAt, tz)
     const label = key === today ? 'Today' : key === yesterday ? 'Yesterday' : key
     const last = groups[groups.length - 1]
     if (last?.key === key) last.items.push(item)
@@ -90,16 +92,64 @@ export function taskTransitionProblem({ from, to, actorId, assignedTo, assignedB
   return `A task cannot move from ${TASK_STATUS_LABELS[from]} to ${TASK_STATUS_LABELS[to]}`
 }
 
-// A deadline is a date (UTC midnight): due on that day, overdue after it ends.
-const DAY_MS = 86400000
-export const deadlineEnd = (deadline) => (deadline ? new Date(new Date(deadline).getTime() + DAY_MS) : null)
-export function isOverdue(task, now = new Date()) {
-  return Boolean(task.deadline) && task.status !== 'complete' && new Date(now) >= deadlineEnd(task.deadline)
+// A deadline is a calendar date in the organisation's time zone (stored as
+// that date at UTC midnight): due on that local day, overdue once the local
+// day has ended — local midnight, so a DST day of 23 or 25 hours is right.
+export const deadlineEnd = (deadline, tz = DEFAULT_TIME_ZONE) => (deadline ? startOfLocalDay(addDays(deadline, 1), tz) : null)
+export function isOverdue(task, now = new Date(), tz = DEFAULT_TIME_ZONE) {
+  return Boolean(task.deadline) && task.status !== 'complete' && new Date(now) >= deadlineEnd(task.deadline, tz)
 }
-export function isDueSoon(task, now = new Date(), hours = 24) {
-  if (!task.deadline || task.status === 'complete' || isOverdue(task, now)) return false
-  return deadlineEnd(task.deadline).getTime() - new Date(now).getTime() <= hours * 3600000
+export function isDueSoon(task, now = new Date(), tz = DEFAULT_TIME_ZONE, hours = 24) {
+  if (!task.deadline || task.status === 'complete' || isOverdue(task, now, tz)) return false
+  return deadlineEnd(task.deadline, tz).getTime() - new Date(now).getTime() <= hours * 3600000
 }
 
 // Phase names for task and notification labels.
 export const PHASE_LABELS = { cmo: 'CMO', survey: 'Physical Site Survey', hld: 'HLD', lld: 'LLD', 'solution-package': 'Solution Package', bom: 'BOM', deployment: 'Deployment & Installation', cmdb: 'CMDB', handover: 'Handover' }
+
+// --- Grouping (M5b review) ------------------------------------------------------
+
+// Events one user action produces in a burst (verifying a whole survey,
+// assigning a room's tasks) become ONE notification with a count: same
+// recipient, type, building and actor, still unread, within the window.
+export const GROUP_WINDOW_MS = 15 * 60000
+// Immediate mail waits this long, so a burst goes out as one email.
+export const EMAIL_GROUP_HOLD_MS = 60000
+export const groupKeyOf = ({ type, buildingId = null, actorId = null }) => `${type}|${buildingId ?? '-'}|${actorId ?? 'system'}`
+
+// The title of a group of `count` events (one event keeps its own title).
+export function groupedTitle(type, count, buildingCode = null) {
+  const b = buildingCode
+  const forB = b ? ` for ${b}` : ''
+  const inB = b ? ` (${b})` : ''
+  switch (type) {
+    case 'survey_submitted':
+      return `Survey${forB} submitted — ${count} tabs`
+    case 'survey_verified':
+      return `Survey${forB} verified — ${count} tabs`
+    case 'survey_rejected':
+      return `Survey${forB}: ${count} tabs rejected`
+    case 'task_assigned':
+      return `${count} tasks assigned to you${inB}`
+    case 'task_due_soon':
+      return `${count} tasks due soon${inB}`
+    case 'task_overdue':
+      return `${count} tasks overdue${inB}`
+    case 'blocker_raised':
+      return `${count} blockers raised${inB}`
+    case 'blocker_assigned':
+      return `${count} blockers assigned to you${inB}`
+    case 'blocker_resolved':
+      return `${count} blockers resolved${inB}`
+    case 'procurement_status_changed':
+      return `${count} procurement lines changed${inB}`
+    case 'mention':
+      return `You were mentioned ${count} times${inB}`
+    default:
+      return `${typeLabel(type)}${inB} — ${count}`
+  }
+}
+
+// What one stored notification shows: its own title and link, or its group's.
+export const displayTitle = (n) => (n.count > 1 ? groupedTitle(n.type, n.count, n.buildingCode ?? null) : n.title)
+export const displayLink = (n) => (n.count > 1 ? n.groupLink ?? n.link ?? null : n.link ?? null)

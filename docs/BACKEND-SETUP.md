@@ -153,7 +153,9 @@ npm run test:e2e --workspace client
 
 The API process runs a small scheduler (M5b) for notification email (every
 minute), task due-date reminders (every 15 minutes) and the daily digest
-email, at `DIGEST_AT_UTC` in `server/.env` (HH:MM, UTC, default `07:00`).
+email (checked every 15 minutes; each organisation's digest goes out at its
+own local digest time — Organisation settings → Time zone, default 07:00
+Europe/Berlin).
 Jobs are stored in the `scheduledjobs` collection and claimed with a lock,
 so running several API processes never sends anything twice. Tests never
 start the scheduler; they call the jobs directly. In development, mail goes

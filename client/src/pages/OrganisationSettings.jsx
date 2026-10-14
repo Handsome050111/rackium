@@ -6,6 +6,7 @@ import { useAuth } from '../lib/AuthContext.jsx'
 import NamingCodesSection from '../components/NamingCodesSection.jsx'
 import StockLengthsSection from '../components/StockLengthsSection.jsx'
 import CageNutsSection from '../components/CageNutsSection.jsx'
+import TimeZoneSection from '../components/TimeZoneSection.jsx'
 import { canIn } from '../lib/realRoles.js'
 
 function Section({ title, description, children }) {
@@ -141,6 +142,19 @@ export default function OrganisationSettings() {
             settings={settings}
             onSave={async (stockLengths) => {
               const res = await organisationApi.updateSettings(orgId, { stockLengths })
+              setSettings(res.settings)
+            }}
+          />
+        )}
+      </Section>
+
+      <Section title="Time zone" description="Task deadlines, due soon and overdue, and the daily digest email follow this time zone (default Europe/Berlin).">
+        {settings?.timeZone && (
+          <TimeZoneSection
+            key={`${settings.timeZone}-${settings.digestTime}`}
+            settings={settings}
+            onSave={async (body) => {
+              const res = await organisationApi.updateSettings(orgId, body)
               setSettings(res.settings)
             }}
           />

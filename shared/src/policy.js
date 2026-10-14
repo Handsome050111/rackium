@@ -90,8 +90,8 @@ const MATRIX = {
   [ACTIONS.CMDB_OPERATIONAL_EDITS]: ['pm', 'architect'],
   [ACTIONS.SEE_PRICES_MARGINS]: ['org_admin', 'pm', 'reviewer'],
   [ACTIONS.DOWNLOAD_PORT_CABLE_SCHEDULES]: ['org_admin', 'pm', 'architect', 'reviewer', 'field_engineer', 'viewer'],
-  // M5b (client audit 16): Org Admin, PM (project level) and Architect (read).
-  [ACTIONS.VIEW_AUDIT_LOG]: ['org_admin', 'pm', 'architect'],
+  // v2.3 role table (client audit 16): Org Admin (organisation), PM, Architect and Reviewer (their project).
+  [ACTIONS.VIEW_AUDIT_LOG]: ['org_admin', 'pm', 'architect', 'reviewer'],
   [ACTIONS.MANAGE_PROJECT_SETTINGS]: ['org_admin', 'pm'],
   [ACTIONS.MANAGE_HIERARCHY_TOP]: ['org_admin', 'pm'],
   [ACTIONS.MANAGE_HIERARCHY_DETAIL]: ['org_admin', 'pm', 'architect'],

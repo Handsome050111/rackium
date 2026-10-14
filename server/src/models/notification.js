@@ -22,6 +22,14 @@ const notificationSchema = new mongoose.Schema({
   // 'digest': also goes into the recipient's daily summary email.
   deliveredChannels: { type: [String], default: ['in_app'] },
   digestedAt: { type: Date, default: null },
+  // Grouping (M5b review): a burst of the same event by the same actor in
+  // one building is one notification with a count; its title and link are
+  // the group's (shared/notifications.js displayTitle / displayLink).
+  groupKey: { type: String, default: null },
+  count: { type: Number, default: 1, min: 1 },
+  buildingCode: { type: String, default: null },
+  groupLink: { type: String, default: null },
+  // The latest event of the group (a grouped notification moves to the top).
   createdAt: { type: Date, default: () => new Date() },
 })
 
@@ -30,5 +38,6 @@ tenantScope(notificationSchema, { scope: 'organisation' })
 notificationSchema.index({ organisationId: 1, recipientId: 1, createdAt: -1 })
 notificationSchema.index({ organisationId: 1, recipientId: 1, readAt: 1 })
 notificationSchema.index({ organisationId: 1, deliveredChannels: 1, digestedAt: 1 })
+notificationSchema.index({ organisationId: 1, recipientId: 1, groupKey: 1, createdAt: -1 })
 
 export const Notification = mongoose.models.Notification || mongoose.model('Notification', notificationSchema)
