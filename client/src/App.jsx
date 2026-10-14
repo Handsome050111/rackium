@@ -17,6 +17,8 @@ import RealHld from './pages/RealHld.jsx'
 import RealLld from './pages/RealLld.jsx'
 import RealRackiumEditor from './pages/RealRackiumEditor.jsx'
 import RealBom from './pages/RealBom.jsx'
+import RealDeployment from './pages/RealDeployment.jsx'
+import RealCmdb from './pages/RealCmdb.jsx'
 import RealSolutionPackage from './pages/RealSolutionPackage.jsx'
 import RealClientApproval from './pages/RealClientApproval.jsx'
 import { API_MODE } from './lib/apiMode.js'
@@ -130,6 +132,8 @@ export default function App() {
         <Route path="projects/:projectId/buildings/:buildingId/lld/editor" element={<RealRackiumEditor />} />
         <Route path="projects/:projectId/buildings/:buildingId/solution-package" element={<RealSolutionPackage />} />
         <Route path="projects/:projectId/buildings/:buildingId/bom" element={<RealBom />} />
+        <Route path="projects/:projectId/buildings/:buildingId/deployment" element={<RealDeployment />} />
+        <Route path="projects/:projectId/buildings/:buildingId/cmdb" element={<RealCmdb />} />
         <Route path="projects/:projectId/buildings/:buildingId/:phaseKey" element={<RealPhasePlaceholder />} />
         <Route path="settings" element={<OrganisationSettings />} />
         <Route path="tasks" element={<RealTasks key="mine" />} />

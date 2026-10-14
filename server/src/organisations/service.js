@@ -18,6 +18,7 @@ import { hldStatusByBuilding } from '../hld/service.js'
 import { lldStatusByBuilding } from '../lld/service.js'
 import { spStatusByBuilding } from '../delivery/solutionPackage.js'
 import { bomStatusByBuilding } from '../delivery/bom.js'
+import { deploymentStatusesByBuilding } from '../deployment/service.js'
 import { SurveyTabRecord } from '../models/surveyTabRecord.js'
 import { LldDesign } from '../models/lldDesign.js'
 import { applyActivePhases } from '@rackium/shared/phaseGating.js'
@@ -33,6 +34,7 @@ import { DEFAULT_ROLE_CODES, PROPOSED_ROLE_CODE_KEYS, resolveRoleCodes, duplicat
 import { DEFAULT_STOCK_LENGTHS } from '@rackium/shared/cableLength.js'
 import { DEFAULT_CAGE_NUTS_PER_RU, cageNutsOf } from '@rackium/shared/bomCalc.js'
 import { DEFAULT_TIME_ZONE, DEFAULT_DIGEST_TIME } from '@rackium/shared/timeZone.js'
+import { DEFAULT_DGUV } from '@rackium/shared/deployment.js'
 import { scopeView, membershipScopes } from '../access/scope.js'
 
 const { ObjectId } = mongoose.Types
@@ -77,6 +79,8 @@ export async function rolesIn(userId, organisationId, projectId = null) {
 
 // Organisation settings as the API shows them: hostname role codes resolved
 // over the defaults, plus which codes are still proposals (M4a).
+const dguvOf = (org) => ({ ...DEFAULT_DGUV, ...Object.fromEntries(Object.entries(org.settings?.dguv ?? {}).filter(([, v]) => v != null)) })
+
 function settingsView(org) {
   const raw = org.settings?.namingRoleCodes
   const stored = raw instanceof Map ? Object.fromEntries(raw) : raw ?? {}
@@ -93,6 +97,8 @@ function settingsView(org) {
     digestTime: org.settings?.digestTime ?? DEFAULT_DIGEST_TIME,
     defaultTimeZone: DEFAULT_TIME_ZONE,
     defaultDigestTime: DEFAULT_DIGEST_TIME,
+    dguv: dguvOf(org),
+    defaultDguv: DEFAULT_DGUV,
   }
 }
 
@@ -303,6 +309,7 @@ export function createOrganisationService({ mailer, auth }) {
       if (body.cageNutsPerRu !== undefined) org.set('settings.cageNutsPerRu', body.cageNutsPerRu)
       if (body.timeZone !== undefined) org.set('settings.timeZone', body.timeZone)
       if (body.digestTime !== undefined) org.set('settings.digestTime', body.digestTime)
+      if (body.dguv !== undefined) org.set('settings.dguv', body.dguv)
       await org.save()
       const after = settingsView(org.toObject())
       const changes = [
@@ -312,6 +319,7 @@ export function createOrganisationService({ mailer, auth }) {
           .map((role) => ({ objectType: 'Organisation', objectId: String(org._id), field: `namingRoleCodes.${role}`, before: before.namingRoleCodes[role], after: after.namingRoleCodes[role] })),
         ...(JSON.stringify(before.stockLengths) !== JSON.stringify(after.stockLengths) ? [{ objectType: 'Organisation', objectId: String(org._id), field: 'stockLengths', before: before.stockLengths, after: after.stockLengths }] : []),
         ...diffChanges({ objectType: 'Organisation', objectId: org._id, before, after, fields: ['timeZone', 'digestTime'] }),
+        ...['intervalMonths', 'expiringSoonDays', 'expiringDays'].filter((f) => before.dguv[f] !== after.dguv[f]).map((f) => ({ objectType: 'Organisation', objectId: String(org._id), field: `dguv.${f}`, before: before.dguv[f], after: after.dguv[f] })),
         ...['front', 'rear'].filter((f) => before.cageNutsPerRu[f] !== after.cageNutsPerRu[f]).map((f) => ({ objectType: 'Organisation', objectId: String(org._id), field: `cageNutsPerRu.${f}`, before: before.cageNutsPerRu[f], after: after.cageNutsPerRu[f] })),
       ]
       if (changes.length) {
@@ -470,7 +478,7 @@ export function createOrganisationService({ mailer, auth }) {
         const scopes = membershipScopes(membership, isOrgAdmin)
         const buildings = await runWithScope({ organisationId, projectId: p._id }, async () => {
           const view = scopeView(scopes, await buildingsWithSal())
-          const [buildingRows, statusRows, cmoStatuses, surveyStatuses, hldStatuses, lldStatuses, spStatuses, bomStatuses] = await Promise.all([Building.find().lean(), PhaseStatus.find().lean(), cmoStatusByBuilding(), surveyStatusByBuilding(), hldStatusByBuilding(), lldStatusByBuilding(), spStatusByBuilding(), bomStatusByBuilding()])
+          const [buildingRows, statusRows, cmoStatuses, surveyStatuses, hldStatuses, lldStatuses, spStatuses, bomStatuses, asBuilt] = await Promise.all([Building.find().lean(), PhaseStatus.find().lean(), cmoStatusByBuilding(), surveyStatusByBuilding(), hldStatusByBuilding(), lldStatusByBuilding(), spStatusByBuilding(), bomStatusByBuilding(), deploymentStatusesByBuilding()])
           const statusByBuilding = new Map()
           for (const s of statusRows) {
             const key = String(s.buildingId)
@@ -478,7 +486,7 @@ export function createOrganisationService({ mailer, auth }) {
             statusByBuilding.get(key).set(s.phaseKey, s.status)
           }
           // CMO is computed from imported devices, not stored (same as the dashboard).
-          for (const [phaseKey, statuses] of [['cmo', cmoStatuses], ['survey', surveyStatuses], ['hld', hldStatuses], ['lld', lldStatuses], ['solution-package', spStatuses], ['bom', bomStatuses]]) {
+          for (const [phaseKey, statuses] of [['cmo', cmoStatuses], ['survey', surveyStatuses], ['hld', hldStatuses], ['lld', lldStatuses], ['solution-package', spStatuses], ['bom', bomStatuses], ['deployment', asBuilt.deployment], ['cmdb', asBuilt.cmdb]]) {
             for (const [buildingId, status] of statuses) {
               if (!statusByBuilding.has(buildingId)) statusByBuilding.set(buildingId, new Map())
               statusByBuilding.get(buildingId).set(phaseKey, status)

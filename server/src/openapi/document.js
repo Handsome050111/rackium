@@ -482,6 +482,24 @@ export function buildRegistry() {
   route('get', `${O}/audit/export.csv`, 'The audit entries the filters select as CSV (at most 10,000 rows)', { params: orgP(), query: C.auditExportQuery })
   route('get', `${O}/audit/{id}`, 'One audit entry with its field-level changes', { params: orgP({ id: 1 }), query: C.auditEntryQuery })
 
+  // --- M6a: deployment & installation, CMDB ---
+  const D = `${PR}/deployment`
+  const awaiting = { 409: err('Awaiting delivery, design not frozen, accepted, or an invalid step') }
+  route('get', `${D}/buildings/{buildingId}`, 'Deployment of one building: devices with delivery gating, installation, DGUV, deviations; connections per cable; exception register; location tree, pipeline and room checklist', { params: p({ buildingId: 1 }) })
+  route('get', `${D}/devices/{deviceId}`, 'One device’s deployment record', { params: p({ deviceId: 1 }) })
+  route('put', `${D}/devices/{deviceId}/installation`, 'Installation record (Field Engineer): serial and MAC (unique in the project, CMO included), confirmed rack/RU/face, PDU outlet, GPS; markInstalled once Delivered', { params: p({ deviceId: 1 }), body: C.installationBody, errors: awaiting })
+  route('put', `${D}/devices/{deviceId}/dguv`, 'DGUV V3 inspection of a mains-powered device: date, inspector, certificate', { params: p({ deviceId: 1 }), body: C.dguvInspectionBody, errors: awaiting })
+  route('post', `${D}/devices/{deviceId}/status`, 'Configured / Tested (Field Engineer), Accepted (PM or Reviewer; nothing unresolved)', { params: p({ deviceId: 1 }), body: C.deviceStepBody, errors: awaiting })
+  route('put', `${D}/connections/{connectionId}/installation`, 'Patching of a connection per end and per cable (cable ID, Installed length); confirm → Installed', { params: p({ connectionId: 1 }), body: C.connectionInstallBody, errors: awaiting })
+  route('post', `${D}/connections/{connectionId}/test`, 'Link test result (Field Engineer): pass → Tested, fail → Faulty', { params: p({ connectionId: 1 }), body: C.connectionTestBody, errors: awaiting })
+  route('post', `${D}/connections/{connectionId}/accept`, 'Accept a tested connection (PM or Reviewer)', { params: p({ connectionId: 1 }), errors: awaiting })
+  route('post', `${D}/exceptions`, 'Log a detected difference from the frozen LLD as an exception (Field Engineer): reason and photos', { body: C.exceptionCreateBody, status: 201, errors: { 409: err('No such open difference') } })
+  route('post', `${D}/exceptions/{exceptionId}/review`, 'Accept or reject an open exception (Reviewer or PM)', { params: p({ exceptionId: 1 }), body: C.exceptionReviewBody, errors: { 409: err('Not open') } })
+  const CM = `${PR}/cmdb`
+  route('get', `${CM}/buildings/{buildingId}`, 'The as-built CMDB of one building (accepted records only) with field provenance, accepted connections, cable matrix, reconciliation and change log', { params: p({ buildingId: 1 }) })
+  route('patch', `${CM}/records/{deviceId}`, 'Operational edit (Architect or PM): asset tag, notes, in service / maintenance, warranty and refresh dates; audited as an operational change', { params: p({ deviceId: 1 }), body: C.cmdbOperationalBody, errors: { 409: err('Stale version or not in the CMDB') } })
+  route('post', `${CM}/lifecycle-import`, 'Warranty and refresh dates from a sheet, matched by serial then hostname; preview, then apply', { body: C.lifecycleImportBody })
+
   registry.registerPath({
     method: 'get',
     path: '/api/v1/orgs/{orgId}/projects/{projectId}/dashboard/buildings/{buildingId}',

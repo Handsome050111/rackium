@@ -31,6 +31,10 @@ export const NOTIFICATION_TYPES = [
   { key: 'blocker_assigned', label: 'Blocker assigned to you', group: 'Blockers' },
   { key: 'blocker_resolved', label: 'Blocker resolved', group: 'Blockers' },
   { key: 'procurement_status_changed', label: 'Procurement status changed', group: 'Procurement' },
+  { key: 'device_installed', label: 'Device installed', group: 'Deployment' },
+  { key: 'exception_logged', label: 'Installation exception logged', group: 'Deployment' },
+  { key: 'exception_reviewed', label: 'Installation exception accepted or rejected', group: 'Deployment' },
+  { key: 'device_accepted', label: 'Device accepted', group: 'Deployment' },
   { key: 'dguv_expiry', label: 'DGUV inspection expiring', group: 'Compliance' },
   { key: 'mention', label: 'You were mentioned in a comment', group: 'Mentions' },
 ]

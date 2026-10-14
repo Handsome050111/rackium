@@ -37,7 +37,7 @@ const auditSchema = new mongoose.Schema({
   phaseKey: { type: String, default: null },
   changeType: {
     type: String,
-    enum: ['design_intent', 'operational_change', 'system', 'client_decision', 'import', 'view_as_access', 'platform_access'],
+    enum: ['design_intent', 'as_built', 'operational_change', 'system', 'client_decision', 'import', 'view_as_access', 'platform_access'],
     required: true,
   },
   source: { type: String, enum: ['ui', 'import', 'client_link', 'system', 'offline_sync'], required: true },

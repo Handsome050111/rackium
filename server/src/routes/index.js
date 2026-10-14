@@ -15,10 +15,12 @@ import { taskRoutes, meRoutes } from './tasks.js'
 import { lldRoutes } from './lld.js'
 import { deliveryRoutes, publicRoutes } from './delivery.js'
 import { fileRoutes } from './files.js'
+import { deploymentRoutes } from './deployment.js'
+import { cmdbRoutes } from './cmdb.js'
 
 export const API_VERSION = '1'
 
-export function apiRouter({ config, auth, org, auditLog, hierarchy, blockers, viewAs, dashboard, catalogue, cmo, survey, files, hld, lld, delivery, tasks, notifications, rateLimits, openapiDocument, version }) {
+export function apiRouter({ config, auth, org, auditLog, hierarchy, blockers, viewAs, dashboard, catalogue, cmo, survey, files, hld, lld, delivery, tasks, notifications, deployment, cmdb, rateLimits, openapiDocument, version }) {
   const r = recordingRouter()
 
   r.get('/health', (req, res) => {
@@ -51,6 +53,8 @@ export function apiRouter({ config, auth, org, auditLog, hierarchy, blockers, vi
     ['/orgs/:orgId/projects/:projectId', deliveryRoutes({ config, ...delivery })],
     ['/public', publicRoutes({ publicApproval: delivery.publicApproval, rateLimits })],
     ['/orgs/:orgId/projects/:projectId/files', fileRoutes({ config, files })],
+    ['/orgs/:orgId/projects/:projectId/deployment', deploymentRoutes({ config, deployment })],
+    ['/orgs/:orgId/projects/:projectId/cmdb', cmdbRoutes({ config, cmdb })],
   ]
   for (const [prefix, subRouter] of mounts) {
     r.use(prefix, subRouter)

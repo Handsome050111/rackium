@@ -348,12 +348,14 @@ export const surveyCustomFieldBody = z.object({
   type: z.enum(['text', 'number', 'yes_no']).default('text'),
 })
 
-export const FILE_CATEGORIES = ['photo_room', 'photo_rack', 'photo_reference', 'photo_device_label', 'evidence', 'document']
+export const FILE_CATEGORIES = ['photo_room', 'photo_rack', 'photo_reference', 'photo_device_label', 'evidence', 'document', 'certificate']
 export const fileAttachment = z.discriminatedUnion('type', [
   z.object({ type: z.literal('surveyTab'), ...surveyTarget }),
   z.object({ type: z.literal('room'), id: objectId }),
   z.object({ type: z.literal('rack'), id: objectId }),
   z.object({ type: z.literal('pathway'), id: objectId }),
+  z.object({ type: z.literal('device'), id: objectId }),
+  z.object({ type: z.literal('deploymentException'), id: objectId }),
 ])
 export const uploadStartBody = z.object({
   // Chosen by the client so an offline edit can reference the photo before it uploads.
@@ -395,9 +397,14 @@ export const stockLengthsSchema = z.object({
 export const cageNutsPerRuSchema = z.object({ front: z.number().int().min(0).max(20), rear: z.number().int().min(0).max(20) })
 // The organisation's time zone (IANA name) and the daily digest's local send time (M5b review).
 export const timeZoneSchema = z.string().trim().refine(isValidTimeZone, 'Not a time zone (use an IANA name such as Europe/Berlin)')
+// DGUV V3 intervals (brief §6.9; M6a): months between inspections and the
+// two warning windows in days ("Expiring" within "Expiring soon").
+export const dguvSettingsSchema = z
+  .object({ intervalMonths: z.number().int().min(1).max(120), expiringSoonDays: z.number().int().min(1).max(365), expiringDays: z.number().int().min(1).max(365) })
+  .refine((d) => d.expiringDays <= d.expiringSoonDays, { message: '"Expiring" must be at most "Expiring soon"', path: ['expiringDays'] })
 export const digestTimeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use HH:MM (24-hour)')
 export const organisationSettingsBody = z
-  .object({ architectsSeePrices: z.boolean().optional(), namingRoleCodes: namingRoleCodesSchema.optional(), stockLengths: stockLengthsSchema.optional(), cageNutsPerRu: cageNutsPerRuSchema.optional(), timeZone: timeZoneSchema.optional(), digestTime: digestTimeSchema.optional() })
+  .object({ architectsSeePrices: z.boolean().optional(), namingRoleCodes: namingRoleCodesSchema.optional(), stockLengths: stockLengthsSchema.optional(), cageNutsPerRu: cageNutsPerRuSchema.optional(), timeZone: timeZoneSchema.optional(), digestTime: digestTimeSchema.optional(), dguv: dguvSettingsSchema.optional() })
   .refine((b) => Object.values(b).some((v) => v !== undefined), { message: 'Nothing to update' })
 
 // --- M3a: catalogue -------------------------------------------------------
@@ -736,3 +743,81 @@ export const changeRequestUpdateBody = z
   .object({ title: z.string().trim().min(1).max(120).optional(), description: z.string().trim().max(4000).optional(), reason: z.string().trim().max(2000).optional(), affectedItems: z.array(z.string().trim().min(1).max(200)).max(200).optional() })
   .refine((b) => Object.keys(b).length > 0, { message: 'Nothing to update' })
 export const changeRequestSendBody = z.object({ password: sharePassword.optional(), expiryDays: z.number().int().min(1).max(30).default(14) })
+
+// --- M6a: deployment & installation -----------------------------------------
+const installedSegment = z.object({
+  index: z.number().int().min(0).max(20),
+  cableId: z.string().trim().max(60).nullable().optional(),
+  installedM: z.number().min(0).max(10000).nullable().optional(),
+  confirmed: z.boolean().optional(),
+})
+// The Field Engineer's installation record of one device. Fields left out
+// keep their value; null clears one.
+export const installationBody = z
+  .object({
+    serial: z.string().trim().max(64).nullable().optional(),
+    mac: z.string().trim().max(32).nullable().optional(),
+    rackId: objectId.nullable().optional(),
+    ru: z.number().int().min(1).max(60).nullable().optional(),
+    face: z.enum(['front', 'rear']).nullable().optional(),
+    pduOutlet: z.string().trim().max(40).nullable().optional(),
+    gps: z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180), accuracyM: z.number().min(0).max(100000).nullable().optional() }).nullable().optional(),
+    notes: z.string().trim().max(2000).nullable().optional(),
+    // Marks the device installed (needs Delivered); otherwise a draft.
+    markInstalled: z.boolean().optional(),
+  })
+  .refine((b) => Object.values(b).some((v) => v !== undefined), { message: 'Nothing to update' })
+export const dguvInspectionBody = z.object({
+  inspectionDate: isoDay,
+  inspector: z.string().trim().min(1, 'Who inspected the device?').max(120),
+  certificateFileId: objectId.nullable().optional(),
+})
+export const deviceStepBody = z.object({ status: z.enum(['configured', 'tested', 'accepted']), note: z.string().trim().max(1000).optional() })
+// Patching of one connection, per end and per cable segment.
+export const connectionInstallBody = z.object({
+  sourcePort: z.string().trim().max(60).nullable().optional(),
+  destPort: z.string().trim().max(60).nullable().optional(),
+  media: z.string().trim().max(20).nullable().optional(),
+  sourceSfpCode: z.string().trim().max(60).nullable().optional(),
+  destSfpCode: z.string().trim().max(60).nullable().optional(),
+  segments: z.array(installedSegment).max(21).optional(),
+  // Confirms the patching (every segment confirmed) → Installed.
+  confirm: z.boolean().optional(),
+})
+export const connectionTestBody = z.object({ result: z.enum(['pass', 'fail']), note: z.string().trim().max(1000).optional() })
+export const exceptionCreateBody = z.object({
+  deviceId: objectId,
+  connectionId: objectId.nullable().optional(),
+  field: z.string().trim().min(1).max(40),
+  reason: z.string().trim().min(1, 'Say why the installation differs from the design').max(2000),
+  photoFileIds: z.array(objectId).max(10).default([]),
+})
+export const exceptionReviewBody = z
+  .object({ decision: z.enum(['accepted', 'rejected']), note: z.string().trim().max(2000).default('') })
+  .refine((b) => b.decision === 'accepted' || b.note.length > 0, { message: 'Say why the exception is rejected', path: ['note'] })
+
+// --- M6a: CMDB ----------------------------------------------------------------
+export const cmdbOperationalBody = z
+  .object({
+    assetTag: z.string().trim().max(60).nullable().optional(),
+    notes: z.string().trim().max(2000).nullable().optional(),
+    status: z.enum(['in_service', 'maintenance']).optional(),
+    warrantyStart: isoDay.nullable().optional(),
+    warrantyEnd: isoDay.nullable().optional(),
+    refreshDate: isoDay.nullable().optional(),
+    version: z.number().int().min(0),
+  })
+  .refine((b) => ['assetTag', 'notes', 'status', 'warrantyStart', 'warrantyEnd', 'refreshDate'].some((k) => b[k] !== undefined), { message: 'Nothing to update' })
+// Lifecycle import: the parsed sheet's rows (header → cell); the server
+// matches them again (serial, then hostname). `apply: false` previews.
+export const lifecycleImportBody = z.object({
+  buildingId: objectId,
+  fileName: z.string().trim().max(255).default('import'),
+  rows: z.array(z.record(z.string(), z.union([z.string(), z.number(), z.null()]))).min(1).max(5000),
+  apply: z.boolean().default(false),
+})
+export const cmdbQuery = z.object({
+  q: z.string().trim().max(120).optional(),
+  status: z.enum(['accepted', 'in_service', 'maintenance']).optional(),
+  category: z.string().trim().max(60).optional(),
+})

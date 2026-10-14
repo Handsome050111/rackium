@@ -553,6 +553,23 @@ BOM **lines are computed** from the design (§6). Only procurement facts are sto
 
 - `hasPhoto` is **computed** from `files` attached to the exception (§6), not stored.
 
+**As built (M6a):** `field` is the detected field (`rack`, `ru`, `face` on a device; `source_port`, `dest_port`, `media`, `source_sfp`, `dest_sfp`, `cable_id:<segment>`, `length:<segment>` on a connection — shared/deployment.js). `designedValue` and `installedValue` are copied from the detection, never typed. `photoFileIds` (ObjectId[], O) — photos uploaded to the device. `resolved`/`resolutionNote` became a `status`: `open` → `accepted` | `rejected` (Reviewer or PM; a note is required to reject) — and, when the installation is saved again, `corrected` (the difference is gone) or `superseded` (a different installed value; the old record no longer describes it). `loggedBy`/`loggedByName`, `reviewedBy`/`reviewedByName`/`reviewedAt`/`reviewNote`, `closedAt`. A difference counts as handled only while an `open` or `accepted` exception names the same field **and** the same installed value; a connection's exception matches by `connectionId`.
+
+### 4.12 As-built records (M6a) (brief §5.7, §5.8, §6.9)
+
+The frozen design is never written by deployment. A change request promotes its branch by re-creating the main LLD's devices and connections **under their original ids** (M5a), which would wipe anything stored on them — so the as-built facts live in two collections keyed by those ids:
+
+`deploymentRecords` (one per designed device): `buildingId` · `deviceId` (R, unique per project) · `status` (`draft` → `installed` → `configured` → `tested` → `accepted`, then `in_service` / `maintenance` as CMDB operational changes) · `installation` { `serial` · `mac` (lower case, colon-separated; unique per project among records and checked against CMO devices) · `rackId` · `ru` · `face` (confirmed placement) · `pduOutlet` · `gps` { lat, lng, accuracyM } (O) · `notes` · `technicianId`/`technicianName` · `installedAt` · `updatedAt` } · `dguv` { `lastInspectionDate` (YYYY-MM-DD) · `inspector` · `certificateFileId` (O) · `recordedBy`/`recordedAt` · `remindersSent` (`<level>:<dueDate>`, the reminder job's claims) } · `lifecycle` { `warrantyStart` · `warrantyEnd` · `refreshDate` } · `assetTag` · `notes` · `provenance` (§8.2) · `history` [{ status, by, byName, at, note }] · `acceptedBy`/`acceptedAt` · `version` (optimistic, CMDB edits).
+
+`connectionRecords` (one per designed connection): `buildingId` · `connectionId` (R, unique per project) · `status` (`draft`, `installed`, `tested`, `faulty`, `accepted`) · `installed` { `sourcePort` · `destPort` · `media` · `sourceSfpCode` · `destSfpCode` · `segments` [{ `index` (0 = the connection's own cable, k = the cable after hop k — shared/cableSegments.js) · `cableId` · `installedM` · `confirmed` }] } · `installedBy`/`installedByName`/`installedAt` · `test` { result `pass`/`fail`, note, by, byName, at } · `acceptedBy`/`acceptedAt`.
+
+- **Which devices:** the main LLD's planned devices that are procured (carrier circuits and remote sites are not installed); surveyed gear is neither deployed nor in the CMDB.
+- **Status before installation** is calculated from the device's procurement line (§4.10): `planned`, `ordered` (ordered or shipped), `delivered`. A serialised device is gated by its own `device:<id>` line; a patch panel or cable manager by its aggregated `item:<catalogue key>` line (shared/bomCalc.js `procurementLineKeyOf`). Nothing is written before the line is Delivered ("Awaiting delivery"), nor before the design is frozen.
+- **Deviations** are calculated on every read (never stored) against the frozen LLD: rack, RU, face; ports, media, SFPs; cable ID and Installed length per segment. Length tolerance: the greater of 0.5 m and 10 % of the designed (Engineer Selected, else Suggested) length.
+- **Acceptance** (PM, Reviewer): serial recorded (serialised devices), DGUV recorded (mains-powered devices), no unhandled deviation on the device or its connections, no open exception. **Tested** needs every connection of the device tested.
+- The **CMDB** is the set of records with status `accepted`, `in_service` or `maintenance`, plus the accepted connections between them (surveyed gear at an end is allowed). A record whose device a later change request removed is ignored.
+- **Organisation setting `dguv`** { `intervalMonths` (48) · `expiringSoonDays` (90) · `expiringDays` (30) }: status Valid / Expiring soon / Expiring / Overdue on the organisation's local date (§3, time zone); mains-powered = the catalogue model has a power inlet or PSUs.
+
 ---
 
 ## 5. Lifecycles and records
@@ -598,6 +615,8 @@ Sequence: `planned` → `ordered` → `delivered` → `installed` → `configure
 
 **Mock gap:** `DEVICE_STATUS_ORDER` omits `maintenance` and `retired`, and `setDeviceStatus` accepts any value (§13).
 
+**As built (M6a):** `planned`/`ordered`/`delivered` are read from the procurement line, not stored; from `installed` on the status lives on the device's `deploymentRecords` row (§4.12), never on the design device. `accepted` → `in_service` ↔ `maintenance` are CMDB operational changes by a PM or Architect.
+
 ### 5.3 Connection status [M `deploymentModel.js`] (brief §4.4)
 
 Sequence: `designed` → `approved` → `installed` → `tested` → `accepted` → `in_service`. Side states: `faulty`, `decommissioned`.
@@ -614,6 +633,8 @@ Sequence: `designed` → `approved` → `installed` → `tested` → `accepted` 
 | any | `decommissioned` | removed | PM | deletes `portOccupancy` rows for both ends and every hop; sets `cableIdRegistry` rows to `retired` (never reused, [F4]); one transaction |
 
 **Mock gap:** `CONNECTION_STATUS_ORDER` omits `faulty` and `decommissioned`.
+
+**As built (M6a):** `designed`/`approved` follow the LLD (approved once frozen); from `installed` on the status lives on `connectionRecords` (§4.12). `installed` needs every cable confirmed with its cable ID and Installed length; a failed test is `faulty`, a passed one `tested`; changing the patching of a tested link sends it back to `installed` (test cleared); `accepted` (PM, Reviewer) needs a passed test and nothing unresolved, and ends deployment edits.
 
 ### 5.4 Survey records [M `surveyFormsDesign.js`, `docs/survey-fields.json`] (brief §5.2, Step 10) [D2]
 
@@ -1060,10 +1081,13 @@ A new planned device takes the next free 3-digit sequence for its role and floor
 
 Stored on the device as `provenance` (§4.1), keyed by CMDB-visible field: `{ source, setBy, setAt, importBatchId }`. `source` is `design`, `manual`, `import` or `deployment`. The CMDB reads provenance with the device, so it is not a separate collection.
 
+**As built (M6a):** stored on the `deploymentRecords` row (§4.12), not the design device, keyed `installation_<field>`, `dguv_lastInspectionDate`, `assetTag`, `notes`, `status`, `lifecycle_<field>` (map keys cannot contain dots), with `setByName`. Design values (hostname, model, role, location until confirmed) show `design` with the freeze date; EOS/EOL show the catalogue. Installation writes `deployment`; CMDB edits `manual`; the lifecycle import `import` with one `importBatchId` per applied sheet.
+
 ### 8.3 Recent Activity and Change Log
 
 - **Recent Activity:** the latest *N* entries for an organisation, project or building, excluding `view_as_access` and `platform_access` for non-admins.
 - **Change Log:** per object or building, field-level, with `before`, `after` and the operational-change flag. The CMDB Change Log shows `operational_change` entries only (brief §5.8).
+  - **As built (M6a):** the CMDB Change Log shows each record's whole as-built history — installation and acceptance (`as_built`, a new change type for deployment writes), operational changes (flagged) and lifecycle imports (`import`) — newest first, at most 300. Deployment writes are audited with `phaseKey = deployment`, CMDB writes with `cmdb`.
 - **Audit log screen (M5b; client audit 16):** `GET /orgs/:orgId/audit` with date range (`from`, `to`), user, action type (a prefix such as `task` or an exact action), module (`phaseKey`), object type, building and change type; newest first, cursor-paged (`before` = `<occurredAt>_<id>`); `/audit/:id` adds the field-level before/after; `/audit/export.csv` exports what the filters select (≤ 10,000 rows; formula-looking cells are prefixed). **Who** (v2.3 role table): the Org Admin reads the whole organisation; a PM, an Architect or a Reviewer names one of their projects and sees only the buildings their membership scope covers (`VIEW_AUDIT_LOG`: Org Admin, PM, Architect, Reviewer). `view_as_access` and `platform_access` entries are for the Org Admin only. Actor names are resolved (a client shows as "<name> (client)").
 
 ### 8.4 Retention and purge

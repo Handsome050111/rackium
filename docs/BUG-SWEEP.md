@@ -530,7 +530,7 @@ Found and fixed while building and testing M5b, each with a test:
   skipped creating the user and the membership pointed at nobody. Each
   attempt now works on its own user, and only the committed one is kept. A
   scan of every transaction callback found no other assignment to an
-  outside variable. Test:  (one simulated
+  outside variable. Test: `api.transaction-retry.test.js` (one simulated
   write conflict during acceptance).
 
 Interpretations to confirm are marked ★ in DATA-MODEL §5.11.1 and §8.3.
@@ -549,3 +549,38 @@ Found and fixed, each with a test:
   start-up step that picks one had already been skipped. The project is now
   filled in when the list arrives, and Apply waits for it. Test:
   `e2e-real/m5b.spec.js` (the Reviewer filters straight away).
+
+## Part 9: M6a — Deployment & Installation and the CMDB on the backend
+
+Found and fixed while building and testing M6a, each with a test:
+
+- **A state conflict answered as "forbidden"** (found while building): the
+  deployment service turned every rule message starting with "Only…" into a
+  403, so accepting a connection whose test had failed ("Only a tested
+  connection…") looked like a permission problem. The message now names the
+  missing step and comes back as a 409. Test: `api.m6a.test.js` (accepting a
+  faulty link is a 409 naming the link test).
+- **CMDB operational edits failed with a 500** (found while testing): the
+  CMDB audit helper never passed the action, so the audit entry did not
+  validate and the edit rolled back. Test: `api.m6a.test.js` (operational
+  edits, audited as operational changes).
+- **The lifecycle import refused a device that appears on two rows** (found
+  while testing): one row with the warranty and another with the refresh
+  date were treated as a conflict. Only two different dates for the same
+  field are refused now. Test: `api.m6a.test.js` (lifecycle import: serial
+  row and hostname row for the same switch).
+- **Design values showed a lowercase "design" badge** (found in the real-mode
+  run): design provenance carried no label. Test: `api.m6a.test.js` (label
+  and freeze date) and `e2e-real/m6a.spec.js` (the badge in the record).
+- **The DGUV form was offered to Reviewers**, who may not record an
+  inspection (found while reviewing the screen): the view now says who may
+  record it and the form follows. Test: `api.m6a.test.js` (permissions in the
+  view, Reviewer refused).
+- **A WAN circuit with no stored category would have been "installed"**
+  (found while reviewing): carrier gear is now recognised by its role as
+  well. Test: `shared/src/deployment.test.js` (delivery gating line).
+- **BUG-SWEEP Part 8 lost a test file name** (a shell edit in the M5b round
+  ate the backticks): restored (`api.transaction-retry.test.js`).
+
+Decisions to confirm are marked ★ in the M6a report and described in
+DATA-MODEL §4.11, §4.12, §5.2, §5.3, §8.2 and §8.3.

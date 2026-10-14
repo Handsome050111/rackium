@@ -122,10 +122,12 @@ export async function notifyQuietly(args, logger = console) {
 
 // --- Hooks for modules that do not exist yet --------------------------------
 
-// DGUV (brief §6.9): the DGUV module will call this when an inspection is
-// about to expire; PMs (in scope) are told.
-export function notifyDguvExpiry({ projectId, buildingId, deviceLabel, expiresOn, link = null, session = null }) {
-  return notify({ type: 'dguv_expiry', projectId, buildingId, title: `DGUV inspection of ${deviceLabel} expires on ${new Date(expiresOn).toISOString().slice(0, 10)}`, relatedObjectType: 'device', link, to: { roles: ['pm'] }, session })
+// DGUV (brief §6.9): the reminder job (deployment/jobs.js) calls this when a
+// recorded inspection is expiring or overdue; PMs (in scope) are told.
+export function notifyDguvExpiry({ projectId, buildingId, deviceLabel, expiresOn, status = null, statusLabel = null, link = null, session = null }) {
+  const day = new Date(expiresOn).toISOString().slice(0, 10)
+  const title = status === 'overdue' ? `DGUV inspection of ${deviceLabel} overdue since ${day}` : `DGUV inspection of ${deviceLabel} expires on ${day}${statusLabel ? ` (${statusLabel})` : ''}`
+  return notify({ type: 'dguv_expiry', projectId, buildingId, title, relatedObjectType: 'device', link, groupLink: link, to: { roles: ['pm'] }, session })
 }
 
 // Comment mentions: comments arrive with a later module; it calls this with

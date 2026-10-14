@@ -35,6 +35,7 @@ export const CATEGORY_KINDS = {
   photo_device_label: ['photo'],
   evidence: ['photo', 'pdf'],
   document: ['photo', 'pdf', 'sheet'],
+  certificate: ['photo', 'pdf'],
 }
 
 // Limits come from organisation settings on each request (DATA-MODEL §9.2).

@@ -748,8 +748,20 @@ export function createLldService({ storage }) {
     return { stage, lld, devices, connections, racks, rooms: data.rooms, catalogue: data.catalogue, settings: data.settings, findings: summary }
   }
 
+  // The main LLD as deployment and the CMDB read it (M6a): every device of
+  // the layer and the surveyed gear it connects to, connections with their
+  // cable segments, and the building's floors, rooms and racks.
+  async function deploymentData(req, buildingId, { session = null } = {}) {
+    const lld = await LldDesign.findOne({ buildingId }).session(session).lean()
+    if (!lld) return { lld: null }
+    const data = await loadLayer(buildingId, MAIN, req.project.id, session)
+    const { views, connections, cat } = inputs(data)
+    return { lld, views, connections, floors: data.floors, rooms: data.rooms, racks: data.racks, ruStates: data.ruStates, itemOf: (key) => cat.item(key) }
+  }
+
   return {
     designData,
+    deploymentData,
 
     // What a branch changes against the main LLD (a change request's design diff).
     // A change request's branch also diffs its HLD (main → branch, main ids).
