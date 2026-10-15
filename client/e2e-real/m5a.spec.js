@@ -139,7 +139,11 @@ test('the Draft BOM: lines with source tags, reconciliation, prices for the PM, 
 test('Solution Package inputs: group 1 with CIDR/VLAN checks in the browser, the rest through the API; warnings accepted', async () => {
   await architect.goto(`${base()}/solution-package`)
   await expect(architect.getByRole('heading', { name: /Solution Package — Building B001/ })).toBeVisible()
-  await expect(architect.getByRole('button', { name: 'Export PDF' })).toBeDisabled()
+  // M6b: the PDF and Word exports are live (the Documents menu), no longer disabled stubs.
+  await architect.getByTestId('document-exports').getByRole('button', { name: 'Documents' }).click()
+  await expect(architect.getByRole('menuitem', { name: /Solution Package\s*PDF/ })).toBeEnabled()
+  await expect(architect.getByRole('menuitem', { name: /Solution Package\s*Word/ })).toBeEnabled()
+  await architect.getByTestId('document-exports').getByRole('button', { name: 'Documents' }).click()
   await architect.getByRole('tab', { name: '2. Required Inputs' }).click()
   const form = architect.getByTestId('input-group')
   await form.getByRole('button', { name: 'Add entry' }).click()

@@ -161,6 +161,26 @@ so running several API processes never sends anything twice. Tests never
 start the scheduler; they call the jobs directly. In development, mail goes
 to the console provider (the server log).
 
+### Generated documents (M6b)
+
+PDFs are rendered by headless Chromium through `playwright-core`. On a
+development machine the Chromium that Playwright downloaded for the tests is
+used (`npx playwright install chromium` once). On a server without it, either
+run that command as the API's user or install the distribution's Chromium and
+point `CHROMIUM_PATH` at it in `server/.env`:
+
+```
+CHROMIUM_PATH=/usr/bin/chromium
+```
+
+Documents are background jobs in the `generateddocuments` collection. A
+request starts processing at once in the same process, and the scheduler's
+`documents` job (every 15 seconds) picks up anything left — after a restart,
+or a run that died (its lock expires; at most 3 attempts). Set
+`DOCUMENTS_AUTO_PROCESS=false` to leave rendering to the scheduler only.
+Files are stored through the file service under `FILE_STORAGE_DIR`
+(`documents/<project>/<file id>`); logos under `branding/`.
+
 ### Test database folders
 
 Each in-memory database keeps its data on disk while tests run, in

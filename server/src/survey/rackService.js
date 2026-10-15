@@ -1,4 +1,5 @@
 import mongoose from 'mongoose'
+import { assertNotHandedOver } from '../handover/guard.js'
 import { findConflicts, computeFreeRU } from '@rackium/shared/rackValidation.js'
 import { computeReadiness } from '@rackium/shared/rackReadiness.js'
 import { normaliseMac, isValidMac } from '@rackium/shared/cmoModel.js'
@@ -117,6 +118,7 @@ export function createRackService() {
     // serials and MACs go through the project registry. One transaction.
     async savePlacements(req, rackId, placements, actor) {
       const { building } = await requireRack(req, rackId)
+      await assertNotHandedOver(building.id)
       const { organisationId, projectId } = currentScope()
       return withTransaction(async (session) => {
         const { rack, devices, states } = await loadRackSurvey(rackId, session)
@@ -223,6 +225,7 @@ export function createRackService() {
     // Explicit "Save version" (brief §6.10): the revision counter; autosave never bumps it.
     async saveVersion(req, rackId, actor) {
       const { building } = await requireRack(req, rackId)
+      await assertNotHandedOver(building.id)
       const rack = await Rack.findByIdAndUpdate(rackId, { $inc: { 'surveyRevision.revision': 1 }, $set: { 'surveyRevision.savedAt': new Date(), 'surveyRevision.savedBy': actor.userId } }, { returnDocument: 'after' }).lean()
       await recordAudit({ organisationId: req.org.id, projectId: req.project.id, buildingId: building.id, phaseKey: 'survey', actor: userActor(actor.userId, actor.role), action: 'survey.rack.version_saved', objectType: 'Rack', objectId: rack._id, changeType: 'design_intent', source: 'ui', comment: `revision ${rack.surveyRevision.revision}` })
       return { revision: rack.surveyRevision.revision, savedAt: rack.surveyRevision.savedAt }
@@ -230,6 +233,7 @@ export function createRackService() {
 
     async updateFacts(req, rackId, body, actor) {
       const { building } = await requireRack(req, rackId)
+      await assertNotHandedOver(building.id)
       const rack = await Rack.findById(rackId)
       const changes = []
       for (const group of FACT_GROUPS) {
@@ -253,6 +257,7 @@ export function createRackService() {
     // override a block (brief v2.3 §4.1, DATA-MODEL §4.2).
     async setRuState(req, rackId, body, actor) {
       const { building } = await requireRack(req, rackId)
+      await assertNotHandedOver(building.id)
       const { roles } = await callerAccess(req)
       const allowed = body.state === 'reserved' ? roles.includes('architect') : roles.includes('pm') || roles.includes('org_admin')
       if (!allowed) throw forbidden(body.state === 'reserved' ? 'Only the Architect reserves RUs' : 'Only a PM or Org Admin blocks RUs')
@@ -267,6 +272,7 @@ export function createRackService() {
 
     async releaseRuState(req, rackId, stateId, actor) {
       const { building } = await requireRack(req, rackId)
+      await assertNotHandedOver(building.id)
       const state = mongoose.isValidObjectId(stateId) ? await RuState.findOne({ _id: stateId, rackId, releasedAt: null }) : null
       if (!state) throw notFound('RU state not found')
       const { roles } = await callerAccess(req)

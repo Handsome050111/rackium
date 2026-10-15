@@ -9,6 +9,8 @@ import { LldDesign } from '../models/lldDesign.js'
 import { ChangeRequest } from '../models/changeRequest.js'
 import { Project } from '../models/project.js'
 import { File } from '../models/file.js'
+import { GeneratedDocument } from '../models/generatedDocument.js'
+import { typeOf } from '@rackium/shared/documents/types.js'
 import { withTransaction } from '../db/transaction.js'
 import { currentScope } from '../tenancy/scopeContext.js'
 import { notifyQuietly, paths } from '../notifications/notify.js'
@@ -18,11 +20,12 @@ import { buildingWithScopeIds } from '../access/scope.js'
 import { readSnapshot } from './common.js'
 import { withLink, assertUsable, checkPassword } from './shareLinks.js'
 
-const KIND_LABEL = { solution_package: 'Solution Package', change_request: 'Change request' }
+const KIND_LABEL = { solution_package: 'Solution Package', change_request: 'Change request', handover: 'Handover package', document_download: 'Documents' }
 
 // The public approval page (brief v2.3 §5.5; M5a): no login and no app shell.
 // Every call presents the link's token and password; the package is read-only.
-export function createPublicApprovalService({ storage, lld }) {
+// `getHandover`: the handover service (M6b), created after this one.
+export function createPublicApprovalService({ storage, lld, getHandover = () => null }) {
   async function subject(link) {
     const building = await buildingWithScopeIds(link.buildingId)
     // Project is organisation-scoped: name the link's own project.
@@ -33,6 +36,11 @@ export function createPublicApprovalService({ storage, lld }) {
       const version = await DesignVersion.findById(approval.designVersionId).lean()
       const snap = await readSnapshot(storage, version.snapshotFileId)
       return { ...base, versionNumber: version.number, package: { sections: snap.sections.map((s) => ({ n: s.n, name: s.name, completeness: s.completeness })), packageCompleteness: snap.packageCompleteness, checksPassed: snap.checksPassed, checksTotal: snap.checksTotal, groups: snap.groups, acceptedWarnings: snap.acceptedWarnings, bom: snap.bom } }
+    }
+    if (link.kind === 'handover') return { ...base, ...(await getHandover().publicSubject(link)) }
+    if (link.kind === 'document_download') {
+      const docs = await GeneratedDocument.find({ _id: { $in: link.documentIds }, status: 'ready' }).lean()
+      return { ...base, label: link.label ?? null, documents: docs.map((d) => ({ id: String(d._id), name: typeOf(d.typeKey)?.name ?? d.typeKey, format: d.format, version: d.version, fileName: d.fileName, sizeBytes: d.sizeBytes })) }
     }
     const cr = await ChangeRequest.findById(link.changeRequestId).lean()
     return { ...base, changeRequest: { number: cr.number, title: cr.title, description: cr.description, reason: cr.reason, affectedItems: cr.affectedItems, impact: cr.impact } }
@@ -55,13 +63,15 @@ export function createPublicApprovalService({ storage, lld }) {
       return withLink(token, async (link) => {
         const now = new Date()
         const status = link.revokedAt ? 'revoked' : link.decidedAt ? 'decided' : link.expiresAt <= now ? 'expired' : 'active'
-        return { status, kind: link.kind, kindLabel: KIND_LABEL[link.kind] }
+        return { status, kind: link.kind, kindLabel: KIND_LABEL[link.kind], passwordRequired: Boolean(link.passwordHash) }
       })
     },
 
     async view(token, { password }) {
       return withLink(token, async (link) => {
-        assertUsable(link)
+        // A decided handover link keeps showing (and serving) its package until it expires.
+        const keepsServing = link.kind === 'handover' && link.decidedAt && !link.revokedAt && link.expiresAt > new Date()
+        if (!keepsServing) assertUsable(link)
         await checkPassword(link, password)
         return subject(link)
       })
@@ -70,8 +80,28 @@ export function createPublicApprovalService({ storage, lld }) {
     // The client's decision: recorded on the approval with name, role,
     // comments, acceptance and the optional signature, and in the audit
     // (with the share link id). Expiry is checked again here.
+    // A file behind a handover or download link (M6b): the link must still be
+    // usable (a decided handover link keeps serving its package), the password
+    // right, and the document one the link names. Every download is audited.
+    async download(token, documentId, { password }) {
+      return withLink(token, async (link, scope) => {
+        if (!['handover', 'document_download'].includes(link.kind)) throw new AppError(404, 'not_found', 'Nothing to download through this link')
+        if (link.revokedAt || link.expiresAt <= new Date()) assertUsable(link)
+        await checkPassword(link, password)
+        const allowed = link.kind === 'handover' ? await getHandover().publicDocumentIds(link) : link.documentIds.map(String)
+        if (!mongoose.isValidObjectId(documentId) || !allowed.includes(String(documentId))) throw new AppError(404, 'not_found', 'Document not found')
+        const doc = await GeneratedDocument.findOne({ _id: documentId, status: 'ready' }).lean()
+        const file = doc ? await File.findById(doc.fileId).lean() : null
+        if (!file) throw new AppError(404, 'not_found', 'Document not found')
+        await ShareLink.updateOne({ _id: link._id }, { $inc: { downloads: 1 } })
+        await recordAudit({ organisationId: scope.organisationId, projectId: scope.projectId, buildingId: link.buildingId, actor: { type: 'client_link', clientName: null, clientRole: null, shareLinkId: link._id }, action: 'document.downloaded', objectType: 'GeneratedDocument', objectId: String(doc._id), changeType: 'system', source: 'client_link', comment: `${doc.fileName} via share link` })
+        return { file, stream: storage.stream(file.storageKey) }
+      })
+    },
+
     async decide(token, body) {
       return withLink(token, async (link, scope) => {
+        if (link.kind === 'document_download') throw new AppError(404, 'not_found', 'This link has nothing to decide')
         assertUsable(link, { forDecision: true })
         await checkPassword(link, body.password)
         const signature = await storeSignature(link, scope, body.signature)
@@ -95,12 +125,17 @@ export function createPublicApprovalService({ storage, lld }) {
             }
             const building = await buildingWithScopeIds(link.buildingId, session)
             const actor = { userId: approval.submittedBy, role: null, client }
-            const outcome = link.kind === 'solution_package' ? await decideSolutionPackage({ approval, decision: body.decision, building, session }) : await decideChangeRequest({ req, link, decision: body.decision, building, actor, session })
+            const outcome =
+              link.kind === 'handover'
+                ? await getHandover().decide({ approval, decision: body.decision, comments: body.comments, client, building, scope, session })
+                : link.kind === 'solution_package'
+                  ? await decideSolutionPackage({ approval, decision: body.decision, building, session })
+                  : await decideChangeRequest({ req, link, decision: body.decision, building, actor, session })
             await recordAudit({
               organisationId: scope.organisationId,
               projectId: scope.projectId,
               buildingId: link.buildingId,
-              phaseKey: 'solution-package',
+              phaseKey: link.kind === 'handover' ? 'handover' : 'solution-package',
               actor: { type: 'client_link', clientName: body.name, clientRole: body.role || null, shareLinkId: link._id },
               action: `${link.kind}.client_${body.decision}`,
               objectType: 'Approval',
@@ -114,6 +149,12 @@ export function createPublicApprovalService({ storage, lld }) {
             return { decision: body.decision, ...outcome, crId: link.changeRequestId ? String(link.changeRequestId) : null }
           })
           // PMs and Architects of the building hear the client's decision.
+          if (link.kind === 'handover') {
+            const building = await buildingWithScopeIds(link.buildingId)
+            await getHandover().notifyDecision({ scope, building, decision: body.decision, clientName: body.name })
+            const { crId: _ignored, ...outHandover } = result
+            return outHandover
+          }
           const kind = link.kind === 'solution_package' ? 'sp' : 'cr'
           const cr = kind === 'cr' ? await ChangeRequest.findById(link.changeRequestId, { number: 1, title: 1 }).lean() : null
           const what = kind === 'sp' ? 'the Solution Package' : `CR-${cr?.number} ${cr?.title ?? ''}`.trim()

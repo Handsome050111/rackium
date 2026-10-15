@@ -606,3 +606,44 @@ Found and fixed, each with a test:
   goes to the PMs once per device, and the dashboard shows a DGUV summary.
   Test: `api.m6a.test.js` (reminders, once) and `e2e-real/m6a.spec.js`
   (the summary).
+
+## Part 10: M6b — Document engine and handover on the backend
+
+Found and fixed while building and testing M6b, each with a test:
+
+- **A large lifecycle import was refused** (M6a): the CMDB lifecycle import
+  posts the parsed sheet as JSON, but its route was not in the list allowed
+  a large body, so a sheet of a few thousand rows hit the 100 KB limit (413).
+  Test: `api.m6b.test.js` (3,000 rows; a logo above the limit too).
+- **The handover package was counted as one of its own documents** (found
+  while testing): the package ZIP carries the compile round, so the round
+  showed 13 of 12 files and the baseline would have listed the package twice.
+  Test: `api.m6b.test.js` (12 files, baseline of 12 documents).
+- **The Handover page stopped updating while compiling** (found in the
+  real-mode run): its refresh re-armed only when the count of ready files
+  changed, so two refreshes with the same count ended it and the page stayed
+  on "Compiling". It now refreshes on an interval while compiling. Test:
+  `e2e-real/m6b.spec.js` (compile → Compiled without reloading).
+- **Missing logos logged 404s in the console** (found in the real-mode run):
+  the settings screens asked for a logo that was not set. The settings now
+  say whether a logo exists. Test: `e2e-real/m6b.spec.js` (no console errors).
+- **The handover table hid its download buttons on a phone** (found
+  checking 390 px): a stacked list replaced the table. Test:
+  `e2e-real/m6b.spec.js` (no horizontal overflow at every width).
+- **One crashed document job could stop the queue** (found reviewing the
+  processor): each job now runs isolated; its lock expires and it is retried.
+  Test: `api.m6b.test.js` (a corrupt job ahead of a good one; the test fails
+  without the fix).
+- **The handover showed Compiled before its package existed** (found in the
+  full run): the round was marked Compiled and the package ZIP attached
+  afterwards, so the screen stopped refreshing without the package link. The
+  round is now claimed, the package built, and Compiled set together with it.
+  Test: `api.m6b.test.js` (Compiled with its package) and
+  `e2e-real/m6b.spec.js` (the package link after compiling, no reload).
+- **Two older checks expected the export stubs** (M5a and LLD specs): the
+  Solution Package's disabled Export PDF/Word buttons are now the live
+  Documents menu, and a generic "Export" label clashed with the cable
+  schedule's own Export button — the menu is labelled "Documents".
+
+Decisions to confirm are marked ★ in the M6b report and described in
+DATA-MODEL §5.12.

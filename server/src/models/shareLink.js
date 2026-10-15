@@ -12,12 +12,17 @@ const extensionSchema = new mongoose.Schema({ extendedBy: ObjectId, extendedAt: 
 
 const shareLinkSchema = new mongoose.Schema({
   buildingId: { type: ObjectId, required: true },
-  // What the client decides: the Solution Package, or a change request.
-  kind: { type: String, enum: ['solution_package', 'change_request'], required: true },
+  // What the client decides: the Solution Package, a change request or the
+  // handover (M6b) — or, for `document_download`, a set of generated
+  // documents to download (no decision, password optional).
+  kind: { type: String, enum: ['solution_package', 'change_request', 'handover', 'document_download'], required: true },
   changeRequestId: { type: ObjectId, default: null },
-  approvalId: { type: ObjectId, required: true },
+  approvalId: { type: ObjectId, required: function needsApproval() { return this.kind !== 'document_download' }, default: null },
+  documentIds: { type: [ObjectId], default: [] },
+  label: { type: String, default: null },
+  downloads: { type: Number, default: 0 },
   tokenHash: { type: String, required: true },
-  passwordHash: { type: String, required: true },
+  passwordHash: { type: String, required: function needsPassword() { return this.kind !== 'document_download' }, default: null },
   createdBy: { type: ObjectId, required: true },
   createdAt: { type: Date, default: () => new Date() },
   expiresAt: { type: Date, required: true },

@@ -15,6 +15,11 @@ const projectSettingsSchema = new mongoose.Schema({
     type: new mongoose.Schema({ label: String, connectorPair: String }, { _id: false }),
     default: null,
   },
+  // Cable schedule column headings (M6b): the client's SC headings, by column
+  // key (shared/documents/assemble.js); placeholders until they are supplied.
+  cableScheduleHeadings: { type: Map, of: String, default: {} },
+  // The client's logo on generated documents (M6b): stored bytes, no public URL.
+  clientLogo: { type: new mongoose.Schema({ storageKey: String, mimeType: String, updatedAt: Date }, { _id: false }), default: null },
   updatedBy: { type: ObjectId, default: null },
   updatedAt: { type: Date, default: () => new Date() },
 })

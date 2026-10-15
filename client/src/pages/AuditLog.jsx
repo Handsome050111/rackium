@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { JobStatus } from '../components/documents/DocumentExports.jsx'
+import { useDocumentJob } from '../components/documents/documentJob.js'
 import { useParams } from 'react-router-dom'
 import { Download, ScrollText, X } from 'lucide-react'
 import { ACTIONS } from '@rackium/shared/policy.js'
@@ -107,6 +109,13 @@ export default function AuditLog() {
       setError(err.message)
     }
   }
+  // The PDF (and CSV) through the document engine (M6b): one project, the applied filters.
+  const pdfJob = useDocumentJob(orgId, applied?.projectId || form.projectId)
+  function exportPdf() {
+    const { projectId: _p, ...rest } = applied ?? {}
+    const filters = Object.fromEntries(Object.entries(rest).filter(([k, v]) => v && ['from', 'to', 'userId', 'action', 'module', 'objectType', 'buildingId', 'changeType'].includes(k)))
+    pdfJob.start({ buildingId: null, typeKey: 'audit-log', format: 'pdf', options: { filters } })
+  }
   async function exportCsv() {
     try {
       await downloadAuditCsv(orgId, auditFilters(applied))
@@ -131,7 +140,12 @@ export default function AuditLog() {
           <Download size={14} strokeWidth={2} />
           Export CSV
         </button>
+        <button type="button" onClick={exportPdf} disabled={!applied?.projectId || (pdfJob.job && !['ready', 'failed'].includes(pdfJob.job.status))} title={applied?.projectId ? 'PDF of the applied filters' : 'Choose a project to export a PDF'} className="flex h-9 items-center gap-1.5 rounded-lg border border-border bg-surface px-3 text-xs font-medium text-text hover:border-brand disabled:text-text-secondary">
+          <Download size={14} strokeWidth={2} />
+          Export PDF
+        </button>
       </div>
+      {pdfJob.job && <JobStatus job={pdfJob.job} orgId={orgId} projectId={applied?.projectId} />}
 
       <form
         className="grid grid-cols-1 gap-2 rounded-xl border border-border bg-surface p-3 text-xs sm:grid-cols-2 lg:grid-cols-4"

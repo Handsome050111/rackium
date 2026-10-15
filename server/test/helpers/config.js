@@ -15,5 +15,7 @@ export const testConfig = (overrides = {}) => ({
   IS_PRODUCTION: false,
   // One fresh directory per test process; files never touch the repo.
   FILE_STORAGE_DIR: path.join(os.tmpdir(), `rackium-test-files-${process.pid}`),
+  // API tests run the document queue themselves (deterministic).
+  DOCUMENTS_AUTO_PROCESS: false,
   ...overrides,
 })

@@ -32,6 +32,7 @@ import { Organisation } from '../models/organisation.js'
 import { User } from '../models/user.js'
 import { projectCatalogue } from '../catalogue/service.js'
 import { surveyStatusByBuilding } from '../survey/formService.js'
+import { assertNotHandedOver } from '../handover/guard.js'
 import { withTransaction } from '../db/transaction.js'
 import { currentScope } from '../tenancy/scopeContext.js'
 import { recordAudit, userActor } from '../audit/audit.js'
@@ -620,6 +621,7 @@ export function createHldService({ storage }) {
   // A write: scope, revision claim, the change, audit — one transaction.
   async function write(req, buildingId, baseRevision, actor, fn, { branchId = null } = {}) {
     const building = await requireBuilding(req, buildingId)
+    await assertNotHandedOver(building.id)
     await designOf(building.id)
     if (branchId) await changeRequestBranch(building, branchId)
     const layer = hldLayerOf(branchId)

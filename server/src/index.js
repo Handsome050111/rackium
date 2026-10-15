@@ -13,6 +13,7 @@ import { CableIdRegistry } from './models/cableIdRegistry.js'
 import { createScheduler } from './jobs/scheduler.js'
 import { deliverOutbox, taskReminders, dailyDigest } from './notifications/jobs.js'
 import { dguvReminders } from './deployment/jobs.js'
+import { closePdfBrowser } from './documents/render/pdf.js'
 import { configureNotifications } from './notifications/notify.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
@@ -53,6 +54,8 @@ async function main() {
       { name: 'daily-digest', every: 15 * 60_000, run: ({ now }) => dailyDigest({ now }) },
       // DGUV V3 reminders (M6a): each level once per due date, on the local date.
       { name: 'dguv-reminders', every: 60 * 60_000, run: ({ now }) => dguvReminders({ now }) },
+      // Generated documents (M6b): queued jobs, and any whose run died. Requests also start it at once.
+      { name: 'documents', every: 15_000, run: ({ now }) => app.__documents.process({ now }) },
     ],
   })
   // Queued notification mail goes out promptly, not only on the minute.
@@ -62,6 +65,7 @@ async function main() {
   const shutdown = (signal) => {
     logger.info({ signal }, 'shutting down')
     scheduler.stop()
+    closePdfBrowser()
     server.close(async () => {
       await disconnectDatabase()
       process.exit(0)

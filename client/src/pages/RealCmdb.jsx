@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { ReactFlowProvider } from '@xyflow/react'
-import { ArrowLeft, Download, Sparkles, CheckCircle2, AlertTriangle } from 'lucide-react'
+import { ArrowLeft, Download, Sparkles, CheckCircle2, AlertTriangle, QrCode } from 'lucide-react'
 import HldCanvas, { buildHldFlow } from '../components/hld/HldCanvas.jsx'
 import ProvenanceBadge from '../components/realCmdb/ProvenanceBadge.jsx'
 import RecordDetail from '../components/realCmdb/RecordDetail.jsx'
@@ -11,6 +11,8 @@ import ChangeLog from '../components/realCmdb/ChangeLog.jsx'
 import LifecycleDashboard from '../components/realCmdb/LifecycleDashboard.jsx'
 import { cmdbApi, cmdbRows, filterRecords } from '../api/deploymentApi.js'
 import { exportCmdbXlsx } from '../lib/cmdbExport.js'
+import DocumentExports from '../components/documents/DocumentExports.jsx'
+import LabelPrintDialog from '../components/documents/LabelPrintDialog.jsx'
 import { useProjectRoles } from '../lib/useProjectRoles.js'
 
 const TABS = [
@@ -64,6 +66,7 @@ export default function RealCmdb() {
   const [error, setError] = useState(null)
   const [notice, setNotice] = useState(null)
   const [filters, setFilters] = useState({ q: '', status: '', roomCode: '' })
+  const [labels, setLabels] = useState(false)
   const tab = TABS.some((t) => t.id === search.get('tab')) ? search.get('tab') : 'inventory'
   const selectedId = search.get('record')
   const selectedPort = search.get('port')
@@ -138,10 +141,40 @@ export default function RealCmdb() {
         <ArrowLeft size={14} strokeWidth={2} />
         {view.building.code} dashboard
       </Link>
-      <div>
-        <h1 className="text-xl font-bold text-text sm:text-2xl">CMDB — {view.building.code}</h1>
-        <p className="text-sm text-text-secondary">The as-built record: devices and connections accepted in deployment, with where every value came from</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold text-text sm:text-2xl">CMDB — {view.building.code}</h1>
+          <p className="text-sm text-text-secondary">The as-built record: devices and connections accepted in deployment, with where every value came from</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {view.connections.length > 0 && (
+            <button type="button" onClick={() => setLabels(true)} className="inline-flex h-touch items-center gap-1.5 rounded-lg border border-border bg-surface px-3 text-sm font-medium text-text hover:border-brand sm:h-9">
+              <QrCode size={15} strokeWidth={2} /> Print labels
+            </button>
+          )}
+          <DocumentExports
+            orgId={orgId}
+            projectId={projectId}
+            buildingId={buildingId}
+            items={[
+              { typeKey: 'cmdb-extract', format: 'pdf', label: 'CMDB extract' },
+              { typeKey: 'cmdb-extract', format: 'csv', label: 'CMDB extract' },
+              { typeKey: 'cmdb-extract', format: 'json', label: 'CMDB extract' },
+              { typeKey: 'dguv-report', format: 'pdf', label: 'DGUV report' },
+              { typeKey: 'dguv-report', format: 'xlsx', label: 'DGUV report' },
+            ]}
+          />
+        </div>
       </div>
+      {labels && (
+        <LabelPrintDialog
+          orgId={orgId}
+          projectId={projectId}
+          buildingId={buildingId}
+          onClose={() => setLabels(false)}
+          connections={view.connections.map((c) => ({ id: c.id, title: `${c.source.name} ${c.source.portId ?? ''} → ${c.dest.name} ${c.dest.portId ?? ''}`, cableIds: c.segments.map((s) => s.cableId).filter(Boolean) }))}
+        />
+      )}
       {notice && (
         <div className="rounded-xl border border-status-green/40 bg-status-green/5 px-4 py-2 text-sm text-status-green" role="status">
           {notice}

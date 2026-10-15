@@ -9,6 +9,8 @@ import { projectsApi } from '../api/projectsApi.js'
 import { hierarchyApi } from '../api/hierarchyApi.js'
 import { ApiError } from '../api/httpClient.js'
 import { useViewAs } from '../lib/ViewAsContext.jsx'
+import { useProjectRoles } from '../lib/useProjectRoles.js'
+import DocumentSettingsTab from '../components/documents/BrandingSettings.jsx'
 
 const PHASE_LABELS = { cmo: 'CMO', survey: 'Survey', hld: 'HLD', lld: 'LLD', 'solution-package': 'Solution Package', bom: 'BOM', deployment: 'Deployment', cmdb: 'CMDB', handover: 'Handover' }
 const HIERARCHY_FIELDS = ['countryCode', 'countryName', 'salCode', 'campusCode', 'buildingCode', 'buildingName', 'wingCode', 'wingName']
@@ -21,6 +23,7 @@ const TABS = [
   { id: 'phases', label: 'Work types & phases' },
   { id: 'members', label: 'Members & permissions' },
   { id: 'naming', label: 'Naming conventions' },
+  { id: 'documents', label: 'Documents & branding' },
   { id: 'danger', label: 'Danger zone' },
   { id: 'more', label: 'More' },
 ]
@@ -31,6 +34,7 @@ export default function ProjectSettings() {
   const tab = params.get('tab') ?? 'general'
   const { session: viewAsSession } = useViewAs()
   const readOnly = Boolean(viewAsSession)
+  const { has } = useProjectRoles(orgId, projectId)
   const [project, setProject] = useState(null)
   const [notice, setNotice] = useState(null)
   const [error, setError] = useState(null)
@@ -83,6 +87,7 @@ export default function ProjectSettings() {
       {tab === 'phases' && <PhasesTab project={project} onSave={save} readOnly={readOnly} />}
       {tab === 'members' && <MembersTab />}
       {tab === 'naming' && <NamingTab />}
+      {tab === 'documents' && <DocumentSettingsTab orgId={orgId} projectId={projectId} canEdit={!readOnly && has('pm')} />}
       {tab === 'danger' && <DangerTab project={project} onSave={save} readOnly={readOnly} />}
       {tab === 'more' && <MoreTab />}
     </div>

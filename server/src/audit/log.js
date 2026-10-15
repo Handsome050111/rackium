@@ -141,6 +141,14 @@ export function createAuditLogService() {
       return { entry: toEntry(e, await names([e])) }
     },
 
+    // The entries a document export shows (M6b): same visibility and filters, at most `limit`.
+    async entriesForExport({ userId, organisationId, roles, query, limit = 5000 }) {
+      const v = await visibility({ userId, organisationId, roles, projectId: query.projectId })
+      const rows = await read(v, query, limit)
+      const n = rows.length ? await names(rows) : { users: new Map(), buildings: new Map(), projects: new Map() }
+      return { entries: rows.slice(0, limit).map((e) => ({ ...toEntry(e, n), actorName: actorLabel(e, n) })), truncated: rows.length > limit }
+    },
+
     // CSV (one row per entry; field changes joined), at most AUDIT_EXPORT_LIMIT rows.
     async exportCsv({ user, organisationId, roles, query }) {
       const v = await visibility({ userId: user._id, organisationId, roles, projectId: query.projectId })

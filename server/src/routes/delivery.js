@@ -105,5 +105,14 @@ export function publicRoutes({ publicApproval, rateLimits }) {
   r.post('/share-links/:token/decision', limit, validate({ params: tokenParam, body: C.publicDecisionBody }), async (req, res) => {
     res.json(await publicApproval.decide(req.input.params.token, req.input.body))
   })
+  // A document behind a handover or download link (M6b); POST so the password stays out of URLs.
+  r.post('/share-links/:token/documents/:documentId', limit, validate({ params: tokenParam.extend({ documentId: z.string().regex(/^[a-f0-9]{24}$/) }), body: C.publicDownloadBody }), async (req, res) => {
+    const { file, stream } = await publicApproval.download(req.input.params.token, req.input.params.documentId, req.input.body)
+    res.setHeader('Content-Type', file.mimeType)
+    res.setHeader('Content-Length', file.sizeBytes)
+    res.setHeader('Content-Disposition', `attachment; filename="${file.fileName.replace(/[^\w.\- ]+/g, '_')}"`)
+    res.setHeader('Cache-Control', 'no-store')
+    stream.pipe(res)
+  })
   return r
 }

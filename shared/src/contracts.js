@@ -702,7 +702,8 @@ export const acceptWarningBody = z.object({ buildingId: objectId, areaKey: z.str
 const sharePassword = z.string().min(8, 'At least 8 characters').max(128)
 export const shareLinkCreateBody = z.object({ buildingId: objectId, password: sharePassword.optional(), expiryDays: z.number().int().min(1).max(30).default(14) })
 export const shareLinkExtendBody = z.object({ days: z.number().int().min(1).max(30) })
-export const publicViewBody = z.object({ password: z.string().min(1).max(128) })
+// Empty for a download link without a password (M6b); a protected link answers "password required".
+export const publicViewBody = z.object({ password: z.string().max(128).default('') })
 export const publicDecisionBody = z
   .object({
     password: z.string().min(1).max(128),
@@ -821,3 +822,41 @@ export const cmdbQuery = z.object({
   status: z.enum(['accepted', 'in_service', 'maintenance']).optional(),
   category: z.string().trim().max(60).optional(),
 })
+
+// --- M6b: document engine, labels, handover ---------------------------------
+export const documentRequestBody = z.object({
+  buildingId: objectId.nullable().optional(),
+  typeKey: z.string().trim().min(1).max(40),
+  format: z.enum(['pdf', 'docx', 'xlsx', 'csv', 'json', 'zip', 'svg', 'png']),
+  options: z
+    .object({
+      prices: z.enum(['none', 'sell', 'cost']).optional(),
+      labelSize: z.string().trim().max(40).optional(),
+      connectionIds: z.array(objectId).max(500).optional(),
+      filters: z
+        .object({
+          from: isoDay.optional(),
+          to: isoDay.optional(),
+          userId: objectId.optional(),
+          action: z.string().trim().max(80).optional(),
+          module: z.string().trim().max(40).optional(),
+          objectType: z.string().trim().max(60).optional(),
+          buildingId: objectId.optional(),
+          changeType: z.string().trim().max(40).optional(),
+        })
+        .optional(),
+    })
+    .default({}),
+})
+export const documentListQuery = z.object({ buildingId: objectId.optional(), typeKey: z.string().trim().max(40).optional() })
+export const documentShareLinkBody = z.object({
+  buildingId: objectId,
+  documentIds: z.array(objectId).min(1).max(50),
+  expiryDays: z.number().int().min(1).max(30).default(7),
+  password: sharePassword.optional(),
+  label: z.string().trim().max(120).optional(),
+})
+export const publicDownloadBody = z.object({ password: z.string().max(128).default('') })
+export const logoBody = z.object({ dataUrl: z.string().max(800_000).regex(/^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/, 'Use a PNG or JPEG image') })
+export const scheduleHeadingsBody = z.object({ headings: z.record(z.string().trim().min(1).max(30), z.string().trim().max(60)) })
+export const handoverDeliverBody = z.object({ password: sharePassword.optional(), expiryDays: z.number().int().min(1).max(30).default(14) })

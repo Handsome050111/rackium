@@ -30,6 +30,8 @@ const organisationSchema = new mongoose.Schema({
       front: { type: Number, default: 4, min: 0, max: 20 },
       rear: { type: Number, default: 4, min: 0, max: 20 },
     },
+    // The organisation's logo on generated documents (M6b).
+    logo: { type: new mongoose.Schema({ storageKey: String, mimeType: String, updatedAt: Date }, { _id: false }), default: null },
     // DGUV V3 inspection interval and warning windows (brief §6.9; M6a).
     dguv: {
       intervalMonths: { type: Number, default: 48, min: 1, max: 120 },

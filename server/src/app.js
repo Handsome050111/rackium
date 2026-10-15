@@ -30,6 +30,9 @@ import { createShareLinkAdmin } from './delivery/shareLinks.js'
 import { createTaskService } from './tasks/service.js'
 import { createDeploymentService } from './deployment/service.js'
 import { createCmdbService } from './cmdb/service.js'
+import { createDocumentService } from './documents/service.js'
+import { createHandoverService } from './handover/service.js'
+import { configurePdf } from './documents/render/pdf.js'
 import { createNotificationService } from './notifications/service.js'
 import { configureNotifications } from './notifications/notify.js'
 import { createAuditLogService } from './audit/log.js'
@@ -42,7 +45,8 @@ import { buildOpenApiDocument } from './openapi/document.js'
 
 export const VERSION = '0.1.0'
 
-const IMPORT_ROUTE = /^\/api\/v1\/orgs\/[^/]+\/(catalogue\/import|projects\/[^/]+\/(cmo\/(preview|import)|survey\/sync))\/?$/
+// Also the lifecycle import (M6a review: 5,000 rows exceed the small limit) and logo uploads (M6b).
+const IMPORT_ROUTE = /^\/api\/v1\/orgs\/[^/]+\/(catalogue\/import|settings\/logo|projects\/[^/]+\/(cmo\/(preview|import)|survey\/sync|cmdb\/lifecycle-import|settings\/client-logo))\/?$/
 const SERVER_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 // Per-route limits. Enabled in production and development; tests may disable
@@ -83,7 +87,7 @@ export function createApp({ config, logger, mailer, rateLimits = DEFAULT_RATE_LI
     cors({
       origin: config.CLIENT_ORIGIN,
       credentials: true,
-      methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'X-Request-Id', 'X-View-As-Session'],
     })
   )
@@ -112,7 +116,7 @@ export function createApp({ config, logger, mailer, rateLimits = DEFAULT_RATE_LI
     bom: createBomService({ storage, lld }),
     solutionPackage: createSolutionPackageService({ storage, lld }),
     changeRequests: createChangeRequestService({ lld }),
-    publicApproval: createPublicApprovalService({ storage, lld }),
+    publicApproval: createPublicApprovalService({ storage, lld, getHandover: () => docServices.handover }),
     commercial: createCommercialSettingsService(),
     shareLinkAdmin: createShareLinkAdmin(),
   }
@@ -127,12 +131,21 @@ export function createApp({ config, logger, mailer, rateLimits = DEFAULT_RATE_LI
   // Deployment and the CMDB (M6a): as-built records against the frozen LLD.
   const deployment = createDeploymentService({ lld })
   const cmdb = createCmdbService({ deployment })
-  const api = apiRouter({ config, auth, org, auditLog, hierarchy, blockers, viewAs, dashboard, catalogue, cmo, survey, files, hld, lld, delivery, tasks, notifications, deployment, cmdb, rateLimits, openapiDocument, version: VERSION })
+  // The document engine and the handover (M6b). Jobs read data through the
+  // same services the screens use, with the requester's roles and scope.
+  configurePdf({ chromiumPath: config.CHROMIUM_PATH })
+  const docServices = { hld, lld, delivery, deployment, cmdb, survey, dashboard, auditLog }
+  const documents = createDocumentService({ storage, services: docServices, autoProcess: config.DOCUMENTS_AUTO_PROCESS !== false, logger })
+  const handover = createHandoverService({ storage, services: docServices, documents })
+  docServices.handover = handover
+  const api = apiRouter({ config, auth, org, auditLog, hierarchy, blockers, viewAs, dashboard, catalogue, cmo, survey, files, hld, lld, delivery, tasks, notifications, deployment, cmdb, documents, handover, rateLimits, openapiDocument, version: VERSION })
   api.get('/me', requireUser(config), async (req, res) => {
     const memberships = await membershipsForUser(req.user._id)
     res.json({ user: userSummary(req.user), memberships: memberships.map(membershipSummary) })
   })
   app.use(`/api/v${API_VERSION}`, api)
+  // The scheduler (index.js) and the tests drive the document queue.
+  app.__documents = documents
 
   // Every route actually registered, full path, OpenAPI {param} form — read
   // by test/api.openapi-coverage.test.js so the drift check is built from

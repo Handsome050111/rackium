@@ -8,11 +8,12 @@ const { ObjectId } = mongoose.Schema.Types
 // row is created when its upload completes (Upload holds the in-progress
 // state). Soft delete keeps the row for the audit trail.
 const fileSchema = new mongoose.Schema({
-  buildingId: { type: ObjectId, required: true, index: true },
+  // Optional only for a project-level generated document (the audit log export).
+  buildingId: { type: ObjectId, required: function needsBuilding() { return this.attachedTo?.type !== 'generatedDocument' }, default: null, index: true },
   attachedTo: {
     // designVersion: the JSON snapshot of a design version (category data_snapshot, M4a).
     // approval: a client's drawn signature (category signature, M5a).
-    type: { type: String, enum: ['surveyTabRecord', 'room', 'rack', 'pathway', 'designVersion', 'approval', 'device', 'deploymentException'], required: true },
+    type: { type: String, enum: ['surveyTabRecord', 'room', 'rack', 'pathway', 'designVersion', 'approval', 'device', 'deploymentException', 'generatedDocument'], required: true },
     id: { type: ObjectId, required: true },
   },
   category: { type: String, required: true },

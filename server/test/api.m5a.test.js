@@ -170,7 +170,7 @@ describe('Share links: hashed secrets, expiry, brute-force lock, extend and revo
     const stored = JSON.stringify(await col('sharelinks').find({}).toArray()) + JSON.stringify(await col('sharelinkindexes').find({}).toArray()) + JSON.stringify(await col('auditentries').find({}).toArray())
     expect(stored).not.toContain(link.token)
     expect(stored).not.toContain(link.password)
-    expect((await ctx.agent().get(pub(ctx, link.token)).expect(200)).body).toEqual({ status: 'active', kind: 'solution_package', kindLabel: 'Solution Package' })
+    expect((await ctx.agent().get(pub(ctx, link.token)).expect(200)).body).toEqual({ status: 'active', kind: 'solution_package', kindLabel: 'Solution Package', passwordRequired: true })
     await ctx.agent().get(pub(ctx, 'x'.repeat(43))).expect(404)
     // Regression: the project was looked up organisation-wide. Put another
     // project of the same organisation first in natural order (re-inserting

@@ -29,6 +29,8 @@ export async function projectSettings(session = null) {
     marginPercent: doc?.marginPercent ?? 15,
     resourceMinutes: { ...minutes, ...stored },
     powerCordStandard: doc?.powerCordStandard?.connectorPair ? doc.powerCordStandard : null,
+    cableScheduleHeadings: doc?.cableScheduleHeadings instanceof Map ? Object.fromEntries(doc.cableScheduleHeadings) : doc?.cableScheduleHeadings ?? {},
+    clientLogo: doc?.clientLogo?.storageKey ? doc.clientLogo : null,
   }
 }
 
