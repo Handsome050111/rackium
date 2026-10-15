@@ -20,6 +20,14 @@ const MEDIA_LABEL = { cat6a: 'Cat6A', os2: 'OS2', om4: 'OM4', dac: 'DAC', stack:
 const COPPER_FIBRE = ['cat6a', 'os2', 'om4']
 
 const lower = (s) => String(s ?? '').trim().toLowerCase()
+// The procurement line a designed device is bought on (deployment gates
+// installation on it, M6a): its own line when serialised, else the
+// aggregated line of its catalogue item.
+export function procurementLineKeyOf(device, item) {
+  const category = item?.category ?? device.category ?? null
+  if (NOT_PROCURED_CATEGORIES.includes(category) || ['wan_circuit', 'remote_site'].includes(device.role)) return null
+  return SERIALISED_CATEGORIES.includes(category) ? `device:${device.id}` : `item:${lower(item?.key ?? device.catalogueKey ?? device.label)}`
+}
 
 // Cage nuts per RU on each face a device is fixed to (organisation setting
 // `cageNutsPerRu`; M5a review). A device is fixed on its mounting face, a

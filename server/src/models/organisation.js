@@ -30,6 +30,12 @@ const organisationSchema = new mongoose.Schema({
       front: { type: Number, default: 4, min: 0, max: 20 },
       rear: { type: Number, default: 4, min: 0, max: 20 },
     },
+    // DGUV V3 inspection interval and warning windows (brief §6.9; M6a).
+    dguv: {
+      intervalMonths: { type: Number, default: 48, min: 1, max: 120 },
+      expiringSoonDays: { type: Number, default: 90, min: 1, max: 365 },
+      expiringDays: { type: Number, default: 30, min: 1, max: 365 },
+    },
   },
   createdAt: { type: Date, default: () => new Date() },
   deletedAt: { type: Date, default: null },

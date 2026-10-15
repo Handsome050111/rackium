@@ -9,6 +9,9 @@ import { hldStatusByBuilding } from '../hld/service.js'
 import { lldStatusByBuilding } from '../lld/service.js'
 import { spStatusByBuilding } from '../delivery/solutionPackage.js'
 import { bomStatusByBuilding } from '../delivery/bom.js'
+import { deploymentStatusesByBuilding } from '../deployment/service.js'
+import { connectionCounts, dguvSummary } from '../deployment/asBuilt.js'
+import { currentScope } from '../tenancy/scopeContext.js'
 import { AuditEntry } from '../models/auditEntry.js'
 import { notFound } from '../http/errors.js'
 
@@ -34,6 +37,9 @@ export function createDashboardService() {
       const lldStatus = (await lldStatusByBuilding()).get(String(building._id)) ?? 'not_started'
       const spStatus = (await spStatusByBuilding()).get(String(building._id)) ?? 'not_started'
       const bomStatus = (await bomStatusByBuilding()).get(String(building._id)) ?? 'not_started'
+      const asBuilt = await deploymentStatusesByBuilding()
+      const deploymentStatus = asBuilt.deployment.get(String(building._id)) ?? 'not_started'
+      const cmdbStatus = asBuilt.cmdb.get(String(building._id)) ?? 'not_started'
       const phases = activePhases.map(({ phaseKey, position }) => {
         if (phaseKey === 'cmo') return { phaseKey, position, status: cmoStatus, subLabel: null }
         if (phaseKey === 'survey') return { phaseKey, position, status: surveyStatus, subLabel: null }
@@ -42,6 +48,8 @@ export function createDashboardService() {
         if (phaseKey === 'solution-package') return { phaseKey, position, status: spStatus, subLabel: null }
         // The BOM is a Draft until the client approves the Solution Package (brief §5.6).
         if (phaseKey === 'bom') return { phaseKey, position, status: bomStatus, subLabel: spStatus === 'approved' ? null : bomStatus === 'not_started' ? null : 'Draft' }
+        if (phaseKey === 'deployment') return { phaseKey, position, status: deploymentStatus, subLabel: null }
+        if (phaseKey === 'cmdb') return { phaseKey, position, status: cmdbStatus, subLabel: null }
         const row = statusByPhase.get(phaseKey)
         return { phaseKey, position, status: row?.status ?? 'not_started', subLabel: row?.subLabel ?? null }
       })
@@ -55,16 +63,22 @@ export function createDashboardService() {
       const auditFilter = { buildingId }
       if (!isOrgAdmin) auditFilter.changeType = { $nin: [...HIDDEN_FROM_NON_ADMIN] }
       const recentActivity = await AuditEntry.find(auditFilter).sort({ occurredAt: -1 }).limit(RECENT_ACTIVITY_LIMIT).lean()
+      // Connections and DGUV from the real records (M6a review).
+      const connections = await connectionCounts(building._id)
+      const { organisationId, projectId } = currentScope()
+      const dguv = await dguvSummary({ organisationId, projectId, buildingId: building._id })
 
       return {
         building: { id: String(building._id), code: building.code, name: building.name },
         phases,
         kpis: {
           devices: deviceCount,
-          connections: 0,
+          connections: connections.designed,
+          connectionStatus: connections,
           openIssues: openBlockers.length,
           completionPercent,
         },
+        dguv,
         blockers: blockers.map((b) => ({
           id: String(b._id),
           description: b.description,

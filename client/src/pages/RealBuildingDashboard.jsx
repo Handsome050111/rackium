@@ -101,7 +101,7 @@ export default function RealBuildingDashboard() {
 
   const kpiItems = [
     { label: 'Devices', value: kpis.devices },
-    { label: 'Connections', value: kpis.connections },
+    { label: 'Connections', value: kpis.connections, hint: kpis.connectionStatus ? `${kpis.connectionStatus.installed} installed · ${kpis.connectionStatus.accepted} accepted` : undefined },
     { label: 'Open issues', value: kpis.openIssues },
     { label: 'Completion', value: `${kpis.completionPercent}%`, progress: kpis.completionPercent },
   ]
@@ -135,6 +135,26 @@ export default function RealBuildingDashboard() {
           )
         })}
       </div>
+
+      {data.dguv?.total > 0 && (
+        // DGUV V3 of the installed mains-powered devices (M6a review).
+        <div className="rounded-xl border border-border bg-surface p-4" data-testid="dguv-summary">
+          <h2 className="mb-2 text-sm font-semibold text-text">DGUV V3 inspections</h2>
+          <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm">
+            {[
+              ['valid', 'Valid', 'text-status-green'],
+              ['expiring_soon', 'Expiring soon', 'text-status-amber'],
+              ['expiring', 'Expiring', 'text-status-amber'],
+              ['overdue', 'Overdue', 'text-status-red'],
+              ['notInspected', 'Not inspected', 'text-status-red'],
+            ].map(([key, label, tone]) => (
+              <span key={key} className={data.dguv[key] ? tone : 'text-text-secondary'}>
+                <strong>{data.dguv[key]}</strong> {label}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-3 rounded-xl border border-border bg-surface p-4">

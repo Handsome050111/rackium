@@ -7,6 +7,7 @@ import NamingCodesSection from '../components/NamingCodesSection.jsx'
 import StockLengthsSection from '../components/StockLengthsSection.jsx'
 import CageNutsSection from '../components/CageNutsSection.jsx'
 import TimeZoneSection from '../components/TimeZoneSection.jsx'
+import DguvSection from '../components/DguvSection.jsx'
 import { canIn } from '../lib/realRoles.js'
 
 function Section({ title, description, children }) {
@@ -155,6 +156,19 @@ export default function OrganisationSettings() {
             settings={settings}
             onSave={async (body) => {
               const res = await organisationApi.updateSettings(orgId, body)
+              setSettings(res.settings)
+            }}
+          />
+        )}
+      </Section>
+
+      <Section title="DGUV V3 inspections" description="Mains-powered devices: Valid, Expiring soon, Expiring or Overdue from the last inspection, on the organisation's local date.">
+        {settings?.dguv && (
+          <DguvSection
+            key={JSON.stringify(settings.dguv)}
+            settings={settings}
+            onSave={async (dguv) => {
+              const res = await organisationApi.updateSettings(orgId, { dguv })
               setSettings(res.settings)
             }}
           />

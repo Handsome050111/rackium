@@ -31,6 +31,7 @@ import { Country } from '../models/country.js'
 import { Organisation } from '../models/organisation.js'
 import { User } from '../models/user.js'
 import { projectCatalogue } from '../catalogue/service.js'
+import { retireRemovedRecords } from '../deployment/asBuilt.js'
 import { withTransaction } from '../db/transaction.js'
 import { currentScope } from '../tenancy/scopeContext.js'
 import { recordAudit, userActor } from '../audit/audit.js'
@@ -748,8 +749,20 @@ export function createLldService({ storage }) {
     return { stage, lld, devices, connections, racks, rooms: data.rooms, catalogue: data.catalogue, settings: data.settings, findings: summary }
   }
 
+  // The main LLD as deployment and the CMDB read it (M6a): every device of
+  // the layer and the surveyed gear it connects to, connections with their
+  // cable segments, and the building's floors, rooms and racks.
+  async function deploymentData(req, buildingId, { session = null } = {}) {
+    const lld = await LldDesign.findOne({ buildingId }).session(session).lean()
+    if (!lld) return { lld: null }
+    const data = await loadLayer(buildingId, MAIN, req.project.id, session)
+    const { views, connections, cat } = inputs(data)
+    return { lld, views, connections, floors: data.floors, rooms: data.rooms, racks: data.racks, ruStates: data.ruStates, itemOf: (key) => cat.item(key) }
+  }
+
   return {
     designData,
+    deploymentData,
 
     // What a branch changes against the main LLD (a change request's design diff).
     // A change request's branch also diffs its HLD (main → branch, main ids).
@@ -791,7 +804,10 @@ export function createLldService({ storage }) {
         await DesignVersion.updateOne({ _id: hldVersion.versionId }, { $set: { frozen: true, frozenAt: new Date() } }, { session })
         await HldDesign.updateOne({ _id: hldDoc._id }, { $set: { latestApprovedVersionId: hldVersion.versionId, state: 'approved' }, $inc: { revision: 1 } }, { session })
       }
+      // Names of the frozen design's devices, for retiring the ones the change removes.
+      const labels = new Map((await Device.find({ buildingId: building.id, layer: MAIN }, { hostname: 1, label: 1 }).session(session).lean()).map((d) => [String(d._id), d.hostname ?? d.label ?? 'device']))
       await promoteInto(req, building, branch, actor, session)
+      await retireRemovedRecords({ organisationId: req.org.id, projectId: req.project.id, buildingId: building.id, reason: label, labels, session })
       const data = await loadLayer(building.id, MAIN, req.project.id, session)
       const lld = await LldDesign.findOne({ buildingId: building.id }).session(session).lean()
       const basedOn = hldVersion ? { basedOnHldVersionId: hldVersion.versionId, basedOnHldNumber: hldVersion.number } : {}

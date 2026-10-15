@@ -5,6 +5,8 @@ import { File } from '../models/file.js'
 import { Upload } from '../models/upload.js'
 import { Pathway } from '../models/pathway.js'
 import { SurveyTabRecord } from '../models/surveyTabRecord.js'
+import { Device } from '../models/device.js'
+import { DeploymentException } from '../models/deploymentException.js'
 import { Organisation } from '../models/organisation.js'
 import { getTabDefinition, SURVEY_TEMPLATE_VERSION } from '@rackium/shared/surveyForm.js'
 import { recordAudit, userActor } from '../audit/audit.js'
@@ -23,6 +25,10 @@ const WRITERS = {
   room: ['org_admin', 'pm', 'architect', 'field_engineer'],
   rack: ['org_admin', 'pm', 'architect', 'field_engineer'],
   pathway: ['org_admin', 'pm', 'architect', 'field_engineer'],
+  // Installation evidence and DGUV certificates (M6a): the Field Engineer on
+  // site; a PM may add a certificate that arrives later.
+  device: ['field_engineer', 'pm'],
+  deploymentException: ['field_engineer', 'pm'],
 }
 
 // The attachment, checked for existence and the caller's scope; returns the
@@ -57,12 +63,25 @@ async function resolveAttachment(req, attachedTo) {
     const { rack, building } = await requireRack(req, attachedTo.id)
     return { attachedTo: { type: 'rack', id: rack._id }, building }
   }
+  if (attachedTo.type === 'device') {
+    // A designed device of the main LLD (deployment evidence).
+    const device = mongoose.isValidObjectId(attachedTo.id) ? await Device.findOne({ _id: attachedTo.id, origin: 'planned', layer: 'lld' }).lean() : null
+    if (!device) throw notFound('Device not found')
+    return { attachedTo: { type: 'device', id: device._id }, building: await requireBuilding(req, device.buildingId) }
+  }
+  if (attachedTo.type === 'deploymentException') {
+    const exception = mongoose.isValidObjectId(attachedTo.id) ? await DeploymentException.findById(attachedTo.id).lean() : null
+    if (!exception) throw notFound('Exception not found')
+    return { attachedTo: { type: 'deploymentException', id: exception._id }, building: await requireBuilding(req, exception.buildingId) }
+  }
   const pathway = mongoose.isValidObjectId(attachedTo.id) ? await Pathway.findById(attachedTo.id).lean() : null
   if (!pathway) throw notFound('Pathway not found')
   const { building } = await requireRoom(req, pathway.roomLowId)
   await requireRoom(req, pathway.roomHighId)
   return { attachedTo: { type: 'pathway', id: pathway._id }, building }
 }
+
+const phaseOf = (type) => (type === 'device' || type === 'deploymentException' ? 'deployment' : 'survey')
 
 async function assertWriter(req, type) {
   const { roles } = await callerAccess(req)
@@ -232,7 +251,7 @@ export function createFileService({ storage }) {
         throw conflict('upload_exists', 'A file with this id already exists — upload it again')
       })
       await Upload.updateOne({ _id: upload._id }, { $set: { status: 'completed' } })
-      await recordAudit({ organisationId: req.org.id, projectId: req.project.id, buildingId: upload.buildingId, phaseKey: 'survey', actor: userActor(actor.userId, actor.role), action: 'file.uploaded', objectType: 'File', objectId: file._id, changeType: 'design_intent', source: 'ui', comment: `${upload.fileName} (${upload.category})` })
+      await recordAudit({ organisationId: req.org.id, projectId: req.project.id, buildingId: upload.buildingId, phaseKey: phaseOf(upload.attachedTo.type), actor: userActor(actor.userId, actor.role), action: 'file.uploaded', objectType: 'File', objectId: file._id, changeType: 'design_intent', source: 'ui', comment: `${upload.fileName} (${upload.category})` })
       return toFileView(file.toObject())
     },
 
@@ -266,7 +285,7 @@ export function createFileService({ storage }) {
         if (record && !['draft', 'rejected'].includes(record.status)) throw conflict('tab_locked', `This tab is ${record.status} — edit it back to Draft before removing its photos`)
       }
       await File.updateOne({ _id: file._id }, { $set: { deletedAt: new Date(), deletedBy: actor.userId } })
-      await recordAudit({ organisationId: req.org.id, projectId: req.project.id, buildingId: file.buildingId, phaseKey: 'survey', actor: userActor(actor.userId, actor.role), action: 'file.deleted', objectType: 'File', objectId: file._id, changeType: 'design_intent', source: 'ui', comment: file.fileName })
+      await recordAudit({ organisationId: req.org.id, projectId: req.project.id, buildingId: file.buildingId, phaseKey: phaseOf(file.attachedTo.type), actor: userActor(actor.userId, actor.role), action: 'file.deleted', objectType: 'File', objectId: file._id, changeType: 'design_intent', source: 'ui', comment: file.fileName })
       return { id: String(file._id), deleted: true }
     },
   }
