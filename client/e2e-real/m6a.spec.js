@@ -323,6 +323,52 @@ test('lifecycle: warranty dates imported from a CSV by serial; operational edit 
   await expect(fe.getByRole('button', { name: 'Operational edit' })).toHaveCount(0)
 })
 
+test('dashboard: connections counted from their records; DGUV summary with the device not inspected', async () => {
+  await owner.goto(base())
+  await expect(owner.getByRole('heading', { name: 'Building B001' }).or(owner.getByText('B001').first())).toBeVisible()
+  const connections = owner.getByText('Connections', { exact: true }).locator('..')
+  await expect(connections).toContainText('3')
+  await expect(connections).toContainText('2 installed · 1 accepted')
+  // The Edge is inspected; the Border is installed but was never inspected.
+  const dguv = owner.getByTestId('dguv-summary')
+  await expect(dguv).toContainText('1 Valid')
+  await expect(dguv).toContainText('1 Not inspected')
+  const overflow = await owner.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
+  expect(overflow).toBe(0)
+})
+
+test('a change request removing the AP retires its record: listed with its released serial in the CMDB change log', async () => {
+  const cr = (await send(architect, 'post', '/change-requests', { buildingId: b001, title: 'Drop the AP', reason: 'Room repurposed' }, 201)).changeRequest
+  const q = `?branchId=${cr.branchId}`
+  let hld = await send(architect, 'get', `/hld/buildings/${b001}${q}`, undefined, 200)
+  const hldAp = hld.devices.find((x) => x.role === 'ap')
+  const uplink = hld.connections.find((x) => [x.source.deviceId, x.dest.deviceId].includes(hldAp.id))
+  await send(architect, 'delete', `/hld/uplinks/${uplink.id}?baseRevision=${hld.design.revision}`, undefined, 200)
+  hld = await send(architect, 'get', `/hld/buildings/${b001}${q}`, undefined, 200)
+  await send(architect, 'delete', `/hld/devices/${hldAp.id}?baseRevision=${hld.design.revision}`, undefined, 200)
+  let branch = await send(architect, 'get', `/lld/buildings/${b001}${q}`, undefined, 200)
+  const lldAp = byRole(branch, 'ap')
+  const lldLink = branch.connections.find((c) => [c.source.deviceId, c.dest.deviceId].includes(lldAp.id))
+  await send(architect, 'delete', `/lld/connections/${lldLink.id}?baseRevision=${branch.design.revision}`, undefined, 200)
+  branch = await send(architect, 'get', `/lld/buildings/${b001}${q}`, undefined, 200)
+  await send(architect, 'delete', `/lld/devices/${lldAp.id}?baseRevision=${branch.design.revision}`, undefined, 200)
+  await send(architect, 'post', `/change-requests/${cr.id}/submit`, undefined, 200)
+  const { shareLink } = await send(owner, 'post', `/change-requests/${cr.id}/send`, {}, 201)
+  const decided = await owner.request.post(`/api/v1/public/share-links/${shareLink.token}/decision`, { data: { password: shareLink.password, decision: 'approved', name: 'Clara Client', role: 'IT Director', comments: '', termsAccepted: true } })
+  expect(decided.status(), await decided.text()).toBe(200)
+
+  await owner.goto(`${base()}/cmdb?tab=log`)
+  const retired = owner.getByRole('region', { name: 'Retired records' })
+  await expect(retired).toContainText(ap.hostname)
+  await expect(retired).toContainText(`serial SN-ap-${RUN_ID} released`)
+  await expect(retired).toContainText('removed by CR-1 Drop the AP')
+  const log = owner.getByRole('list', { name: 'Change log' })
+  await expect(log.locator('li').filter({ hasText: 'deployment.record.retired' })).toContainText('Retired')
+  await owner.getByRole('tab', { name: 'Asset inventory' }).click()
+  await expect(owner.locator('table')).not.toContainText(ap.hostname)
+  await fitsEveryWidth(owner, 'cmdb-retired')
+})
+
 test('no console errors on any page', async () => {
   expect(errors).toEqual([])
 })

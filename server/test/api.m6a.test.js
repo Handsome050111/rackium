@@ -228,6 +228,11 @@ describe('Deviations, exceptions and acceptance (brief §5.7)', () => {
     const r2 = v.roomChecklists.find((r) => r.room === 'TR-EG-02')
     // Both links into TR-EG-02 (the trunk and the AP's) are tested.
     expect(r2.tasks.find((x) => x.id === 'test-link')).toMatchObject({ done: 2, total: 2 })
+    // The dashboard counts connections from their records (it showed 0 before the M6a review)
+    // and summarises DGUV: the Edge inspected, the Border installed but not inspected (APs and panels have no mains).
+    const dash = (await p.viewer.get(`${p.base}/dashboard/buildings/${p.b001}`).expect(200)).body
+    expect(dash.kpis).toMatchObject({ connections: 3, connectionStatus: { designed: 3, installed: 2, tested: 2, accepted: 1 } })
+    expect(dash.dguv).toEqual({ total: 2, valid: 1, expiring_soon: 0, expiring: 0, overdue: 0, notInspected: 1 })
   }, 180000)
 })
 
@@ -267,18 +272,23 @@ describe('DGUV V3 (brief §6.9)', () => {
     const v = await deliverAll(p)
     const edge = byRole(v, 'edge')
     await install(p, edge)
+    // Never inspected: one "not inspected" reminder to the PMs, once per device.
+    expect(await dguvReminders()).toEqual({ sent: 0, notInspected: 1 })
+    expect(await dguvReminders()).toEqual({ sent: 0, notInspected: 0 })
+    expect((await notificationsOf('owner@example.com')).filter((n) => n.type === 'dguv_not_inspected').map((n) => n.title)).toEqual([`${edge.hostname} is installed but not DGUV-inspected (B001)`])
+    expect((await notificationsOf('fe@example.com')).filter((n) => n.type === 'dguv_not_inspected')).toEqual([])
     // Due 2026-10-13 (48 months). At 22:30 UTC on the 13th it is the 14th in Berlin (overdue)…
     await col('deploymentrecords').updateOne({ deviceId: new mongoose.Types.ObjectId(edge.id) }, { $set: { 'dguv.lastInspectionDate': '2022-10-13', 'dguv.inspector': 'X' } })
     const now = new Date('2026-10-13T22:30:00Z')
-    expect(await dguvReminders({ now })).toEqual({ sent: 1 })
-    expect(await dguvReminders({ now })).toEqual({ sent: 0 })
+    expect(await dguvReminders({ now })).toEqual({ sent: 1, notInspected: 0 })
+    expect(await dguvReminders({ now })).toEqual({ sent: 0, notInspected: 0 })
     let pm = (await notificationsOf('owner@example.com')).filter((n) => n.type === 'dguv_expiry')
     expect(pm.map((n) => n.title)).toEqual([`DGUV inspection of ${edge.hostname} overdue since 2026-10-13`])
     // …but still the 13th in New York: due today → Expiring. (The first is read, so the second is not grouped into it.)
     await col('notifications').updateMany({}, { $set: { readAt: new Date() } })
     await col('deploymentrecords').updateOne({ deviceId: new mongoose.Types.ObjectId(edge.id) }, { $set: { 'dguv.remindersSent': [] } })
     expectStatus(await p.admin.agent.patch(`/api/v1/orgs/${p.admin.orgId}/settings`).send({ timeZone: 'America/New_York' }), 200)
-    expect(await dguvReminders({ now })).toEqual({ sent: 1 })
+    expect(await dguvReminders({ now })).toEqual({ sent: 1, notInspected: 0 })
     pm = (await notificationsOf('owner@example.com')).filter((n) => n.type === 'dguv_expiry')
     expect(pm.map((n) => n.title)).toContain(`DGUV inspection of ${edge.hostname} expires on 2026-10-13 (Expiring)`)
   }, 120000)
@@ -398,6 +408,65 @@ describe('Scopes and isolation (DATA-MODEL §1.6)', () => {
 })
 
 describe('Installation records outlive a change request (M6a)', () => {
+  it('a device the change request removes is retired: serial and MAC released (audited), open exceptions closed, shown in the CMDB change log; no orphaned reservation', async () => {
+    const ctx = t()
+    const d = await deployable(ctx)
+    const { p } = d
+    let v = await deliverAll(p)
+    const [edge, ap, panel] = [byRole(v, 'edge'), byRole(v, 'ap'), panelOf(v)]
+    await install(p, edge)
+    await install(p, panel)
+    await install(p, ap, { serial: 'AP-SERIAL-1', mac: '00:11:22:33:44:aa' })
+    v = await depView(p.fe, p)
+    const ea = connBetween(v, edge, ap)
+    await patch(p, ea, { cableIds: { 0: 'C-EA-9' } })
+    // An open exception on the link that goes with it.
+    expectStatus(await p.fe.post(`${p.dep}/exceptions`).send({ deviceId: ap.id, connectionId: ea.id, field: 'cable_id:0', reason: 'Relabelled' }), 201)
+    // The CR removes the AP (and its link) from the design: the HLD and the LLD of its branch.
+    const cr = expectStatus(await p.architect.post(`${p.base}/change-requests`).send({ buildingId: p.b001, title: 'Drop the AP', reason: 'Room repurposed' }), 201).body.changeRequest
+    const hldOf = async () => (await p.architect.get(`${p.hld}/buildings/${p.b001}?branchId=${cr.branchId}`).expect(200)).body
+    let hld = await hldOf()
+    const hldAp = hld.devices.find((x) => x.role === 'ap')
+    const hldUplink = hld.connections.find((x) => [x.source.deviceId, x.dest.deviceId].includes(hldAp.id))
+    expectStatus(await p.architect.delete(`${p.hld}/uplinks/${hldUplink.id}?baseRevision=${hld.design.revision}`), 200)
+    hld = await hldOf()
+    expectStatus(await p.architect.delete(`${p.hld}/devices/${hldAp.id}?baseRevision=${hld.design.revision}`), 200)
+    const branchLink = await d.link('edge', 'ap', cr.branchId)
+    expectStatus(await p.architect.delete(`${p.lld}/connections/${branchLink.id}?baseRevision=${await d.rev(cr.branchId)}`), 200)
+    const branchAp = await d.device('ap', cr.branchId)
+    expectStatus(await p.architect.delete(`${p.lld}/devices/${branchAp.id}?baseRevision=${await d.rev(cr.branchId)}`), 200)
+    expectStatus(await p.architect.post(`${p.base}/change-requests/${cr.id}/submit`), 200)
+    const link = expectStatus(await p.admin.agent.post(`${p.base}/change-requests/${cr.id}/send`).send({}), 201).body.shareLink
+    const { clientDecides } = await import('./helpers/m5a.js')
+    expectStatus(await clientDecides(ctx, link, { comments: 'OK' }), 200)
+
+    // Retired, with what it released; no registry row left for it.
+    const rec = await col('deploymentrecords').findOne({ deviceId: new mongoose.Types.ObjectId(ap.id) })
+    expect(rec).toMatchObject({ status: 'retired', installation: { serial: null, mac: null }, retired: { previousStatus: 'installed', serial: 'AP-SERIAL-1', mac: '00:11:22:33:44:aa', reason: 'CR-1 Drop the AP' } })
+    expect(await col('serialregistries').findOne({ serial: 'AP-SERIAL-1' })).toBeNull()
+    expect(await col('connectionrecords').findOne({ connectionId: new mongoose.Types.ObjectId(ea.id) })).toMatchObject({ status: 'retired' })
+    expect((await col('deploymentexceptions').findOne({ connectionId: new mongoose.Types.ObjectId(ea.id) })).status).toBe('superseded')
+    const audit = await col('auditentries').findOne({ action: 'deployment.record.retired' })
+    expect(audit).toMatchObject({ changeType: 'system', phaseKey: 'cmdb', objectId: ap.id })
+    expect(audit.comment).toMatch(/AP-SERIAL-1 released/)
+    expect(audit.changes.map((c) => [c.field, c.before, c.after])).toEqual([
+      ['status', 'installed', 'retired'],
+      ['installation.serial', 'AP-SERIAL-1', null],
+      ['installation.mac', '00:11:22:33:44:aa', null],
+    ])
+    // Gone from deployment; the serial and MAC are free for another device.
+    v = await depView(p.fe, p)
+    expect(v.devices.map((x) => x.id)).not.toContain(ap.id)
+    expect(v.exceptions.filter((e) => e.status === 'open')).toEqual([])
+    const fusion = byRole(v, 'fusion')
+    expectStatus(await p.fe.put(`${p.dep}/devices/${fusion.id}/installation`).send({ serial: 'AP-SERIAL-1', mac: '00-11-22-33-44-AA' }), 200)
+    // Listed in the CMDB with the retirement in its change log.
+    const c = await cmdbView(p.viewer, p)
+    expect(c.retiredRecords).toEqual([expect.objectContaining({ id: ap.id, label: ap.hostname, previousStatus: 'installed', serial: 'AP-SERIAL-1' })])
+    expect(c.changeLog.map((e) => e.action)).toEqual(expect.arrayContaining(['deployment.record.retired', 'deployment.connection.retired']))
+    expect(c.reconciliation.designCount).toBe(4)
+  }, 180000)
+
   it('a CR approved by the client re-creates the frozen LLD under the same ids: installation, serial and deviations still apply to the new design', async () => {
     const ctx = t()
     const d = await deployable(ctx)

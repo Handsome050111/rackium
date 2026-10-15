@@ -707,7 +707,7 @@ export function createDeploymentService({ lld }) {
 export async function deploymentStatusesByBuilding(session = null) {
   const [designed, records] = await Promise.all([
     Device.aggregate([{ $match: { layer: 'lld', origin: 'planned', category: { $nin: ['wan_sp_connection', 'remote_site'] }, role: { $nin: ['wan_circuit', 'remote_site'] } } }, { $group: { _id: '$buildingId', n: { $sum: 1 } } }]).session(session),
-    DeploymentRecord.find({ status: { $ne: 'draft' } }, { buildingId: 1, deviceId: 1, status: 1 }).session(session).lean(),
+    DeploymentRecord.find({ status: { $nin: ['draft', 'retired'] } }, { buildingId: 1, deviceId: 1, status: 1 }).session(session).lean(),
   ])
   const total = new Map(designed.map((d) => [String(d._id), d.n]))
   const devices = await Device.find({ _id: { $in: records.map((r) => r.deviceId) }, layer: 'lld' }, { _id: 1 }).session(session).lean()

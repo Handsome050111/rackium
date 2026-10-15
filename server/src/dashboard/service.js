@@ -10,6 +10,8 @@ import { lldStatusByBuilding } from '../lld/service.js'
 import { spStatusByBuilding } from '../delivery/solutionPackage.js'
 import { bomStatusByBuilding } from '../delivery/bom.js'
 import { deploymentStatusesByBuilding } from '../deployment/service.js'
+import { connectionCounts, dguvSummary } from '../deployment/asBuilt.js'
+import { currentScope } from '../tenancy/scopeContext.js'
 import { AuditEntry } from '../models/auditEntry.js'
 import { notFound } from '../http/errors.js'
 
@@ -61,16 +63,22 @@ export function createDashboardService() {
       const auditFilter = { buildingId }
       if (!isOrgAdmin) auditFilter.changeType = { $nin: [...HIDDEN_FROM_NON_ADMIN] }
       const recentActivity = await AuditEntry.find(auditFilter).sort({ occurredAt: -1 }).limit(RECENT_ACTIVITY_LIMIT).lean()
+      // Connections and DGUV from the real records (M6a review).
+      const connections = await connectionCounts(building._id)
+      const { organisationId, projectId } = currentScope()
+      const dguv = await dguvSummary({ organisationId, projectId, buildingId: building._id })
 
       return {
         building: { id: String(building._id), code: building.code, name: building.name },
         phases,
         kpis: {
           devices: deviceCount,
-          connections: 0,
+          connections: connections.designed,
+          connectionStatus: connections,
           openIssues: openBlockers.length,
           completionPercent,
         },
+        dguv,
         blockers: blockers.map((b) => ({
           id: String(b._id),
           description: b.description,

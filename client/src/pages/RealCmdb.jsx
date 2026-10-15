@@ -113,7 +113,8 @@ export default function RealCmdb() {
   if (!view) return <div className="p-6 text-sm text-text-secondary" data-page-state="loading">Loading…</div>
 
   const canEdit = !readOnly && view.canEdit
-  const nameOf = (id) => view.records.find((r) => r.id === id)?.hostname ?? null
+  const nameOf = (id) => view.records.find((r) => r.id === id)?.hostname ?? view.retiredRecords?.find((r) => r.id === id)?.label ?? null
+  const retired = view.retiredRecords ?? []
   const rooms = [...new Set(view.records.map((r) => r.roomCode).filter(Boolean))].sort()
   const shown = filterRecords(view.records, view.connections, filters)
   const selected = view.records.find((r) => r.id === selectedId) ?? null
@@ -160,7 +161,7 @@ export default function RealCmdb() {
         ))}
       </div>
 
-      {!view.started || view.records.length === 0 ? (
+      {!view.started || (view.records.length === 0 && retired.length === 0) ? (
         <div className="rounded-xl border border-border bg-surface p-6 text-sm text-text-secondary">No accepted devices yet — a device enters the CMDB when a PM or Reviewer accepts it in Deployment.</div>
       ) : (
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
@@ -236,7 +237,24 @@ export default function RealCmdb() {
               ) : (
                 <p className="rounded-xl border border-dashed border-border bg-surface p-4 text-sm text-text-secondary">Choose a device in the inventory, on the map or in the cable matrix.</p>
               ))}
-            {tab === 'log' && <ChangeLog entries={view.changeLog} nameOf={nameOf} />}
+            {tab === 'log' && (
+              <div className="space-y-3">
+                {retired.length > 0 && (
+                  <div className="rounded-xl border border-border bg-surface p-4" aria-label="Retired records" role="region">
+                    <h2 className="mb-2 text-sm font-semibold text-text">Retired records ({retired.length})</h2>
+                    <ul className="space-y-1 text-xs text-text-secondary">
+                      {retired.map((r) => (
+                        <li key={r.id}>
+                          <span className="font-medium text-text">{r.label}</span> — was {r.previousStatus}, removed by {r.reason} on {r.at ? new Date(r.at).toLocaleDateString() : '—'}
+                          {r.serial ? `; serial ${r.serial} released` : ''}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                <ChangeLog entries={view.changeLog} nameOf={nameOf} />
+              </div>
+            )}
             {tab === 'lifecycle' && (
               <LifecycleDashboard
                 records={view.records}

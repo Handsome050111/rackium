@@ -2,6 +2,7 @@ import mongoose from 'mongoose'
 import { isCmdbRecord, lifecycleSummary, matchLifecycleRows, cableMatrix, reconcile, LIFECYCLE_FIELDS, PROVENANCE_LABEL } from '@rackium/shared/cmdb.js'
 import { STATUS_LABELS } from '@rackium/shared/deployment.js'
 import { DeploymentRecord } from '../models/deploymentRecord.js'
+import { ConnectionRecord } from '../models/connectionRecord.js'
 import { AuditEntry } from '../models/auditEntry.js'
 import { User } from '../models/user.js'
 import { recordAudit, userActor } from '../audit/audit.js'
@@ -139,8 +140,8 @@ export function createCmdbService({ deployment }) {
     if (!EDITORS.some((r) => roles.includes(r))) throw forbidden('Only an Architect or PM edits the CMDB')
   }
 
-  async function changeLog(req, building, records, connections) {
-    const ids = [...records.map((r) => r.id), ...connections.map((c) => c.id)]
+  async function changeLog(req, building, records, connections, retiredIds = []) {
+    const ids = [...records.map((r) => r.id), ...connections.map((c) => c.id), ...retiredIds]
     if (!ids.length) return []
     const entries = await AuditEntry.find({ buildingId: oid(building.id), phaseKey: { $in: ['deployment', 'cmdb'] }, $or: [{ objectId: { $in: ids } }, { 'changes.objectId': { $in: ids } }] }).sort({ occurredAt: -1 }).limit(CHANGE_LOG_LIMIT).lean()
     const names = await namesOf(entries.map((e) => e.actor?.userId))
@@ -166,6 +167,7 @@ export function createCmdbService({ deployment }) {
       const base = { building: { id: building.id, code: building.code, name: building.name }, canEdit: EDITORS.some((r) => roles.includes(r)) }
       if (!ctx.started) return { ...base, started: false, records: [], connections: [], cableMatrix: [], racks: [], reconciliation: null, changeLog: [] }
       const names = await namesOf(records.map((d) => d.rec?.acceptedBy))
+      const [retired, retiredConns] = await Promise.all([DeploymentRecord.find({ buildingId: building.id, status: 'retired' }).sort({ 'retired.at': -1 }).lean(), ConnectionRecord.find({ buildingId: building.id, status: 'retired' }, { connectionId: 1 }).lean()])
       const rows = records.map((d) => recordView(ctx, d, designFrozenAt, names, ctx.today))
       const conns = connections.map((c) => connectionView(ctx, c))
       const nameOf = (devId) => ctx.nameOf(devId)
@@ -191,7 +193,9 @@ export function createCmdbService({ deployment }) {
           connections: asBuiltSegments,
           openExceptions: ctx.exceptions.filter((e) => e.status === 'open').length,
         }),
-        changeLog: await changeLog(req, building, rows, conns),
+        // Records a change request retired (their device left the design): listed, and in the change log.
+        retiredRecords: retired.map((r) => ({ id: String(r.deviceId), label: r.retired?.label ?? null, at: r.retired?.at ?? null, reason: r.retired?.reason ?? null, previousStatus: r.retired?.previousStatus ?? null, serial: r.retired?.serial ?? null, mac: r.retired?.mac ?? null })),
+        changeLog: await changeLog(req, building, rows, conns, [...retired.map((r) => String(r.deviceId)), ...retiredConns.map((r) => String(r.connectionId))]),
       }
     },
 

@@ -584,3 +584,25 @@ Found and fixed while building and testing M6a, each with a test:
 
 Decisions to confirm are marked ★ in the M6a report and described in
 DATA-MODEL §4.11, §4.12, §5.2, §5.3, §8.2 and §8.3.
+
+### M6a review round: connection counts, retired records, uninspected devices
+
+Found and fixed, each with a test:
+
+- **The dashboard always showed 0 connections** (since M2): the count was a
+  placeholder. It now counts the building's designed connections and,
+  from their records, how many are installed, tested and accepted. Test:
+  `api.m6a.test.js` (dashboard after patching and tests) and
+  `e2e-real/m6a.spec.js` (the Connections tile).
+- **A device removed by an approved change request kept its serial
+  reserved** (M6a): its installation record stayed behind with the serial in
+  the project registry and the MAC in the unique index. It is retired in the
+  same transaction now — serial and MAC released, open exceptions closed,
+  audited, and listed in the CMDB change log. Test: `api.m6a.test.js` (the
+  released serial and MAC installed on another device) and
+  `e2e-real/m6a.spec.js` (the retired record in the change log).
+- **Installed but never inspected devices got no DGUV reminder** (M6a): the
+  job only looked at recorded inspections. A "not inspected" reminder now
+  goes to the PMs once per device, and the dashboard shows a DGUV summary.
+  Test: `api.m6a.test.js` (reminders, once) and `e2e-real/m6a.spec.js`
+  (the summary).

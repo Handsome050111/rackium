@@ -20,7 +20,8 @@ const segmentSchema = new mongoose.Schema(
 const connectionRecordSchema = new mongoose.Schema({
   buildingId: { type: ObjectId, required: true, index: true },
   connectionId: { type: ObjectId, required: true },
-  status: { type: String, enum: ['draft', 'installed', 'tested', 'faulty', 'accepted'], default: 'draft' },
+  status: { type: String, enum: ['draft', 'installed', 'tested', 'faulty', 'accepted', 'retired'], default: 'draft' },
+  retiredAt: { type: Date, default: null },
   installed: {
     sourcePort: { type: String, default: null },
     destPort: { type: String, default: null },

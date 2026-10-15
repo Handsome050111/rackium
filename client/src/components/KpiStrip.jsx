@@ -1,10 +1,11 @@
 import { Flag } from 'lucide-react'
 
-function KpiItem({ label, value, progress }) {
+function KpiItem({ label, value, progress, hint }) {
   return (
     <div className="flex flex-col gap-1 py-3 px-4 sm:px-5">
       <span className="text-xs text-text-secondary">{label}</span>
       <span className="text-lg font-semibold text-text">{value}</span>
+      {hint && <span className="text-[11px] text-text-secondary">{hint}</span>}
       {progress !== undefined && (
         <div className="mt-1 h-1.5 w-full max-w-40 overflow-hidden rounded-full bg-surface-muted">
           <div className="h-full rounded-full bg-brand" style={{ width: `${progress}%` }} />

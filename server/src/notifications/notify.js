@@ -130,6 +130,12 @@ export function notifyDguvExpiry({ projectId, buildingId, deviceLabel, expiresOn
   return notify({ type: 'dguv_expiry', projectId, buildingId, title, relatedObjectType: 'device', link, groupLink: link, to: { roles: ['pm'] }, session })
 }
 
+// A mains-powered device installed but never DGUV-inspected (M6a review):
+// PMs (in scope) are told once per device.
+export function notifyDguvNotInspected({ projectId, buildingId, deviceLabel, buildingCode = null, link = null, session = null }) {
+  return notify({ type: 'dguv_not_inspected', projectId, buildingId, title: `${deviceLabel} is installed but not DGUV-inspected${buildingCode ? ` (${buildingCode})` : ''}`, relatedObjectType: 'device', link, groupLink: link, to: { roles: ['pm'] }, session })
+}
+
 // Comment mentions: comments arrive with a later module; it calls this with
 // the users a comment mentions.
 export function notifyMention({ projectId, buildingId = null, mentionedUserIds, actorId, excerpt, relatedObjectType = null, relatedObjectId = null, link = null, session = null }) {

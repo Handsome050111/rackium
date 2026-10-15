@@ -28,8 +28,14 @@ const historySchema = new mongoose.Schema(
 const deploymentRecordSchema = new mongoose.Schema({
   buildingId: { type: ObjectId, required: true, index: true },
   deviceId: { type: ObjectId, required: true },
-  // draft: something recorded, not yet installed.
-  status: { type: String, enum: ['draft', 'installed', 'configured', 'tested', 'accepted', 'in_service', 'maintenance'], default: 'draft' },
+  // draft: something recorded, not yet installed. retired: an approved change
+  // request removed the device from the design (M6a review).
+  status: { type: String, enum: ['draft', 'installed', 'configured', 'tested', 'accepted', 'in_service', 'maintenance', 'retired'], default: 'draft' },
+  // Set when retired: what it was, and the serial and MAC it released.
+  retired: {
+    type: new mongoose.Schema({ at: Date, reason: String, label: String, previousStatus: String, serial: String, mac: String }, { _id: false }),
+    default: null,
+  },
   installation: {
     serial: { type: String, default: null, trim: true },
     // Stored form: lower case, colon-separated (as the CMO import).

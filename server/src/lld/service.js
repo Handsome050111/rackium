@@ -31,6 +31,7 @@ import { Country } from '../models/country.js'
 import { Organisation } from '../models/organisation.js'
 import { User } from '../models/user.js'
 import { projectCatalogue } from '../catalogue/service.js'
+import { retireRemovedRecords } from '../deployment/asBuilt.js'
 import { withTransaction } from '../db/transaction.js'
 import { currentScope } from '../tenancy/scopeContext.js'
 import { recordAudit, userActor } from '../audit/audit.js'
@@ -803,7 +804,10 @@ export function createLldService({ storage }) {
         await DesignVersion.updateOne({ _id: hldVersion.versionId }, { $set: { frozen: true, frozenAt: new Date() } }, { session })
         await HldDesign.updateOne({ _id: hldDoc._id }, { $set: { latestApprovedVersionId: hldVersion.versionId, state: 'approved' }, $inc: { revision: 1 } }, { session })
       }
+      // Names of the frozen design's devices, for retiring the ones the change removes.
+      const labels = new Map((await Device.find({ buildingId: building.id, layer: MAIN }, { hostname: 1, label: 1 }).session(session).lean()).map((d) => [String(d._id), d.hostname ?? d.label ?? 'device']))
       await promoteInto(req, building, branch, actor, session)
+      await retireRemovedRecords({ organisationId: req.org.id, projectId: req.project.id, buildingId: building.id, reason: label, labels, session })
       const data = await loadLayer(building.id, MAIN, req.project.id, session)
       const lld = await LldDesign.findOne({ buildingId: building.id }).session(session).lean()
       const basedOn = hldVersion ? { basedOnHldVersionId: hldVersion.versionId, basedOnHldNumber: hldVersion.number } : {}

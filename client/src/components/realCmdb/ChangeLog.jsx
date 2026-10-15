@@ -12,7 +12,7 @@ export default function ChangeLog({ entries, nameOf }) {
   return (
     <ul className="divide-y divide-border rounded-xl border border-border bg-surface" aria-label="Change log">
       {entries.map((e) => {
-        const kind = KIND[e.changeType] ?? { label: e.changeType, tone: 'bg-surface-muted text-text-secondary' }
+        const kind = e.action.endsWith('.retired') ? { label: 'Retired', tone: 'bg-status-red/10 text-status-red' } : KIND[e.changeType] ?? { label: e.changeType, tone: 'bg-surface-muted text-text-secondary' }
         return (
           <li key={e.id} className="space-y-1 px-4 py-2.5 text-xs">
             <div className="flex flex-wrap items-center gap-2">
