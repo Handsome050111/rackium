@@ -707,6 +707,18 @@ Found and fixed, each with a test:
   reproduced locally with no browser available, where the HLD test now
   reports "Executable doesn't exist".
 
+- **A flaky Organisation settings check** (PR #13 CI: failed on the first
+  attempt, passed on retry): "the Org Admin revokes it again; creation is
+  refused" got 201 instead of 403. The settings toggles update the screen at
+  once and save in the background (by design; a refusal restores the real
+  state), and the test took the "Not allowed" label as proof the revoke was
+  saved, then called the API before the save landed. The server reads the
+  permission fresh on every request, so the app was not at fault. The spec
+  now waits for each toggle's save to answer. Test: the revoke check now
+  slows the save by 1 s — the old test fails every time with it (403
+  expected, 201 received), the fixed one passes; no other real-mode spec acts
+  on a toggle before its save.
+
 Noted, not a bug: one client unit run during this round reported 22 files /
 233 tests instead of 27 / 247. No client test file was removed or changed
 (git), and the count could not be reproduced in five further runs (idle and
