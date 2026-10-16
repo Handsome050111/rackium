@@ -62,7 +62,8 @@ test('a building-scoped Field Engineer sees and works only within their building
     await fe.setViewportSize({ width, height })
     for (const path of [`buildings/${b001.id}`, `buildings/${b001.id}/cmo`, `buildings/${b002.id}`]) {
       await fe.goto(`/orgs/${orgId}/projects/${projectId}/${path}`)
-      await expect(fe.locator('main')).not.toContainText('Loading…')
+      // A loaded page may take longer than 5 s under a busy full run (BUG-SWEEP).
+      await expect(fe.locator('main')).not.toContainText('Loading…', { timeout: 30_000 })
       const overflow = await fe.evaluate(() => {
         const main = document.querySelector('main')
         return document.documentElement.scrollWidth - document.documentElement.clientWidth + (main.scrollWidth - main.clientWidth)

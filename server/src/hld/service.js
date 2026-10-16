@@ -8,6 +8,7 @@ import { HLD_ROLES, roleInfo, nextHostname, defaultModelFor, resolveRoleCodes, P
 import { generateFromBlueprint, BLUEPRINT_PRESETS, BLUEPRINT_VARIANTS, blueprintProblem, defaultVariantOf } from '@rackium/shared/hldBlueprints.js'
 import { validateHld, uplinkChecks, summariseFindings } from '@rackium/shared/hldRules.js'
 import { canApproveSubmission } from '@rackium/shared/policy.js'
+import { deviceDisplayName } from '@rackium/shared/deviceName.js'
 import { DesignBranch } from '../models/designBranch.js'
 import { ChangeRequest } from '../models/changeRequest.js'
 import { assertChangeRequestEditable, claimBranchRevision } from '../design/branchClaim.js'
@@ -149,7 +150,7 @@ const toDeviceView = (d, cat, positions) => {
     role: d.role,
     roleLabel: info?.label ?? null,
     hostname: d.hostname ?? null,
-    label: d.hostname ?? d.label ?? info?.label ?? 'Device',
+    label: deviceDisplayName(d, info?.label ?? 'Device'),
     catalogueKey: d.catalogueKey ?? null,
     model: d.model ?? null,
     category: cat.item(d.catalogueKey)?.category ?? null,
@@ -187,7 +188,7 @@ const toConnectionView = (c, length) => ({
 function ruleInputs(data) {
   const cat = catalogueIndex(data.catalogue)
   const rackPos = rackPositions(data.racks)
-  const deviceViews = data.devices.map((d) => ({ ...toDeviceView(d, cat), face: d.face ?? 'front', fullDepth: Boolean(d.fullDepth), label: d.hostname ?? d.label ?? roleInfo(d.role)?.label ?? 'device' }))
+  const deviceViews = data.devices.map((d) => ({ ...toDeviceView(d, cat), face: d.face ?? 'front', fullDepth: Boolean(d.fullDepth), label: deviceDisplayName(d, roleInfo(d.role)?.label ?? 'device') }))
   const deviceById = new Map(deviceViews.map((d) => [d.id, d]))
   const connections = data.connections.map((c) => toConnectionView(c, lengthOf(c, deviceById, rackPos, data.pathways)))
   const ctx = {

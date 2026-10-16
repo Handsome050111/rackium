@@ -428,7 +428,8 @@ test('the BOM, the Solution Package and the public approval page fit every width
     for (const [width, height] of [[1440, 900], [1024, 768], [768, 1024], [390, 844]]) {
       await page.setViewportSize({ width, height })
       await page.goto(url)
-      await expect(page.locator('body')).not.toContainText('Loading…')
+      // A loaded page may take longer than 5 s under a busy full run (BUG-SWEEP).
+      await expect(page.locator('body')).not.toContainText('Loading…', { timeout: 30_000 })
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
       expect(overflow, `${url} at ${width}px`).toBe(0)
       if (process.env.M5A_SHOTS) await page.screenshot({ path: `${process.env.M5A_SHOTS}/${url.split('/').pop().slice(0, 20)}-${width}.png`, fullPage: true })

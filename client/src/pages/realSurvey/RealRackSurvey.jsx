@@ -5,6 +5,7 @@ import { ArrowLeft, ClipboardCheck, Trash2 } from 'lucide-react'
 import { ACTIONS, can } from '@rackium/shared/policy.js'
 import { findConflicts, computeFreeRU } from '@rackium/shared/rackValidation.js'
 import { computeReadiness } from '@rackium/shared/rackReadiness.js'
+import { deviceDisplayName, EXISTING_LABEL_MAX } from '@rackium/shared/deviceName.js'
 import RackElevation, { parseDroppableId } from '../../components/RackElevation.jsx'
 import RackObjectLibrary from '../../components/RackObjectLibrary.jsx'
 import DragPreviewCard from '../../components/DragPreviewCard.jsx'
@@ -22,7 +23,7 @@ import { useDragSensors } from '../../lib/useDragSensors.js'
 import { useProjectRoles } from '../../lib/useProjectRoles.js'
 import { useRealSurveySync } from '../../lib/RealSurveySync.jsx'
 import { newObjectId } from '../../lib/realOfflineQueue.js'
-import { surveyPath, stepperLinksFor, toPlacementBody } from '../../lib/realSurveyModel.js'
+import { surveyPath, stepperLinksFor, toPlacementBody, pickedFromCmo } from '../../lib/realSurveyModel.js'
 
 const AUTOSAVE_DELAY_MS = 800
 
@@ -113,7 +114,8 @@ export default function RealRackSurvey() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [devices.value])
 
-  const all = useMemo(() => [...devices.value, ...ruStates], [devices.value, ruStates])
+  // Items show their existing label (recorded on site) when one is set.
+  const all = useMemo(() => [...devices.value.map((p) => ({ ...p, displayName: deviceDisplayName(p) })), ...ruStates], [devices.value, ruStates])
   const selected = all.find((p) => p.id === selectedId) ?? null
 
   const permissionFor = useCallback(
@@ -210,13 +212,24 @@ export default function RealRackSurvey() {
     devices.setValue((list) =>
       list.map((p) => {
         if (p.id !== selected.id) return p
-        if (cmo && !list.some((o) => o.id === cmo.deviceId)) {
-          return { ...p, id: cmo.deviceId, deviceId: cmo.deviceId, fromCmo: true, serial: cmo.serial, label: cmo.expectedHostname ?? p.label, sublabel: cmo.model ?? p.sublabel, identityEdited: false }
-        }
+        if (cmo && !list.some((o) => o.id === cmo.deviceId)) return pickedFromCmo(p, cmo)
         return { ...p, serial: value, identityEdited: true }
       })
     )
     if (cmo && !devices.value.some((o) => o.id === cmo.deviceId)) setSelectedId(cmo.deviceId)
+  }
+
+  // Picking from the CMO list — the way to identify a CMO device that has
+  // no serial (it is never serial-validated).
+  function handlePickCmo(deviceId) {
+    const cmo = context.roomCmoList.find((c) => c.deviceId === deviceId)
+    if (!cmo || devices.value.some((o) => o.id === cmo.deviceId)) return
+    devices.setValue((list) => list.map((p) => (p.id === selected.id ? pickedFromCmo(p, cmo) : p)))
+    setSelectedId(cmo.deviceId)
+  }
+
+  function handleExistingLabelChange(value) {
+    devices.setValue((list) => list.map((p) => (p.id === selected.id ? { ...p, existingLabel: value } : p)))
   }
 
   function handleMacChange(value) {
@@ -257,6 +270,8 @@ export default function RealRackSurvey() {
   const surveyPercent = Math.round((readiness.checks.filter((c) => c.pass).length / readiness.checks.length) * 100)
   const anyEditor = permissions.canMoveDevices || permissions.canReserve || permissions.canBlock
   const cmoWithSerials = context.roomCmoList.filter((c) => c.serial)
+  // CMO devices that can be picked here: not in this rack already and not placed in another rack.
+  const pickableCmo = context.roomCmoList.filter((c) => !devices.value.some((p) => p.id === c.deviceId) && (!c.placedInRackId || c.placedInRackId === rackId))
 
   return (
     <DndContext sensors={sensors} onDragStart={(e) => setActiveDragData(e.active.data.current)} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
@@ -286,7 +301,7 @@ export default function RealRackSurvey() {
             {selected && permissionFor(selected) && (
               <button type="button" onClick={handleDelete} className="flex h-touch items-center gap-1.5 rounded-lg border border-status-red/30 px-3 text-xs font-medium text-status-red hover:bg-status-red/5 sm:h-9">
                 <Trash2 size={14} strokeWidth={2} />
-                {selected.kind === 'device' ? `Remove ${selected.label}` : `Release RU ${selected.ru}`}
+                {selected.kind === 'device' ? `Remove ${selected.displayName ?? selected.label}` : `Release RU ${selected.ru}`}
               </button>
             )}
             <button
@@ -332,8 +347,42 @@ export default function RealRackSurvey() {
               roomCmoList={cmoWithSerials}
               allProjectSerials={context.allProjectSerials}
               disabled={!permissions.canMoveDevices || selected.fromCmo}
-            />
+            >
+              {!selected.fromCmo && pickableCmo.length > 0 && (
+                <label className="mt-3 flex flex-col gap-1">
+                  <span className="text-xs text-text-secondary">Or pick from the CMO list (also devices without a serial)</span>
+                  <select
+                    value=""
+                    onChange={(e) => e.target.value && handlePickCmo(e.target.value)}
+                    disabled={!permissions.canMoveDevices}
+                    aria-label="Pick a CMO device"
+                    className="h-9 w-full min-w-0 rounded-lg border border-border bg-surface px-2.5 text-sm text-text focus:border-brand focus:outline-none disabled:cursor-not-allowed disabled:bg-surface-muted"
+                  >
+                    <option value="">Choose a CMO device…</option>
+                    {pickableCmo.map((c) => (
+                      <option key={c.deviceId} value={c.deviceId}>
+                        {[c.expectedHostname, [c.vendor, c.model].filter(Boolean).join(' ')].filter(Boolean).join(' · ') || 'CMO device'} · {c.serial ?? 'No serial'}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {selected.fromCmo && !selected.serial && <p className="mt-2 text-xs font-medium text-status-amber">No serial — picked from the CMO list, not serial-validated.</p>}
+            </DeviceIdentityPanel>
             <div className="space-y-2 rounded-xl border border-border bg-surface p-4">
+              <label className="flex flex-col gap-1">
+                <span className="text-xs text-text-secondary">Existing label / name</span>
+                <input
+                  value={selected.existingLabel ?? ''}
+                  onChange={(e) => handleExistingLabelChange(e.target.value)}
+                  disabled={!permissions.canMoveDevices}
+                  maxLength={EXISTING_LABEL_MAX}
+                  placeholder={selected.label}
+                  aria-label="Existing label / name"
+                  className="h-9 rounded-lg border border-border bg-surface px-2.5 text-sm text-text focus:border-brand focus:outline-none disabled:cursor-not-allowed disabled:bg-surface-muted"
+                />
+                <span className="text-[11px] text-text-secondary">The name or label on the item on site, as the customer uses it. Shown instead of “{selected.label}”.</span>
+              </label>
               <label className="flex flex-col gap-1">
                 <span className="text-xs text-text-secondary">MAC address</span>
                 <input

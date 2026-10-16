@@ -723,3 +723,58 @@ Noted, not a bug: one client unit run during this round reported 22 files /
 233 tests instead of 27 / 247. No client test file was removed or changed
 (git), and the count could not be reproduced in five further runs (idle and
 under the same load); every later run found all 27 files.
+
+## Part 11: fix/cmo-naming-gaps — surveyed gear keeps its own names (before M7a)
+
+From the CMO-vs-FMO naming report. Found and fixed, each with a test:
+
+- **Surveyed panels of the same type blocked the LLD** (M4b): `L-PANEL-LABEL`
+  compared every panel in the building by its label, and a surveyed panel's
+  label is its library name ("24-port patch panel"), so two of them were a
+  Critical finding the Architect could not fix — the LLD could not be
+  submitted. Reproduced through the API first (409 `validation_blocked`, "24-port
+  patch panel is used by 2 patch panels in this building"). Now the Critical
+  check covers the design's own (planned) panels; a surveyed panel takes part
+  only with a label recorded on site, and a planned panel with that label is a
+  Warning (`L-PANEL-LABEL-EXISTING`); two surveyed panels are never compared.
+  The Architect can rename a planned panel (Rack Elevations → Place devices),
+  so every remaining panel-label finding is fixable from the UI. Tests:
+  `api.cmo-naming.test.js` (two surveyed panels → the LLD submits; failed
+  before the fix), the planned duplicate still Critical and fixed by renaming,
+  the existing-label clash a Warning that does not block; `lldDesign.test.js`;
+  `e2e-real/lld.spec.js` (rename in the UI).
+- **A rack holding CMO devices imported into it could not be saved in the
+  Rack Survey** (M3a/M3b, found writing this round's tests): a device
+  imported with a rack and RU has no height, so the survey drew it as a
+  0U-high rack item and every save was refused ("a rack-mounted item is at
+  least 1U"); one imported with a rack but no RU sat at RU 0 with the same
+  result. It now shows as 1U until surveyed, and one without an RU stays in
+  the rack's CMO list, off the elevation, untouched by saves. Test:
+  `api.cmo-naming.test.js` (fails without the fix).
+- **Picking a CMO device in the Rack Survey replaced the placed item's
+  label with the CMO hostname** (M3b): the label sets the kind and port count
+  of a panel without a catalogue model, so a CMO-picked 48-port panel counted
+  24 ports. The pick now keeps the label and pre-fills the existing label
+  from the hostname instead. Test: `realSurveyModel.test.js`.
+- **The CMO import preview hid the server's own refusal text** (M3a): a row
+  outside the importer's scope showed an empty Issues cell. Test:
+  `cmoModel.test.js` (`rowIssueText`).
+- **A flaky HLD width check** (full Playwright run: failed on the first
+  attempt, passed on retry): "the HLD and naming settings fit every width"
+  allowed a page load the default 5 s to stop showing "Loading…"; with the
+  machine busy (the editor using a core) one HLD load took ~6 s — every
+  request returned 200, `/me` alone took 2.9 s. The LLD's width check had
+  the same weakness and was fixed by waiting for the page's own ready state
+  (Part 3, M5b review follow-up); the HLD page now has `data-page-state` ("ready" once the design
+  and its validation are loaded) and the check waits for it, up to 30 s. The
+  same fixed 5 s wait after a page load in the M5a and scope width checks now
+  allows 30 s. Test: with every HLD design load slowed by 6 s, the old check
+  fails as in the run and the new one passes.
+
+Gaps closed (v2.2 §3.5a): the CMO import stores the Floor column (checked
+like room and rack), takes an optional Vendor column, and imports rows
+without a serial marked "No serial" — picked from the CMO list in the Rack
+Survey, never serial-validated. The Rack Survey records an optional
+"Existing label / name" per item, shown instead of the library name wherever
+surveyed items are listed. Not built, waiting on the client: an old → new
+mapping, the ghost overlay, CMO/FMO terminology changes (DATA-MODEL §11).

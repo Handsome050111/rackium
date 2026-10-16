@@ -23,14 +23,14 @@ export default function UnassignedList({ devices, buildings, editable, onAssign,
             <div>
               <div className="text-xs font-medium text-text">{d.hostname ?? '(no hostname)'}</div>
               <div className="text-[11px] text-text-secondary">
-                {d.model ?? '—'} · Serial {d.serial}
+                {[d.vendor, d.model].filter(Boolean).join(' ') || '—'} · {d.serial ? `Serial ${d.serial}` : 'No serial'}
               </div>
             </div>
             {editable ? (
               <select
                 defaultValue=""
                 disabled={disabled}
-                aria-label={`Assign ${d.hostname ?? d.serial} to a building`}
+                aria-label={`Assign ${d.hostname ?? d.serial ?? d.model ?? 'device'} to a building`}
                 onChange={(e) => e.target.value && onAssign(d.id, e.target.value)}
                 className="h-8 rounded-lg border border-border bg-surface px-2 text-xs text-text focus:border-brand focus:outline-none"
               >

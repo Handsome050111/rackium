@@ -45,7 +45,7 @@ describe('M3a API modules in real mode', () => {
     const [url, init] = fetch.mock.calls[0]
     expect(url).toBe('/api/v1/orgs/org1/projects/p1/cmo/import')
     expect(JSON.parse(init.body)).toEqual({
-      rows: [{ rowIndex: 3, hostname: 'SW', model: null, serial: 'S1', mac: null, building: 'B001', floor: null, room: null, rack: null, ru: null }],
+      rows: [{ rowIndex: 3, hostname: 'SW', vendor: null, model: null, serial: 'S1', mac: null, building: 'B001', floor: null, room: null, rack: null, ru: null }],
       salId: 's1',
       fileName: 'cmo.xlsx',
     })

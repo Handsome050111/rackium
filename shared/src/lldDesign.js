@@ -5,6 +5,7 @@
 import { expandPortMap } from './catalogue.js'
 import { validateHld, portSuitsMedia, HLD_RULES } from './hldRules.js'
 import { roleInfo } from './hldRoles.js'
+import { cleanExistingLabel } from './deviceName.js'
 
 // --- Ports ---------------------------------------------------------------------
 
@@ -226,6 +227,7 @@ export const LLD_RULES = {
   'L-HOP': { severity: 'critical', title: 'Patch-panel hop is not valid' },
   'L-PANEL-PAIR': { severity: 'critical', title: "A panel port's front and rear belong to different connections" },
   'L-PANEL-LABEL': { severity: 'critical', title: 'Patch-panel label not unique in the building' },
+  'L-PANEL-LABEL-EXISTING': { severity: 'warning', title: 'Planned patch panel has the label of an existing panel' },
 }
 const lldFinding = (rule, objectType, objectId, message, suffix = '') => ({
   id: `${rule}:${objectType}:${objectId}${suffix ? `:${suffix}` : ''}`,
@@ -293,9 +295,28 @@ export function validateLld(design, ctx) {
   for (const e of holders.values()) {
     if (e.ids.size > 1) findings.push(lldFinding('L-PANEL-PAIR', 'device', e.deviceId, `${name(deviceById.get(e.deviceId))} port ${e.portId}: front and rear are in ${e.ids.size} different connections — make it one connection with a hop`, String(e.portId).toLowerCase()))
   }
-  // Panel labels unique in the building (the design's panels and surveyed ones).
-  for (const dup of duplicatePanelLabels(design.devices.filter((d) => isPanelIn(d.id)))) {
+  // Panel labels (fix/cmo-naming-gaps). Unique among the design's own
+  // (planned) panels in the building: Critical, the Architect renames one.
+  // A surveyed (existing) panel takes part only with a label recorded on site
+  // (its existing label); a planned panel with that label is a Warning. A
+  // surveyed item's library name ("24-port patch panel") is not a label, and
+  // two surveyed panels are never compared — no finding the Architect cannot fix.
+  const panels = design.devices.filter((d) => isPanelIn(d.id))
+  const planned = panels.filter((d) => d.origin !== 'existing')
+  for (const dup of duplicatePanelLabels(planned)) {
     findings.push(lldFinding('L-PANEL-LABEL', 'device', dup.ids[0], `${dup.label} is used by ${dup.ids.length} patch panels in this building`, dup.label.toLowerCase()))
+  }
+  const recorded = new Map()
+  for (const e of panels.filter((d) => d.origin === 'existing')) {
+    const label = cleanExistingLabel(e.existingLabel)
+    if (label && !recorded.has(label.toLowerCase())) recorded.set(label.toLowerCase(), e)
+  }
+  for (const p of planned) {
+    const label = p.label ?? p.hostname
+    const existing = label ? recorded.get(String(label).toLowerCase()) : null
+    if (!existing) continue
+    const where = [existing.roomCode, existing.rackCode && `rack ${existing.rackCode}`, existing.ru != null && `RU${existing.ru}`].filter(Boolean).join(' ')
+    findings.push(lldFinding('L-PANEL-LABEL-EXISTING', 'device', p.id, `${label} is also the label recorded on an existing panel${where ? ` (${where})` : ''} — rename the planned panel so the two cannot be confused on site`, String(label).toLowerCase()))
   }
   return findings.sort((x, y) => ['critical', 'warning', 'info'].indexOf(x.severity) - ['critical', 'warning', 'info'].indexOf(y.severity) || x.rule.localeCompare(y.rule))
 }

@@ -22,6 +22,26 @@ export function formatValue(v) {
 // Rack placements → the API body. Identity travels only when the screen set
 // it (omitted = keep what the device has); an imported CMO device's serial
 // is never sent back. RU states are not placements (they have their own calls).
+// A placement picked from the building's CMO (by its serial or from the
+// list) becomes that device. What was placed stays its label — it sets the
+// kind and the port count (regression: the CMO hostname replaced it, so a
+// 48-port panel counted 24 ports); the CMO hostname pre-fills the existing
+// label unless the surveyor typed one (fix/cmo-naming-gaps).
+export function pickedFromCmo(placement, cmo) {
+  return {
+    ...placement,
+    id: cmo.deviceId,
+    deviceId: cmo.deviceId,
+    fromCmo: true,
+    serial: cmo.serial,
+    mac: cmo.mac,
+    hostname: cmo.expectedHostname,
+    existingLabel: placement.existingLabel?.trim() ? placement.existingLabel : cmo.expectedHostname ?? null,
+    sublabel: cmo.model ?? placement.sublabel,
+    identityEdited: false,
+  }
+}
+
 export function toPlacementBody(placements) {
   return placements
     .filter((p) => p.kind === 'device')
@@ -36,6 +56,8 @@ export function toPlacementBody(placements) {
       category: p.category ?? null,
       label: p.label,
       sublabel: p.sublabel ?? null,
+      // Free text recorded on site (fix/cmo-naming-gaps); empty clears it.
+      existingLabel: p.existingLabel?.trim() ? p.existingLabel.trim() : null,
       ...(p.identityEdited && !p.fromCmo ? { serial: p.serial || null, mac: p.mac || null } : {}),
     }))
 }

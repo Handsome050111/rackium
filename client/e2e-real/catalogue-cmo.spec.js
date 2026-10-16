@@ -125,15 +125,26 @@ test('CMO: import with column mapping and server-side validation', async () => {
   await expect(page.getByText(/row\(s\)\. Map each/)).toBeVisible()
   await page.getByRole('button', { name: 'Preview import' }).click()
 
-  await expect(page.getByText('3 valid')).toBeVisible()
-  await expect(page.getByText("2 blocked (won't be imported)")).toBeVisible()
+  // A row without a serial imports, marked No serial (fix/cmo-naming-gaps).
+  await expect(page.getByText('4 valid')).toBeVisible()
+  await expect(page.getByText("1 blocked (won't be imported)")).toBeVisible()
   await expect(page.getByText('1 going to Unassigned')).toBeVisible()
   await expect(page.locator('tr', { hasText: 'SW-BAD-MAC' })).toContainText('Invalid MAC format')
-  await expect(page.locator('tr', { hasText: 'SW-NO-SERIAL' })).toContainText('Missing serial')
+  await expect(page.locator('tr', { hasText: 'SW-NO-SERIAL' })).toContainText('No serial')
 
-  await page.getByRole('button', { name: 'Commit import (3)' }).click()
-  await expect(page.getByRole('status')).toContainText('Imported 3 device(s): 2 assigned, 1 Unassigned')
+  await page.getByRole('button', { name: 'Commit import (4)' }).click()
+  await expect(page.getByRole('status')).toContainText('Imported 4 device(s): 3 assigned, 1 Unassigned, 1 with no serial')
   await expect(page.locator('tr', { hasText: 'SW-EG-01' })).toContainText('00:1a:2b:3c:4d:01')
+  await expect(page.locator('tr', { hasText: 'SW-NO-SERIAL' })).toContainText('No serial')
+  await expect(page.locator('tr', { hasText: 'SW-EG-01' })).toContainText('Cisco')
+  // The device table (Vendor, Floor and Serial columns) fits every width.
+  for (const [width, height] of [[1440, 900], [1024, 768], [768, 1024], [390, 844]]) {
+    await page.setViewportSize({ width, height })
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth + (document.querySelector('main').scrollWidth - document.querySelector('main').clientWidth))
+    expect(overflow, `CMO page at ${width}px`).toBe(0)
+    if (process.env.CMO_SHOTS) await page.screenshot({ path: `${process.env.CMO_SHOTS}/cmo-${width}.png`, fullPage: true })
+  }
+  await page.setViewportSize({ width: 1440, height: 900 })
   await expect(page.getByText('Unassigned at SAL ERL (1)')).toBeVisible()
   await expect(page.getByText('Blocked', { exact: true }).first()).toBeVisible()
 })

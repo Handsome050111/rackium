@@ -297,6 +297,9 @@ export const rackPlacementBody = z.object({
   category: z.string().trim().max(60).nullable().default(null),
   label: z.string().trim().min(1).max(120),
   sublabel: z.string().trim().max(120).nullable().default(null),
+  // The name or label recorded on site (fix/cmo-naming-gaps): free text, no
+  // naming pattern. Omitted = keep; null or empty = clear.
+  existingLabel: z.string().trim().max(120).nullable().optional(),
   // Identity: omitted = keep what the device has; null = clear it.
   catalogueKey: z.string().trim().max(200).nullable().optional(),
   hostname: z.string().trim().max(120).nullable().optional(),
@@ -432,6 +435,7 @@ const cmoCell = z.string().trim().max(200).nullable().default(null)
 export const cmoRow = z.object({
   rowIndex: z.number().int().min(0),
   hostname: cmoCell,
+  vendor: cmoCell,
   model: cmoCell,
   serial: cmoCell,
   mac: cmoCell,
@@ -636,6 +640,8 @@ export const lldRebaseBody = z.object({ buildingId: objectId, baseRevision })
 export const lldCopyBody = z.object({ buildingId: objectId, ...branchRef, hldDeviceIds: z.array(objectId).max(200).default([]), hldConnectionIds: z.array(objectId).max(400).default([]), baseRevision })
 export const lldDeviceCreateBody = z.object({ buildingId: objectId, ...branchRef, catalogueKey: z.string().trim().min(1).max(200), rackId: objectId, ru: z.number().int().min(1).max(60).nullable(), face: z.enum(['front', 'rear']).default('front'), label: z.string().trim().regex(/^[A-Za-z0-9][A-Za-z0-9-]{0,62}$/, 'Letters, digits and hyphens, up to 63 characters (hostname-safe)').optional(), baseRevision })
 export const lldPlacementBody = z.object({ rackId: objectId.nullable(), ru: z.number().int().min(1).max(60).nullable(), face: z.enum(['front', 'rear']).default('front'), baseRevision })
+// Renaming a planned patch panel or cable manager (fix/cmo-naming-gaps).
+export const lldDeviceLabelBody = z.object({ label: z.string().trim().regex(/^[A-Za-z0-9][A-Za-z0-9-]{0,62}$/, 'Letters, digits and hyphens, up to 63 characters (hostname-safe)'), baseRevision })
 export const lldConnectionCreateBody = z.object({ buildingId: objectId, ...branchRef, ...lldConnectionFields, baseRevision })
 export const lldConnectionUpdateBody = z.object({
   source: lldEnd.optional(),

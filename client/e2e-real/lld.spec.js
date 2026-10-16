@@ -125,6 +125,40 @@ test('Rack Elevations: place devices by RU and face; an overlap is refused; add 
   await expect(architect.getByTitle('PP-TR-EG-01-R01-01')).toBeVisible()
 })
 
+test('Rack Elevations: the Architect renames a planned patch panel — how a panel-label finding is fixed (fix/cmo-naming-gaps)', async () => {
+  const view = await lld()
+  const pp = view.devices.find((d) => d.label === 'PP-TR-EG-01-R01-01')
+  const panel = architect.getByTestId('lld-placement')
+  await panel.getByLabel('Device to place').selectOption(pp.id)
+  const label = panel.getByLabel('Panel label')
+  const rename = panel.getByRole('button', { name: 'Rename' })
+  await expect(label).toHaveValue('PP-TR-EG-01-R01-01')
+  await expect(rename).toBeDisabled()
+  await label.fill('PP 01')
+  await expect(panel.getByText('Letters, digits and hyphens only (up to 63)')).toBeVisible()
+  await expect(rename).toBeDisabled()
+  // The design's other panel already has this label: refused.
+  await label.fill('PP-TR-EG-02-R01-01')
+  await rename.click()
+  await expect(architect.getByRole('alert').filter({ hasText: 'already used in this design' })).toBeVisible()
+  await label.fill('VT-MAIN-01')
+  await rename.click()
+  await expect(architect.getByTitle('VT-MAIN-01')).toBeVisible()
+  // The rename row fits a phone.
+  for (const [width, height] of [[1440, 900], [1024, 768], [768, 1024], [390, 844]]) {
+    await architect.setViewportSize({ width, height })
+    await expect(label).toBeVisible()
+    const overflow = await architect.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth + (document.querySelector('main').scrollWidth - document.querySelector('main').clientWidth))
+    expect(overflow, `rename row at ${width}px`).toBe(0)
+    if (process.env.LLD_SHOTS) await architect.screenshot({ path: `${process.env.LLD_SHOTS}/lld-rename-${width}.png`, fullPage: true })
+  }
+  await architect.setViewportSize({ width: 1440, height: 900 })
+  // Back to its default label for the routes below.
+  await label.fill('PP-TR-EG-01-R01-01')
+  await rename.click()
+  await expect(architect.getByTitle('PP-TR-EG-01-R01-01')).toBeVisible()
+})
+
 test('Rackium Editor: ports from the catalogue, suggestions applied by the user, a patch-panel hop, a Cable ID', async () => {
   const view = await lld()
   const ea = linkOf(view, 'edge', 'ap')

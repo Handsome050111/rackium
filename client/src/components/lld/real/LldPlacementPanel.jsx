@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { MoveVertical, PackagePlus } from 'lucide-react'
+import { PANEL_LABEL_PATTERN } from '@rackium/shared/lldDesign.js'
 
 const inputClass = 'h-9 rounded-lg border border-border bg-surface px-2 text-xs text-text focus:border-brand focus:outline-none disabled:bg-surface-muted'
 
@@ -8,7 +9,9 @@ const inputClass = 'h-9 rounded-lg border border-border bg-surface px-2 text-xs 
 // managers from the catalogue. The server applies the shared rack rules
 // (overlap per face, full depth, boundary, 0U) against surveyed gear and RU
 // states, and says why a placement is refused.
-export default function LldPlacementPanel({ devices, racks, passiveModels, editable, onPlace, onAdd }) {
+// A chosen patch panel or cable manager of the design can be renamed — how
+// the Architect resolves L-PANEL-LABEL / L-PANEL-LABEL-EXISTING.
+export default function LldPlacementPanel({ devices, racks, passiveModels, editable, onPlace, onAdd, onRelabel = null }) {
   const placeable = devices.filter((d) => d.inDesign && d.rackMounted && d.mounting !== '0U')
   const unplaced = placeable.filter((d) => d.ru == null)
   const [deviceId, setDeviceId] = useState('')
@@ -20,7 +23,10 @@ export default function LldPlacementPanel({ devices, racks, passiveModels, edita
   const [addRackId, setAddRackId] = useState('')
   const [addRu, setAddRu] = useState('')
   const [addFace, setAddFace] = useState('front')
+  const [labelDraft, setLabelDraft] = useState('')
   const device = placeable.find((d) => d.id === deviceId)
+  const renamable = Boolean(onRelabel && device && (device.isPanel || device.category === 'cable_management'))
+  const labelValid = PANEL_LABEL_PATTERN.test(labelDraft.trim())
 
   function choose(id) {
     setDeviceId(id)
@@ -28,6 +34,7 @@ export default function LldPlacementPanel({ devices, racks, passiveModels, edita
     setRackId(d?.rackId ?? racks[0]?.id ?? '')
     setRu(d?.ru ?? '')
     setFace(d?.face ?? 'front')
+    setLabelDraft(d?.label ?? '')
   }
 
   return (
@@ -66,6 +73,18 @@ export default function LldPlacementPanel({ devices, racks, passiveModels, edita
           </button>
         )}
       </div>
+      {renamable && (
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="flex min-w-0 flex-col gap-1 text-xs">
+            <span className="text-text-secondary">Panel label</span>
+            <input aria-label="Panel label" value={labelDraft} onChange={(e) => setLabelDraft(e.target.value)} disabled={!editable} maxLength={63} className={`${inputClass} w-56 max-w-full`} />
+          </label>
+          <button type="button" disabled={!editable || !labelValid || labelDraft.trim() === device.label} onClick={() => onRelabel(device.id, labelDraft.trim())} className="h-9 rounded-lg border border-border px-3 text-xs font-medium text-text hover:border-brand disabled:text-text-secondary">
+            Rename
+          </button>
+          {labelDraft.trim() && !labelValid && <span className="text-[11px] text-status-red">Letters, digits and hyphens only (up to 63)</span>}
+        </div>
+      )}
 
       {editable && (
         <div className="flex flex-wrap items-end gap-2 border-t border-border pt-3">

@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { Upload, ArrowLeft, AlertTriangle, CheckCircle2, X } from 'lucide-react'
-import { CMO_FIELDS, ROW_ERROR_LABEL, ROW_WARNING_LABEL, guessColumnMapping } from '@rackium/shared/cmoModel.js'
+import { CMO_FIELDS, guessColumnMapping, rowIssueText } from '@rackium/shared/cmoModel.js'
+import NoSerialBadge from './NoSerialBadge.jsx'
 import { parseCmoFile, previewCmoImport, commitCmoImport } from '../../api/cmoDesign.js'
 
 const STEPS = ['upload', 'map', 'preview']
@@ -50,9 +51,10 @@ export default function CmoImportWizard({
   }
 
   async function handleMappingNext() {
-    const missingRequired = CMO_FIELDS.filter((f) => f.required && (mapping[f.key] == null || mapping[f.key] < 0))
-    if (missingRequired.length > 0) {
-      setError(`Map a column for: ${missingRequired.map((f) => f.label).join(', ')}`)
+    // Every column is optional, but rows need something to identify them.
+    const identity = CMO_FIELDS.filter((f) => f.identity)
+    if (!identity.some((f) => mapping[f.key] != null && mapping[f.key] >= 0)) {
+      setError(`Map a column for at least one of: ${identity.map((f) => f.label).join(', ')}`)
       return
     }
     setError(null)
@@ -117,7 +119,7 @@ export default function CmoImportWizard({
       {step === 'map' && parsed && (
         <div className="space-y-3">
           <p className="text-xs text-text-secondary">
-            {fileName} · {parsed.rows.length} row(s). Map each Rackium field to a column from your file.
+            {fileName} · {parsed.rows.length} row(s). Map each Rackium field to a column from your file. Rows without a serial are imported and marked No serial.
           </p>
           {mapControls}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -173,7 +175,7 @@ export default function CmoImportWizard({
             <table className="w-full min-w-max text-left text-xs">
               <thead className="sticky top-0 bg-surface-muted">
                 <tr className="border-b border-border text-text-secondary">
-                  {['Row', 'Hostname', 'Serial', 'MAC', 'Building', 'Room', 'Issues'].map((h) => (
+                  {['Row', 'Hostname', 'Vendor', 'Model', 'Serial', 'MAC', 'Building', 'Floor', 'Room', 'Issues'].map((h) => (
                     <th key={h} className="whitespace-nowrap px-2 py-1.5 font-medium">
                       {h}
                     </th>
@@ -185,17 +187,18 @@ export default function CmoImportWizard({
                   <tr key={r.rowIndex} className={`border-b border-border/60 last:border-0 ${!r.valid ? 'bg-status-red/5' : ''}`}>
                     <td className="whitespace-nowrap px-2 py-1 text-text-secondary">{r.rowIndex + 1}</td>
                     <td className="whitespace-nowrap px-2 py-1 text-text">{r.hostname ?? '—'}</td>
-                    <td className="whitespace-nowrap px-2 py-1 text-text">{r.serial ?? '—'}</td>
+                    <td className="whitespace-nowrap px-2 py-1 text-text-secondary">{r.vendor ?? '—'}</td>
+                    <td className="whitespace-nowrap px-2 py-1 text-text-secondary">{r.model ?? '—'}</td>
+                    <td className="whitespace-nowrap px-2 py-1 text-text">{r.serial || <NoSerialBadge />}</td>
                     <td className="whitespace-nowrap px-2 py-1 text-text-secondary">{r.mac ?? '—'}</td>
                     <td className="whitespace-nowrap px-2 py-1 text-text-secondary">{r.building ?? '—'}</td>
+                    <td className="whitespace-nowrap px-2 py-1 text-text-secondary">{r.floor ?? '—'}</td>
                     <td className="whitespace-nowrap px-2 py-1 text-text-secondary">{r.room ?? '—'}</td>
                     <td className="whitespace-nowrap px-2 py-1">
                       {r.errors.length === 0 && !(showWarnings && r.warnings?.length) ? (
                         <span className="text-status-green">OK</span>
                       ) : (
-                        <span className={r.valid ? 'text-status-amber' : 'text-status-red'}>
-                          {[...r.errors.map((e) => ROW_ERROR_LABEL[e]), ...(showWarnings ? (r.warnings ?? []).map((w) => ROW_WARNING_LABEL[w]) : [])].join(', ')}
-                        </span>
+                        <span className={r.valid ? 'text-status-amber' : 'text-status-red'}>{rowIssueText(r, { showWarnings })}</span>
                       )}
                     </td>
                   </tr>

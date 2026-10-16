@@ -31,7 +31,15 @@ const deviceSchema = new mongoose.Schema({
   category: { type: String, default: null },
   label: { type: String, default: null },
   sublabel: { type: String, default: null },
+  // The name or label recorded on site for surveyed gear (fix/cmo-naming-gaps),
+  // e.g. the customer's "VT-A-01" on a panel; free text, no naming pattern.
+  // Shown instead of `label` (which keeps what was placed: kind, port count).
+  existingLabel: { type: String, trim: true, default: null },
   hostname: { type: String, trim: true, default: null },
+  // From the CMO import (v2.2 §3.5a): the vendor column, and the floor the
+  // row named (validated against the building's floors).
+  vendor: { type: String, trim: true, default: null },
+  floorId: { type: ObjectId, default: null },
   model: { type: String, trim: true, default: null },
   // Set when `model` matches a catalogue item (vendor + model key).
   catalogueKey: { type: String, default: null },

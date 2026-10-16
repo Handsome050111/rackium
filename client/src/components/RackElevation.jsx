@@ -77,10 +77,10 @@ function PlacementBlock({ placement, rackHeightU, draggable, isSelected, onSelec
           ? 'cursor-grab touch-none select-none active:cursor-grabbing [-webkit-touch-callout:none]'
           : 'cursor-pointer'
       }`}
-      title={placement.label}
+      title={placement.displayName && placement.displayName !== placement.label ? `${placement.displayName} — ${placement.label}` : placement.label}
     >
       <span className="min-w-0 flex-1 truncate">
-        <span className="font-medium">{placement.label}</span>
+        <span className="font-medium">{placement.displayName ?? placement.label}</span>
         {placement.sublabel && <span className="text-text-secondary"> · {placement.sublabel}</span>}
       </span>
       {badge && (

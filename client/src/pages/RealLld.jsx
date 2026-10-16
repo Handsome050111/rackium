@@ -366,6 +366,7 @@ export default function RealLld() {
                 editable={editable}
                 onPlace={(deviceId, body) => write((rev) => lldApi.place(orgId, projectId, deviceId, { ...body, baseRevision: rev }))}
                 onAdd={(body) => write((rev) => lldApi.addDevice(orgId, projectId, { buildingId, branchId: branchId ?? undefined, ...body, baseRevision: rev }))}
+                onRelabel={(deviceId, label) => write((rev) => lldApi.relabel(orgId, projectId, deviceId, { label, baseRevision: rev }))}
               />
               <RackElevationsTab rackElevations={context.rackElevations} editorPath={editorPath} />
             </>

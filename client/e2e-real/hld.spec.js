@@ -139,7 +139,10 @@ test('the HLD and naming settings fit every width', async () => {
     for (const [width, height] of [[1440, 900], [1024, 768], [768, 1024], [390, 844]]) {
       await page.setViewportSize({ width, height })
       await page.goto(url)
-      await expect(page.locator('main')).not.toContainText('Loading…')
+      // The page's own ready state, not a fixed 5 s: under a busy full run a
+      // first load once took ~6 s (BUG-SWEEP, fix/cmo-naming-gaps).
+      if (page === owner) await expect(page.getByTestId('stock-lengths')).toBeVisible({ timeout: 30_000 })
+      else await expect(page.locator('[data-page-state]')).toHaveAttribute('data-page-state', 'ready', { timeout: 30_000 })
       const overflow = await page.evaluate(() => {
         const main = document.querySelector('main')
         return document.documentElement.scrollWidth - document.documentElement.clientWidth + (main.scrollWidth - main.clientWidth)

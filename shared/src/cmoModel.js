@@ -2,15 +2,17 @@
 // calculation only — file parsing and store writes live in
 // api/cmoDesign.js, same split as every other phase's lib/ module.
 
-// The columns a client's CMO Excel/CSV must map onto. `required` fields
-// block commit when unmapped; the rest are optional (brief's explicit
-// Step 9 field list: "hostname, model, serial, MAC, building, floor, room,
-// rack, RU").
+// The columns a client's CMO Excel/CSV maps onto (brief Step 9: "hostname,
+// model, serial, MAC, building, floor, room, rack, RU"; v2.2 §3.5a adds the
+// vendor). Every column is optional (fix/cmo-naming-gaps: passive gear has
+// no serial), but at least one `identity` column must be mapped and each
+// row must fill one of them.
 export const CMO_FIELDS = [
-  { key: 'hostname', label: 'Hostname', required: false },
-  { key: 'model', label: 'Model', required: false },
-  { key: 'serial', label: 'Serial number', required: true },
-  { key: 'mac', label: 'MAC address', required: false },
+  { key: 'hostname', label: 'Hostname', required: false, identity: true },
+  { key: 'vendor', label: 'Vendor', required: false },
+  { key: 'model', label: 'Model', required: false, identity: true },
+  { key: 'serial', label: 'Serial number', required: false, identity: true },
+  { key: 'mac', label: 'MAC address', required: false, identity: true },
   { key: 'building', label: 'Building', required: false },
   { key: 'floor', label: 'Floor', required: false },
   { key: 'room', label: 'Room', required: false },
@@ -22,14 +24,22 @@ export const CMO_FIELDS = [
 // for a reasonably-named sheet instead of forcing every column by hand.
 const HEADER_ALIASES = {
   hostname: ['hostname', 'host name', 'device name', 'name'],
+  vendor: ['vendor', 'manufacturer', 'hersteller', 'make', 'brand'],
   model: ['model', 'device model'],
   serial: ['serial', 'serial number', 'serial no', 's/n'],
   mac: ['mac', 'mac address'],
   building: ['building', 'building code'],
-  floor: ['floor'],
+  floor: ['floor', 'level', 'etage', 'geschoss'],
   room: ['room', 'comms room'],
   rack: ['rack', 'rack code'],
   ru: ['ru', 'ru position'],
+}
+
+// The import template (Download template): every field's label and one
+// example row, built from the same keys so the columns always line up.
+const TEMPLATE_EXAMPLE = { hostname: 'E-DE-ERL-C01-B001-EG-001', vendor: 'Cisco', model: 'C9300-48UX', serial: 'FCW2637A1B2', mac: '00:1A:2B:3C:4D:5E', building: 'B001', floor: 'EG', room: 'TR-EG-01', rack: 'R01', ru: '40' }
+export function cmoTemplateRows() {
+  return [CMO_FIELDS.map((f) => f.label), CMO_FIELDS.map((f) => TEMPLATE_EXAMPLE[f.key] ?? '')]
 }
 
 export function guessColumnMapping(headers) {
@@ -79,11 +89,14 @@ export function applyColumnMapping(dataRows, mapping) {
   })
 }
 
-// Row-level validation (brief Step 9): missing serial, duplicate serial
-// within the file, duplicate against the project, bad MAC format, unknown
-// building. `resolveBuilding` looks up a building code/name and returns an
-// id or null — kept external so this stays a pure function over plain
-// data, not the site-structure API.
+export const CMO_IDENTITY_FIELDS = CMO_FIELDS.filter((f) => f.identity).map((f) => f.key)
+
+// Row-level validation (brief Step 9): duplicate serial within the file,
+// duplicate against the project, bad MAC format, unknown building. A row
+// without a serial imports, marked "No serial" (fix/cmo-naming-gaps); a row
+// with none of hostname, serial, MAC or model is blocked. `resolveBuilding`
+// looks up a building code/name and returns an id or null — kept external so
+// this stays a pure function over plain data, not the site-structure API.
 //
 // The real backend adds checks the mock never needed, each opt-in so the
 // mock's results are unchanged: `projectMacs` / `projectHostnames` (Sets of
@@ -92,7 +105,10 @@ export function applyColumnMapping(dataRows, mapping) {
 // must be caught here rather than abort the commit. `resolveRoom` /
 // `resolveRack` place a device in a room and rack; an unknown room, rack or
 // RU is a warning only (the device still imports, just not placed).
-export function validateCmoRows(rows, { projectSerials, resolveBuilding, projectMacs, projectHostnames, resolveRoom, resolveRack }) {
+// `resolveFloor` (building, text → floor id) checks the floor the same way;
+// with a floor, `roomFloor` (room id → its floor id) keeps a room on another
+// floor out, as a rack outside its room is.
+export function validateCmoRows(rows, { projectSerials, resolveBuilding, projectMacs, projectHostnames, resolveRoom, resolveRack, resolveFloor, roomFloor }) {
   const serialCounts = countBy(rows, (r) => r.serial?.toLowerCase())
   const macCounts = projectMacs ? countBy(rows, (r) => normaliseMac(r.mac)) : null
   const hostnameCounts = projectHostnames ? countBy(rows, (r) => r.hostname?.toLowerCase()) : null
@@ -100,7 +116,8 @@ export function validateCmoRows(rows, { projectSerials, resolveBuilding, project
   return rows.map((r) => {
     const errors = []
     const warnings = []
-    if (!r.serial) errors.push('missing_serial')
+    if (!CMO_IDENTITY_FIELDS.some((key) => r[key])) errors.push('no_identity')
+    else if (!r.serial) warnings.push('no_serial')
     if (r.serial && serialCounts.get(r.serial.toLowerCase()) > 1) errors.push('duplicate_in_file')
     if (r.serial && projectSerials.has(r.serial.toLowerCase())) errors.push('duplicate_in_project')
     if (r.mac && !isValidMac(r.mac)) errors.push('invalid_mac')
@@ -115,12 +132,21 @@ export function validateCmoRows(rows, { projectSerials, resolveBuilding, project
     const buildingId = r.building ? resolveBuilding(r.building) : null
     if (r.building && !buildingId) errors.push('unknown_building')
 
+    let floorId = null
     let roomId = null
     let rackId = null
     let ruPosition = null
+    if (resolveFloor && buildingId && r.floor) {
+      floorId = resolveFloor(buildingId, r.floor)
+      if (!floorId) warnings.push('unknown_floor')
+    }
     if (resolveRoom && buildingId && r.room) {
       roomId = resolveRoom(buildingId, r.room)
       if (!roomId) warnings.push('unknown_room')
+      else if (floorId && roomFloor && roomFloor(roomId) !== floorId) {
+        roomId = null
+        warnings.push('room_not_on_floor')
+      }
     }
     if (resolveRack && roomId && r.rack) {
       rackId = resolveRack(roomId, r.rack)
@@ -135,6 +161,7 @@ export function validateCmoRows(rows, { projectSerials, resolveBuilding, project
     return {
       ...r,
       buildingId,
+      floorId,
       roomId,
       rackId,
       ruPosition,
@@ -146,7 +173,7 @@ export function validateCmoRows(rows, { projectSerials, resolveBuilding, project
 }
 
 export const ROW_ERROR_LABEL = {
-  missing_serial: 'Missing serial',
+  no_identity: 'No hostname, serial, MAC or model',
   duplicate_in_file: 'Duplicate in file',
   duplicate_in_project: 'Duplicate in project',
   invalid_mac: 'Invalid MAC format',
@@ -158,9 +185,18 @@ export const ROW_ERROR_LABEL = {
 }
 
 export const ROW_WARNING_LABEL = {
+  no_serial: 'No serial — imported, picked from the CMO list in the survey (not serial-validated)',
+  unknown_floor: 'Unknown floor — imported without a floor',
+  room_not_on_floor: 'Room is not on that floor — imported without a room',
   unknown_room: 'Unknown room — imported without a room',
   unknown_rack: 'Unknown rack — imported without a rack',
   invalid_ru: 'RU is not a whole number from 1 — ignored',
+}
+
+// The preview's Issues text: error labels — a server-side scope refusal is
+// free text, shown as is — then the warnings when they are shown.
+export function rowIssueText(row, { showWarnings = false } = {}) {
+  return [...row.errors.map((e) => ROW_ERROR_LABEL[e] ?? e), ...(showWarnings ? (row.warnings ?? []).map((w) => ROW_WARNING_LABEL[w] ?? w) : [])].join(', ')
 }
 
 export function computeCmoKpis(devices) {
@@ -170,6 +206,7 @@ export function computeCmoKpis(devices) {
     total: devices.length,
     assigned: assigned.length,
     unassigned: unassigned.length,
+    noSerial: devices.filter((d) => !d.serial).length,
   }
 }
 

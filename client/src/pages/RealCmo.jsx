@@ -157,6 +157,7 @@ export default function RealCmo() {
       {lastResult && (
         <p role="status" className="rounded-lg border border-status-green/30 bg-status-green/5 px-3 py-2 text-xs text-status-green">
           Imported {lastResult.summary.imported} device(s): {lastResult.summary.assigned} assigned, {lastResult.summary.unassigned} Unassigned
+          {lastResult.summary.noSerial > 0 ? `, ${lastResult.summary.noSerial} with no serial` : ''}
           {lastResult.summary.skipped > 0 ? `, ${lastResult.summary.skipped} blocked row(s) skipped` : ''}.
         </p>
       )}

@@ -420,6 +420,7 @@ export function buildRegistry() {
   route('post', `${L}/copy-from-hld`, 'Copy chosen HLD devices and uplinks into the LLD (Architect); no automatic re-sync', { body: C.lldCopyBody, errors: lstale })
   route('post', `${L}/devices`, 'Add a patch panel, cable manager or accessory to a rack (Architect); rack rules enforced', { body: C.lldDeviceCreateBody, status: 201, errors: lstale })
   route('put', `${L}/devices/{id}/placement`, 'Place or unplace a device by rack, RU and face (Architect); rack rules enforced', { params: p({ id: 1 }), body: C.lldPlacementBody, errors: lstale })
+  route('put', `${L}/devices/{id}/label`, "Rename a planned patch panel or cable manager (Architect); hostname-safe, unique among the design's devices (409 label_in_use); an existing panel's recorded label is allowed (a validation warning)", { params: p({ id: 1 }), body: C.lldDeviceLabelBody, errors: lstale })
   route('delete', `${L}/devices/{id}`, 'Delete an LLD device and its connections (Architect); ports released, cable IDs retired', { params: p({ id: 1 }), query: C.hldRevisionQuery, errors: lstale })
   route('post', `${L}/connections`, 'Create a connection with ports, hops and cable IDs (Architect); registries written in one transaction', { body: C.lldConnectionCreateBody, status: 201, errors: taken })
   route('patch', `${L}/connections/{id}`, 'Rackium Editor: ports, patch-panel hops, cable IDs, media, Engineer Selected length (Architect)', { params: p({ id: 1 }), body: C.lldConnectionUpdateBody, errors: taken })

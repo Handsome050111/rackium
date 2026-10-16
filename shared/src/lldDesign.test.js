@@ -205,6 +205,41 @@ describe('one connection per panel port (front and rear never split)', () => {
   })
 })
 
+describe('panel labels and surveyed gear (fix/cmo-naming-gaps)', () => {
+  const panel = (id, fields) => ({ id, catalogueKey: 'panel', isPanel: true, ...fields })
+  const panelFindings = (devices) => validateLld({ devices, connections: [] }, ctxFor(devices)).filter((f) => f.rule.startsWith('L-PANEL-LABEL'))
+
+  it("a surveyed panel's library name is not a label: two surveyed panels of the same type raise nothing", () => {
+    const devices = [panel('s1', { origin: 'existing', label: '24-port patch panel' }), panel('s2', { origin: 'existing', label: '24-port patch panel' })]
+    expect(panelFindings(devices)).toEqual([])
+  })
+
+  it('two surveyed panels with the same recorded label raise nothing either — the Architect could not change them', () => {
+    const devices = [panel('s1', { origin: 'existing', label: 'VT-A', existingLabel: 'VT-A' }), panel('s2', { origin: 'existing', label: 'VT-A', existingLabel: 'vt-a' })]
+    expect(panelFindings(devices)).toEqual([])
+  })
+
+  it('planned panels with the same label are still Critical', () => {
+    const devices = [panel('p1', { origin: 'planned', label: 'PP-TR-1-R01-01' }), panel('p2', { origin: 'planned', label: 'pp-tr-1-r01-01' })]
+    expect(panelFindings(devices).map((f) => [f.rule, f.severity, f.objectId, f.message])).toEqual([['L-PANEL-LABEL', 'critical', 'p1', 'PP-TR-1-R01-01 is used by 2 patch panels in this building']])
+  })
+
+  it("a planned panel with an existing panel's recorded label is a Warning on the planned panel, with where the existing one is", () => {
+    const devices = [
+      panel('s1', { origin: 'existing', label: 'VT-A-01', existingLabel: 'VT-A-01', roomCode: 'TR-EG-01', rackCode: 'R01', ru: 10 }),
+      panel('p1', { origin: 'planned', label: 'vt-a-01' }),
+      // A surveyed panel without a recorded label never takes part.
+      panel('s2', { origin: 'existing', label: 'PP-TR-EG-01-R01-01' }),
+      panel('p2', { origin: 'planned', label: 'PP-TR-EG-01-R01-01' }),
+    ]
+    const findings = panelFindings(devices)
+    expect(findings.map((f) => [f.rule, f.severity, f.objectId])).toEqual([['L-PANEL-LABEL-EXISTING', 'warning', 'p1']])
+    expect(findings[0].message).toBe('vt-a-01 is also the label recorded on an existing panel (TR-EG-01 rack R01 RU10) — rename the planned panel so the two cannot be confused on site')
+    // Warnings do not block a submit.
+    expect(findings.every((f) => f.severity !== 'critical')).toBe(true)
+  })
+})
+
 describe('version diff and HLD reconciliation', () => {
   it('diffs two snapshots: devices and connections added, removed and changed, with labels', () => {
     const before = {

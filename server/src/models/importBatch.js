@@ -15,7 +15,7 @@ const importBatchSchema = new mongoose.Schema({
   rowCount: { type: Number, required: true },
   status: { type: String, enum: ['previewed', 'committed', 'rejected'], required: true },
   summary: {
-    type: new mongoose.Schema({ imported: Number, assigned: Number, unassigned: Number, skipped: Number }, { _id: false }),
+    type: new mongoose.Schema({ imported: Number, assigned: Number, unassigned: Number, noSerial: Number, skipped: Number }, { _id: false }),
     default: null,
   },
 })
