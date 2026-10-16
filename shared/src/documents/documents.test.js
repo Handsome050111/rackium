@@ -228,3 +228,64 @@ describe('handover checklist and workflow', async () => {
     expect(handoverPhaseStatus(null)).toBe('not_started')
   })
 })
+
+describe('M6b review: survey tables, photo cap, cost prices', async () => {
+  const { surveyTabForReport, cellText } = await import('./survey.js')
+  const { capImages, image, section: sec, plainText: text } = await import('./model.js')
+  const { requestProblem: problem, clientShareProblem, isInternal } = await import('./types.js')
+  const { surveyReport: report } = await import('./assemble.js')
+  const tabDef = {
+    tab: 'Rack Layout',
+    sections: [
+      { section: 'Room facts', layout: 'key_value', fields: [{ key: 'cooling', label: 'Cooling', type: 'yes_no' }, { key: 'photos', label: 'Photos', type: 'photo_multi' }] },
+      { section: 'Racks in the room', layout: 'table', fields: [{ key: 'width', label: 'Width (mm)', type: 'number' }, { key: 'location', label: 'GPS', type: 'gps' }] },
+      { section: 'Passive requirements', layout: 'item_list', item_columns: ['details', 'photograph'], fields: [{ key: 'ladder', label: 'Ladder requirement' }] },
+    ],
+  }
+  const record = {
+    tab: 'Rack Layout',
+    status: 'verified',
+    sections: [
+      { sectionIndex: 0, layout: 'key_value', fieldValues: [{ key: 'cooling', value: true }, { key: 'photos', value: { fileIds: ['p1', 'p2'] } }] },
+      { sectionIndex: 1, layout: 'table', rows: [{ rackId: 'k1', fieldValues: [{ key: 'width', value: 600 }, { key: 'location', value: { lat: 52.5, lng: 13.4 } }] }, { rackId: 'k2', fieldValues: [{ key: 'width', value: 800 }] }] },
+      { sectionIndex: 2, layout: 'item_list', rows: [{ rowKey: 'ladder', fieldValues: [{ key: 'details', value: '3 m' }, { key: 'photograph', value: { fileIds: ['p3'] } }] }] },
+    ],
+  }
+  it('table and item-list sections become full tables (rows and columns), per-rack rows name their rack', () => {
+    const t = surveyTabForReport(tabDef, record, { rackCodeOf: (id) => ({ k1: 'R01', k2: 'R02' })[id] })
+    expect(t.fields).toEqual([{ label: 'Cooling', value: 'Yes' }, { label: 'Photos', value: '2 photo(s)' }])
+    expect(t.tables[0]).toEqual({ title: 'Racks in the room', columns: [{ key: '__rack', label: 'Rack' }, { key: 'width', label: 'Width (mm)' }, { key: 'location', label: 'GPS' }], rows: [{ __rack: 'R01', width: '600', location: '52.5, 13.4' }, { __rack: 'R02', width: '800' }] })
+    expect(t.tables[1].rows).toEqual([{ __item: 'Ladder requirement', details: '3 m', photograph: '1 photo(s)' }])
+    expect(t.photos).toEqual(['p1', 'p2', 'p3'])
+    expect(cellText({ type: 'file' }, { fileIds: ['f'] })).toBe('1 file(s)')
+  })
+  it('the survey report prints the tables in full (not row counts)', () => {
+    const tab = surveyTabForReport(tabDef, record, { rackCodeOf: (id) => id })
+    const out = text(report(ctx, { status: 'Verified', buildingFields: [], rooms: [{ code: 'TR-01', tabs: [tab], racks: [], photos: [] }] }))
+    expect(out).toContain('Racks in the room')
+    expect(out).toContain('Rack | Width (mm) | GPS')
+    expect(out).toContain('k1 | 600 | 52.5, 13.4')
+    expect(out).toContain('Ladder requirement | 3 m | 1 photo(s)')
+    expect(out).not.toMatch(/\d+ row\(s\)/)
+  })
+  it('photos beyond the cap are left out with a note where they were cut and at the start', () => {
+    const doc = { sections: [sec('a', 'A', [image('1'), image('2')]), sec('b', 'B', [image('3'), image('4'), image('5')])] }
+    expect(capImages(doc, 3)).toBe(2)
+    expect(doc.sections[1].blocks.filter((b) => b.type === 'image')).toHaveLength(1)
+    expect(doc.sections[1].blocks.at(-1).text).toBe('2 further photo(s) of this section are not printed here — they are in the photo evidence ZIP.')
+    expect(doc.sections[0].blocks[0].text).toBe('This document prints the first 3 photos; 2 further photo(s) are in the photo evidence ZIP.')
+    expect(capImages({ sections: [sec('a', 'A', [image('1')])] }, 3)).toBe(0)
+  })
+  it('cost prices: Org Admin, PM and Reviewer only; never shared with a client', () => {
+    const ask = (roles, canSeePrices = true) => problem({ typeKey: 'bom-final', format: 'pdf', options: { prices: 'cost' }, roles, canSeePrices })
+    expect(ask(['pm'])).toBeNull()
+    expect(ask(['org_admin'])).toBeNull()
+    expect(ask(['reviewer'], false)).toBeNull()
+    expect(ask(['architect'])).toMatch(/Org Admin, PM or Reviewer/)
+    expect(ask(['field_engineer'])).toMatch(/Org Admin, PM or Reviewer/)
+    expect(isInternal({ options: { prices: 'cost' } })).toBe(true)
+    expect(clientShareProblem({ fileName: 'B001-bom-final-v3.pdf', options: { prices: 'cost' } })).toBe('B001-bom-final-v3.pdf is internal (cost prices) and cannot be shared with a client')
+    expect(clientShareProblem({ options: { prices: 'sell' } })).toBeNull()
+    expect(clientShareProblem({ options: {} })).toBeNull()
+  })
+})

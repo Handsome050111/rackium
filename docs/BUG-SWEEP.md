@@ -647,3 +647,56 @@ Found and fixed while building and testing M6b, each with a test:
 
 Decisions to confirm are marked ★ in the M6b report and described in
 DATA-MODEL §5.12.
+
+### M6b review round: cost prices, survey tables, the PDF test isolation
+
+Found and fixed, each with a test:
+
+- **Cost prices could reach a client** (M6b): any user who could see prices
+  could export the BOM at cost and put that file in a download link. Cost
+  mode is now internal only: the Org Admin, PM and Reviewer request, list and
+  download it; every PDF page, the Word header and every sheet say
+  "INTERNAL — cost prices"; a download link refuses it (400), a public link
+  never lists or serves it even if its record names it, and a handover job or
+  package with cost prices is refused. The BOM menu offers "client price"
+  exports and, for those three roles, separate "INTERNAL" items. Tests:
+  `api.m6b.test.js` (role refusals, the mark on every page and sheet, the
+  share-link refusal, a forced link, the handover refusal) and
+  `e2e-real/m6b.spec.js` (Reviewer export marked on every page; no cost item
+  for the Architect; the menu at four widths).
+- **The survey report printed "N row(s)" instead of the survey tables**
+  (M6b): table sections and item lists now print as full tables with their
+  columns (a Rack column where rows belong to racks); long tables continue
+  across pages with the headings repeated. Tests: `documents.test.js`
+  (assembly) and `api.m6b.test.js` (90 rows across pages, headings on each).
+- **Photos beyond the 120 cap were dropped silently** (M6b): the document
+  now says how many further photos are in the photo evidence ZIP, at the
+  start and where they were cut. Test: `documents.test.js`.
+- **The survey-forms API tests timed out in the full server run** (M6b):
+  every test file paid for loading the PDF and Office renderers on import,
+  and the PDF tests ran headless Chromium in the same run. The renderers now
+  load on first use, and `npm run test:server` runs the PDF tests
+  (`api.m6b.test.js`) in a second Vitest process after all other files —
+  no reruns.
+
+- **A timed-out test could write into the next test's data** (found in the
+  full server run): `api.m5b.test.js` failed twice under heavy load on the
+  machine — the blockers test ran past its 60 s timeout, kept sending
+  requests while the next test ran, and the DGUV/mention test then saw its
+  notifications. Notification fan-out is awaited in the request, so the app
+  was not at fault; the tests were not isolated. Each test's apps now belong
+  to it: once it ends or times out they refuse requests, writes from its
+  in-flight work are refused at the driver, and the next test waits until its
+  requests are done. Test: `isolation.test.js` (a timed-out fixture test
+  that keeps calling the API and has a request in flight: nothing reaches
+  the next test; without the isolation 15 users leak in, so the check is
+  real).
+- **A test command's exit code was hidden by a pipe** (in this round's own
+  run): the server suite's output was filtered through grep and the shell
+  reported exit 0 with two failed tests. CLAUDE.md now requires the real exit
+  code (full log to a file, then filter).
+
+Noted, not a bug: one client unit run during this round reported 22 files /
+233 tests instead of 27 / 247. No client test file was removed or changed
+(git), and the count could not be reproduced in five further runs (idle and
+under the same load); every later run found all 27 files.

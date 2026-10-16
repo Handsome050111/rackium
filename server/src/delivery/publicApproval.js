@@ -39,7 +39,7 @@ export function createPublicApprovalService({ storage, lld, getHandover = () => 
     }
     if (link.kind === 'handover') return { ...base, ...(await getHandover().publicSubject(link)) }
     if (link.kind === 'document_download') {
-      const docs = await GeneratedDocument.find({ _id: { $in: link.documentIds }, status: 'ready' }).lean()
+      const docs = await GeneratedDocument.find({ _id: { $in: link.documentIds }, status: 'ready', 'options.prices': { $ne: 'cost' } }).lean()
       return { ...base, label: link.label ?? null, documents: docs.map((d) => ({ id: String(d._id), name: typeOf(d.typeKey)?.name ?? d.typeKey, format: d.format, version: d.version, fileName: d.fileName, sizeBytes: d.sizeBytes })) }
     }
     const cr = await ChangeRequest.findById(link.changeRequestId).lean()
@@ -90,7 +90,8 @@ export function createPublicApprovalService({ storage, lld, getHandover = () => 
         await checkPassword(link, password)
         const allowed = link.kind === 'handover' ? await getHandover().publicDocumentIds(link) : link.documentIds.map(String)
         if (!mongoose.isValidObjectId(documentId) || !allowed.includes(String(documentId))) throw new AppError(404, 'not_found', 'Document not found')
-        const doc = await GeneratedDocument.findOne({ _id: documentId, status: 'ready' }).lean()
+        // Cost-price (internal) documents never leave through a link, whatever the link lists.
+        const doc = await GeneratedDocument.findOne({ _id: documentId, status: 'ready', 'options.prices': { $ne: 'cost' } }).lean()
         const file = doc ? await File.findById(doc.fileId).lean() : null
         if (!file) throw new AppError(404, 'not_found', 'Document not found')
         await ShareLink.updateOne({ _id: link._id }, { $inc: { downloads: 1 } })

@@ -11,6 +11,8 @@
 //       | { type: 'pagebreak' }
 
 export const p = (text) => ({ type: 'p', text: String(text ?? '') })
+// A sub-heading inside a section (not in the contents), e.g. a table's title.
+export const h3 = (text) => ({ type: 'h3', text: String(text ?? '') })
 export const kv = (rows) => ({ type: 'kv', rows: rows.filter((r) => r && r[1] !== undefined).map(([k, v]) => [k, v == null || v === '' ? '—' : String(v)]) })
 export const table = (columns, rows, { caption = null, empty = 'None.' } = {}) => ({
   type: 'table',
@@ -54,7 +56,7 @@ export function plainText(doc) {
     sections.forEach((s) => {
       lines.push(s.title)
       for (const b of s.blocks) {
-        if (b.type === 'p' || b.type === 'note') lines.push(b.text)
+        if (b.type === 'p' || b.type === 'note' || b.type === 'h3') lines.push(b.text)
         if (b.type === 'kv') b.rows.forEach(([k, v]) => lines.push(`${k}: ${v}`))
         if (b.type === 'list') lines.push(...b.items)
         if (b.type === 'table') {
@@ -66,6 +68,31 @@ export function plainText(doc) {
     })
   walk(doc.sections)
   return lines.join('\n')
+}
+
+// At most `max` photos are printed (M6b review): the rest are left out with a
+// note where they were cut and one at the start ("further photos in the
+// evidence ZIP"). Returns how many were left out.
+export function capImages(doc, max) {
+  let seen = 0
+  let dropped = 0
+  const walk = (sections) =>
+    sections.forEach((s) => {
+      let here = 0
+      s.blocks = s.blocks.filter((b) => {
+        if (b.type !== 'image') return true
+        seen += 1
+        if (seen <= max) return true
+        here += 1
+        return false
+      })
+      if (here) s.blocks.push(note(`${here} further photo(s) of this section are not printed here — they are in the photo evidence ZIP.`, 'warning'))
+      dropped += here
+      walk(s.children ?? [])
+    })
+  walk(doc.sections)
+  if (dropped && doc.sections[0]) doc.sections[0].blocks.unshift(note(`This document prints the first ${max} photos; ${dropped} further photo(s) are in the photo evidence ZIP.`, 'warning'))
+  return dropped
 }
 
 // A table block as sheet rows (header first) — Excel and CSV exports.

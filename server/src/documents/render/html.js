@@ -1,4 +1,5 @@
 import { outline, escapeHtml } from './util.js'
+import { INTERNAL_COST_MARK } from '@rackium/shared/documents/types.js'
 
 // The default document template (M6b) until Technonex supplies a branding
 // template: Rackium design tokens, a cover page with the organisation's and
@@ -32,6 +33,7 @@ body { margin: 0; font-family: Arial, Helvetica, sans-serif; font-size: 9.5pt; c
 h1.section { color: ${TOKENS.brand}; font-size: 15pt; border-bottom: 2px solid ${TOKENS.brand}; padding-bottom: 1.5mm; page-break-before: always; margin-top: 0; }
 h2.section { color: ${TOKENS.text}; font-size: 12pt; margin: 6mm 0 2mm; page-break-after: avoid; }
 .mark { font-size: 1px; color: #ffffff; }
+h3.sub { font-size: 10.5pt; color: ${TOKENS.text}; margin: 4mm 0 1.5mm; page-break-after: avoid; }
 table.kv { border-collapse: collapse; margin: 2mm 0 4mm; }
 table.kv td { padding: 1mm 6mm 1mm 0; vertical-align: top; }
 table.kv td:first-child { color: ${TOKENS.secondary}; white-space: nowrap; }
@@ -47,6 +49,7 @@ thead { display: table-header-group; }
 .note { border-left: 3px solid ${TOKENS.brand}; background: ${TOKENS.muted}; padding: 2mm 3mm; margin: 2mm 0; }
 .note.warning { border-color: ${TOKENS.amber}; }
 .note.success { border-color: ${TOKENS.green}; }
+.internal { margin-top: 10mm; display: inline-block; border: 2px solid ${TOKENS.red}; color: ${TOKENS.red}; font-weight: 700; padding: 2mm 4mm; }
 .watermark { position: fixed; top: 40%; left: -10%; width: 120%; text-align: center; transform: rotate(-32deg); font-size: 30pt; color: ${TOKENS.brand}; opacity: 0.09; white-space: nowrap; z-index: 1000; pointer-events: none; }
 `
 
@@ -54,6 +57,8 @@ function block(b, images) {
   switch (b.type) {
     case 'p':
       return `<p>${escapeHtml(b.text)}</p>`
+    case 'h3':
+      return `<h3 class="sub">${escapeHtml(b.text)}</h3>`
     case 'note':
       return `<div class="note ${escapeHtml(b.tone ?? '')}">${escapeHtml(b.text)}</div>`
     case 'kv':
@@ -88,7 +93,7 @@ export function documentHtml(doc, { branding = {}, watermark = null, images = ne
     ['Date', doc.meta.date],
     ['Prepared by', branding.organisationName],
   ].filter(([, v]) => v)
-  const cover = `<section class="cover"><div class="logos">${logo(branding.organisationLogo, branding.organisationName ?? 'Organisation logo')}${logo(branding.clientLogo, 'Client logo')}</div><h1>${escapeHtml(doc.title)}</h1><div class="subtitle">${escapeHtml(doc.subtitle ?? '')}</div><table class="meta">${meta.map(([k, v]) => `<tr><td>${escapeHtml(k)}</td><td>${escapeHtml(v)}</td></tr>`).join('')}</table><div class="band"></div></section>`
+  const cover = `<section class="cover"><div class="logos">${logo(branding.organisationLogo, branding.organisationName ?? 'Organisation logo')}${logo(branding.clientLogo, 'Client logo')}</div>${doc.internal ? `<div class="internal">${escapeHtml(INTERNAL_COST_MARK)} — not for the client</div>` : ''}<h1>${escapeHtml(doc.title)}</h1><div class="subtitle">${escapeHtml(doc.subtitle ?? '')}</div><table class="meta">${meta.map(([k, v]) => `<tr><td>${escapeHtml(k)}</td><td>${escapeHtml(v)}</td></tr>`).join('')}</table><div class="band"></div></section>`
   const toc = `<section class="toc"><h2>Contents</h2>${entries.map((e) => `<div class="entry d${Math.min(e.depth, 1)}"><span class="t">${escapeHtml(e.n)} ${escapeHtml(e.title)}</span><span class="dots"></span><span>${pages ? pages.get(e.id) ?? '' : '00'}</span></div>`).join('')}</section>`
   const byId = new Map(entries.map((e) => [e.id, e]))
   const render = (sections, depth) =>
@@ -99,7 +104,8 @@ export function documentHtml(doc, { branding = {}, watermark = null, images = ne
         return `<${tag} class="section">${pages ? '' : `<span class="mark">${marker(s.id)}</span>`}${escapeHtml(e.n)} ${escapeHtml(s.title)}</${tag}>${s.blocks.map((b) => block(b, images)).join('')}${render(s.children ?? [], depth + 1)}`
       })
       .join('')
-  const wm = watermark ? `<div class="watermark">${escapeHtml([watermark.organisation, watermark.date, watermark.user].filter(Boolean).join(' · '))}</div>` : ''
+  const wmText = [doc.internal ? INTERNAL_COST_MARK : null, watermark ? [watermark.organisation, watermark.date, watermark.user].filter(Boolean).join(' · ') : null].filter(Boolean)
+  const wm = wmText.length ? `<div class="watermark">${wmText.map(escapeHtml).join('<br/>')}</div>` : ''
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${escapeHtml(doc.title)}</title><style>${css}</style></head><body>${wm}${cover}${toc}${render(doc.sections, 0)}</body></html>`
 }
 
@@ -107,7 +113,7 @@ export function documentHtml(doc, { branding = {}, watermark = null, images = ne
 export function headerFooter(doc, { branding = {} }) {
   const small = 'font-family: Arial, sans-serif; font-size: 7.5pt; color: #5B6270; width: 100%; padding: 0 16mm; display: flex; justify-content: space-between;'
   return {
-    headerTemplate: `<div style="${small}"><span>${escapeHtml([doc.meta.project, doc.meta.building].filter(Boolean).join(' · '))}</span><span>${escapeHtml(doc.title)}${doc.meta.version ? ` · ${escapeHtml(doc.meta.version)}` : ''}</span></div>`,
+    headerTemplate: `<div style="${small}"><span>${escapeHtml([doc.meta.project, doc.meta.building].filter(Boolean).join(' · '))}</span>${doc.internal ? `<span style="color:#ED1A4C;font-weight:700">${escapeHtml(INTERNAL_COST_MARK)}</span>` : ''}<span>${escapeHtml(doc.title)}${doc.meta.version ? ` · ${escapeHtml(doc.meta.version)}` : ''}</span></div>`,
     footerTemplate: `<div style="${small}"><span>${escapeHtml(branding.organisationName ?? '')}</span><span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span></div>`,
   }
 }

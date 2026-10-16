@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import mongoose from 'mongoose'
-import { requestProblem, typeOf, fileNameOf, FORMAT_MIME, DOCUMENT_TYPES } from '@rackium/shared/documents/types.js'
+import { requestProblem, typeOf, fileNameOf, FORMAT_MIME, DOCUMENT_TYPES, COST_ROLES, clientShareProblem } from '@rackium/shared/documents/types.js'
 import { canSeePrices } from '@rackium/shared/policy.js'
 import { localDate } from '@rackium/shared/timeZone.js'
 import { GeneratedDocument } from '../models/generatedDocument.js'
@@ -74,7 +74,10 @@ export function createDocumentService({ storage, services, autoProcess = true, l
     if (d.buildingId) await requireBuilding(req, d.buildingId)
     const { roles } = await callerAccess(req)
     if (d.typeKey === 'audit-log' && !roles.some((r) => AUDIT_READERS.includes(r))) throw notFound('Document not found')
-    if ((d.options?.prices ?? 'none') !== 'none') {
+    const prices = d.options?.prices ?? 'none'
+    // Internal cost-price documents: Org Admin, PM and Reviewer only.
+    if (prices === 'cost' && !roles.some((r) => COST_ROLES.includes(r))) throw notFound('Document not found')
+    if (prices === 'sell') {
       const org = await Organisation.findById(req.org.id, { 'settings.architectsSeePrices': 1 }).lean()
       if (!canSeePrices(roles, { architectsSeePrices: Boolean(org?.settings?.architectsSeePrices) })) throw notFound('Document not found')
     }
@@ -90,6 +93,8 @@ export function createDocumentService({ storage, services, autoProcess = true, l
   // Queues a document, or returns the identical request already queued or
   // generating. `handover`: { workflowId, round } when compiling a package.
   async function enqueue(req, { buildingId, typeKey, format, options = {}, handover = null }, actor, { session = null } = {}) {
+    // A handover package goes to the client: never cost prices.
+    if (handover && clientShareProblem({ options })) throw badRequest('A handover package cannot contain cost prices')
     const access = await callerAccess(req)
     const building = buildingId ? await requireBuilding(req, buildingId, session) : null
     const requestKey = crypto.createHash('sha256').update(stable({ buildingId: buildingId ?? null, typeKey, format, options, by: String(actor.userId), handover: handover ? String(handover.round) : null })).digest('hex')
@@ -301,6 +306,9 @@ export function createDocumentService({ storage, services, autoProcess = true, l
       for (const d of docs) {
         await assertReadable(req, d)
         if (d.status !== 'ready') throw new AppError(409, 'not_ready', `${d.fileName} is not ready yet`)
+        // Cost prices never reach a client.
+        const internal = clientShareProblem(d)
+        if (internal) throw badRequest(internal)
       }
       const secrets = await prepareSecrets(body.password, { optional: true })
       const link = await withTransaction(async (session) => {

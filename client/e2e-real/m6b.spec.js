@@ -105,6 +105,30 @@ test('HLD, LLD and Solution Package documents from their screens: PDFs with cove
   await expect(arch.getByRole('menuitem', { name: /Client export with prices/ })).toHaveCount(0)
 })
 
+test('BOM: cost prices only as an internal export for the Org Admin, PM and Reviewer, marked on every page', async () => {
+  const rev = s.reviewer
+  await rev.goto(`${base()}/bom`)
+  const cost = await exportFrom(rev, 'INTERNAL — BOM with cost prices', 'PDF')
+  const pages = await pdfText(cost.path)
+  expect(pages.length).toBeGreaterThan(1)
+  pages.forEach((page) => expect(page.replace(/\s+/g, '')).toContain('INTERNAL—costprices'))
+  // The menu with its internal items fits a phone.
+  const menu = rev.getByTestId('document-exports').first()
+  if ((await menu.getByRole('menu').count()) === 0) await menu.getByRole('button', { name: 'Documents' }).click()
+  for (const [width, height] of [[1440, 900], [1024, 768], [768, 1024], [390, 844]]) {
+    await rev.setViewportSize({ width, height })
+    await expect(menu.getByRole('menuitem', { name: /INTERNAL — BOM with cost prices/ }).first()).toBeVisible()
+    expect(await rev.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), `BOM menu at ${width}px`).toBe(0)
+  }
+  await rev.setViewportSize({ width: 1440, height: 900 })
+  // The Architect is never offered cost prices.
+  const arch = s.architect
+  await arch.goto(`${base()}/bom`)
+  await arch.getByTestId('document-exports').first().getByRole('button', { name: 'Documents' }).click()
+  await expect(arch.getByRole('menuitem', { name: /BOM, quantities only/ }).first()).toBeVisible()
+  await expect(arch.getByRole('menuitem', { name: /cost prices/ })).toHaveCount(0)
+})
+
 test('QR cable labels: a label sheet for the chosen cables; the QR target needs sign-in and opens the connection', async ({ browser }) => {
   const fe = s.fe
   await fe.goto(`${base()}/deployment`)

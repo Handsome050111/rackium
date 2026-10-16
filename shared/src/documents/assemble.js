@@ -5,7 +5,7 @@ import { SECTIONS, REQUIRED_INPUT_GROUPS } from '../solutionPackage.js'
 import { cableMatrix } from '../cmdb.js'
 import { DGUV_STATUS_LABEL, STATUS_LABELS } from '../deployment.js'
 import { RESOURCE_TASKS } from '../billOfResources.js'
-import { p, kv, table, list, note, svg, image, section, day, sheetOf } from './model.js'
+import { p, h3, kv, table, list, note, svg, image, section, day, sheetOf } from './model.js'
 import { topologySvg, rackElevationSvg } from './svg.js'
 
 const MEDIA = { cat6a: 'Cat6A', os2: 'OS2', om4: 'OM4', dac: 'DAC', stack: 'Stack' }
@@ -150,18 +150,24 @@ export function cableWorkbook(ctx, data, { headings = {} } = {}) {
 }
 
 // --- Survey report ------------------------------------------------------------------
-// data: { buildingFields: [{ tab, status, fields: [{ label, value }] }],
-//         rooms: [{ code, floorName, tabs: [{ tab, status, fields }], racks: [{ code, heightU }], photos: [fileId] }] }
+// data: { buildingFields: [tab], rooms: [{ code, floorName, tabs: [tab], racks: [{ code, heightU }], photos: [fileId] }] }
+// tab: { tab, status, fields: [{ label, value }], tables: [{ title, columns, rows }] } (./survey.js).
+// Every table section is printed in full; a long table continues across pages
+// with its header repeated.
 export function surveyReport(ctx, data) {
   const doc = base(ctx, 'Physical Site Survey Report')
-  const fieldTable = (fields) => kv(fields.map((f) => [f.label, f.value]))
+  const tabBlocks = (t) => [
+    ...(t.fields.length ? [kv(t.fields.map((f) => [f.label, f.value]))] : []),
+    ...(t.tables ?? []).flatMap((tb) => [h3(tb.title), table(tb.columns, tb.rows, { empty: 'No rows recorded.' })]),
+    ...(!t.fields.length && !(t.tables ?? []).length ? [p('No data recorded.')] : []),
+  ]
   doc.sections = [
     section('summary', 'Summary', [kv([['Rooms surveyed', data.rooms.length], ['Racks', data.rooms.reduce((n, r) => n + r.racks.length, 0)], ['Photos', data.rooms.reduce((n, r) => n + r.photos.length, 0)], ['Survey status', data.status ?? '—']])]),
     section(
       'building',
       'Building',
-      data.buildingFields.length ? [] : [p('No building-level survey data recorded.')],
-      data.buildingFields.map((t, i) => section(`building-${i}`, `${t.tab} (${t.status})`, [fieldTable(t.fields)]))
+      [...(data.buildingFields.length ? [] : [p('No building-level survey data recorded.')]), ...(data.buildingPhotos ?? []).map((id, k) => image(id, `Building photo ${k + 1}`))],
+      data.buildingFields.map((t, i) => section(`building-${i}`, `${t.tab} (${t.status})`, tabBlocks(t)))
     ),
     section(
       'rooms',
@@ -169,7 +175,7 @@ export function surveyReport(ctx, data) {
       data.rooms.length ? [] : [p('No rooms surveyed.')],
       data.rooms.map((r, i) =>
         section(`room-${i}`, `Room ${r.code}${r.floorName ? ` · ${r.floorName}` : ''}`, [
-          ...r.tabs.flatMap((t) => [p(`${t.tab} — ${t.status}`), fieldTable(t.fields)]),
+          ...r.tabs.flatMap((t) => [h3(`${t.tab} — ${t.status}`), ...tabBlocks(t)]),
           r.racks.length ? table([{ key: 'code', label: 'Rack' }, { key: 'heightU', label: 'Height (U)' }], r.racks) : p('No racks.'),
           ...r.photos.map((id, k) => image(id, `${r.code} photo ${k + 1}`)),
         ])

@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx'
 import JSZip from 'jszip'
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, WidthType, ImageRun, TableOfContents, Header, Footer, PageNumber, AlignmentType, PageBreak, ShadingType, BorderStyle } from 'docx'
 import { outline } from './util.js'
+import { INTERNAL_COST_MARK } from '@rackium/shared/documents/types.js'
 
 // Word, Excel, CSV, PNG and ZIP outputs (M6b).
 
@@ -67,6 +68,7 @@ export async function renderDocx(doc, { branding = {}, images = new Map() } = {}
   async function blocks(list) {
     for (const b of list) {
       if (b.type === 'p') children.push(new Paragraph({ children: [new TextRun(b.text)] }))
+      else if (b.type === 'h3') children.push(new Paragraph({ spacing: { before: 160 }, children: [new TextRun({ text: b.text, bold: true })] }))
       else if (b.type === 'note') children.push(new Paragraph({ shading: { type: ShadingType.CLEAR, fill: 'F4F5F7', color: 'auto' }, children: [new TextRun({ text: b.text, italics: true })] }))
       else if (b.type === 'list') b.items.forEach((i) => children.push(new Paragraph({ bullet: { level: 0 }, children: [new TextRun(i)] })))
       else if (b.type === 'kv') b.rows.forEach(([k, v]) => children.push(new Paragraph({ children: [new TextRun({ text: `${k}: `, color: '5B6270' }), new TextRun(String(v))] })))
@@ -104,7 +106,7 @@ export async function renderDocx(doc, { branding = {}, images = new Map() } = {}
     styles: { default: { document: { run: { font: 'Arial', size: 19 } } }, paragraphStyles: [{ id: 'Heading1', name: 'Heading 1', basedOn: 'Normal', next: 'Normal', run: { size: 30, bold: true, color: '094F9A' }, paragraph: { spacing: { before: 240, after: 120 } } }, { id: 'Heading2', name: 'Heading 2', basedOn: 'Normal', next: 'Normal', run: { size: 24, bold: true }, paragraph: { spacing: { before: 200, after: 80 } } }] },
     sections: [
       {
-        headers: { default: new Header({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun({ text: `${doc.meta.building ?? ''} · ${doc.title}`, size: 14, color: '5B6270' })] })] }) },
+        headers: { default: new Header({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [...(doc.internal ? [new TextRun({ text: `${INTERNAL_COST_MARK}   `, size: 16, bold: true, color: 'ED1A4C' })] : []), new TextRun({ text: `${doc.meta.building ?? ''} · ${doc.title}`, size: 14, color: '5B6270' })] })] }) },
         footers: { default: new Footer({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun({ children: ['Page ', PageNumber.CURRENT, ' of ', PageNumber.TOTAL_PAGES], size: 14, color: '5B6270' })] })] }) },
         children,
       },

@@ -38,8 +38,17 @@ export const FORMAT_MIME = {
   png: 'image/png',
 }
 // Price modes (M5a rules): `none` for everyone; `sell` (the client's price,
-// margin applied and never shown) and `cost` only for those who may see prices.
+// margin applied and never shown) for those who may see prices; `cost` only
+// for internal documents, made by an Org Admin, PM or Reviewer, marked
+// "INTERNAL — cost prices" on every page and never shared with a client.
 export const PRICE_MODES = ['none', 'sell', 'cost']
+export const COST_ROLES = ['org_admin', 'pm', 'reviewer']
+export const INTERNAL_COST_MARK = 'INTERNAL — cost prices'
+export const CLIENT_PRICE_MODES = ['none', 'sell']
+export const isInternal = (d) => (d?.options?.prices ?? 'none') === 'cost'
+// Why a document may not reach a client (share link, handover package, client
+// export): null when it may.
+export const clientShareProblem = (d) => (isInternal(d) ? `${d.fileName ?? 'This document'} is internal (cost prices) and cannot be shared with a client` : null)
 
 // The handover package is complete when every document has every handover format ready.
 export const HANDOVER_FILE_COUNT = HANDOVER_TYPES.reduce((n, t) => n + t.handover.length, 0)
@@ -55,7 +64,8 @@ export function requestProblem({ typeKey, format, options = {}, roles = [], canS
   const prices = options.prices ?? 'none'
   if (!PRICE_MODES.includes(prices)) return 'Unknown price mode'
   if (prices !== 'none' && !type.prices) return `${type.name} has no prices`
-  if (prices !== 'none' && !canSeePrices) return 'Only those who may see prices can export them'
+  if (prices === 'cost' && !roles.some((r) => COST_ROLES.includes(r))) return 'Only an Org Admin, PM or Reviewer exports cost prices (internal documents)'
+  if (prices === 'sell' && !canSeePrices) return 'Only those who may see prices can export them'
   if (typeKey === 'audit-log' && !roles.some((r) => ['org_admin', 'pm', 'architect', 'reviewer'].includes(r))) return 'Only an Org Admin, PM, Architect or Reviewer exports the audit log'
   return null
 }

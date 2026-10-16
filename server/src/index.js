@@ -13,7 +13,7 @@ import { CableIdRegistry } from './models/cableIdRegistry.js'
 import { createScheduler } from './jobs/scheduler.js'
 import { deliverOutbox, taskReminders, dailyDigest } from './notifications/jobs.js'
 import { dguvReminders } from './deployment/jobs.js'
-import { closePdfBrowser } from './documents/render/pdf.js'
+import { closePdfBrowserIfLoaded } from './documents/render/chromium.js'
 import { configureNotifications } from './notifications/notify.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
@@ -65,7 +65,7 @@ async function main() {
   const shutdown = (signal) => {
     logger.info({ signal }, 'shutting down')
     scheduler.stop()
-    closePdfBrowser()
+    closePdfBrowserIfLoaded()
     server.close(async () => {
       await disconnectDatabase()
       process.exit(0)

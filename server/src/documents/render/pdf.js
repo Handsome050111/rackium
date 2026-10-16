@@ -2,16 +2,15 @@ import { chromium } from 'playwright-core'
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs'
 import { documentHtml, headerFooter, marker } from './html.js'
 import { outline } from './util.js'
+import { pdfSettings } from './chromium.js'
 
 // PDFs from HTML templates in headless Chromium (M6b). One browser per
 // process, launched on first use (CHROMIUM_PATH points at a system Chromium
 // on a server without Playwright's download), one page per document.
 let browserPromise = null
-let executablePath = null
-export function configurePdf({ chromiumPath = null } = {}) {
-  executablePath = chromiumPath || null
-}
+pdfSettings.loaded = true
 async function browser() {
+  const executablePath = pdfSettings.chromiumPath
   browserPromise ??= chromium.launch({ headless: true, ...(executablePath ? { executablePath } : {}) }).catch((err) => {
     browserPromise = null
     throw new Error(`Cannot start Chromium for PDF generation: ${err.message.split('\n')[0]}`)

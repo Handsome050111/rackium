@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import mongoose from 'mongoose'
 import { handoverChecklist, checklistReady, shownState, handoverActionProblem, HANDOVER_STATE_LABELS, handoverPhaseStatus } from '@rackium/shared/documents/handover.js'
-import { HANDOVER_TYPES, HANDOVER_FILE_COUNT, FORMAT_MIME } from '@rackium/shared/documents/types.js'
+import { HANDOVER_TYPES, HANDOVER_FILE_COUNT, FORMAT_MIME, clientShareProblem } from '@rackium/shared/documents/types.js'
 import { toCsv } from '@rackium/shared/documents/model.js'
 import { HandoverWorkflow } from '../models/handoverWorkflow.js'
 import { HandoverBaseline } from '../models/handoverBaseline.js'
@@ -23,7 +23,8 @@ import { hldStatusByBuilding } from '../hld/service.js'
 import { spStatusByBuilding } from '../delivery/solutionPackage.js'
 import { linksOf, createLink, prepareSecrets } from '../delivery/shareLinks.js'
 import { namesOf } from '../delivery/common.js'
-import { renderZip } from '../documents/render/office.js'
+// The ZIP writer loads on first use (the package is built rarely).
+const renderZip = async (entries) => (await import('../documents/render/office.js')).renderZip(entries)
 import { documentView } from '../documents/service.js'
 
 const oid = (v) => new mongoose.Types.ObjectId(String(v))
@@ -92,6 +93,7 @@ export function createHandoverService({ storage, services, documents }) {
 
   // The package ZIP of a compiled round: every document plus a manifest.
   async function buildPackage(req, building, workflow, docs, actorId) {
+    for (const d of docs) if (clientShareProblem(d)) throw new Error(clientShareProblem(d))
     const entries = []
     const manifest = [['Document', 'Format', 'Version', 'File', 'SHA-256', 'Bytes']]
     for (const d of docs) {

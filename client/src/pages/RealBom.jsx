@@ -100,8 +100,15 @@ export default function RealBom() {
               { typeKey: 'bom-final', format: 'pdf', label: 'BOM, quantities only' },
               ...(view.showPrices
                 ? [
-                    { typeKey: 'bom-final', format: 'xlsx', label: 'BOM with cost prices', options: { prices: 'cost' } },
+                    { typeKey: 'bom-final', format: 'xlsx', label: 'BOM with client prices', options: { prices: 'sell' } },
                     { typeKey: 'bom-final', format: 'pdf', label: 'BOM with client prices', options: { prices: 'sell' } },
+                  ]
+                : []),
+              // Internal only (never shared with the client): Org Admin, PM, Reviewer.
+              ...(!readOnly && ['org_admin', 'pm', 'reviewer'].some(has)
+                ? [
+                    { typeKey: 'bom-final', format: 'xlsx', label: 'INTERNAL — BOM with cost prices', options: { prices: 'cost' } },
+                    { typeKey: 'bom-final', format: 'pdf', label: 'INTERNAL — BOM with cost prices', options: { prices: 'cost' } },
                   ]
                 : []),
             ]}

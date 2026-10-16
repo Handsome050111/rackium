@@ -2,8 +2,9 @@ import mongoose from 'mongoose'
 import sharp from 'sharp'
 import QRCode from 'qrcode'
 import { getTabDefinition } from '@rackium/shared/surveyForm.js'
-import { toCsv, sheetOf } from '@rackium/shared/documents/model.js'
-import { HANDOVER_TYPES, typeOf } from '@rackium/shared/documents/types.js'
+import { toCsv, sheetOf, capImages } from '@rackium/shared/documents/model.js'
+import { surveyTabForReport } from '@rackium/shared/documents/survey.js'
+import { HANDOVER_TYPES, typeOf, isInternal, INTERNAL_COST_MARK } from '@rackium/shared/documents/types.js'
 import { cableLabels, layoutLabels, labelSize, connectionPath } from '@rackium/shared/documents/labels.js'
 import * as A from '@rackium/shared/documents/assemble.js'
 import { topologySvg } from '@rackium/shared/documents/svg.js'
@@ -18,8 +19,18 @@ import { HandoverBaseline } from '../models/handoverBaseline.js'
 import { dguvDevices } from '../deployment/asBuilt.js'
 import { orgTimeSettings } from '../organisations/timeSettings.js'
 import { projectSettings } from '../delivery/common.js'
-import { renderPdf, renderLabelsPdf } from './render/pdf.js'
-import { renderDocx, renderXlsx, renderZip, svgToPng } from './render/office.js'
+// The renderers (Chromium, pdf.js, docx, xlsx, jszip) load on first use only:
+// every other module — and every test file that does not render — stays light.
+const pdfRenderer = () => import('./render/pdf.js')
+const officeRenderer = () => import('./render/office.js')
+const renderXlsx = async (sheets) => (await officeRenderer()).renderXlsx(sheets)
+const renderZip = async (entries) => (await officeRenderer()).renderZip(entries)
+const svgToPng = async (svg, o) => (await officeRenderer()).svgToPng(svg, o)
+const renderDocx = async (doc, o) => (await officeRenderer()).renderDocx(doc, o)
+const renderPdf = async (doc, o) => (await pdfRenderer()).renderPdf(doc, o)
+const renderLabelsPdf = async (o) => (await pdfRenderer()).renderLabelsPdf(o)
+// An internal (cost price) workbook: the mark on the first row of every sheet.
+const markSheets = (sheets, internal) => (internal ? sheets.map((s) => ({ ...s, rows: [[INTERNAL_COST_MARK], ...s.rows] })) : sheets)
 import { appUrl } from '../notifications/notify.js'
 
 const PHOTO_CATEGORIES = ['photo_room', 'photo_rack', 'photo_reference', 'photo_device_label', 'evidence']
@@ -46,12 +57,6 @@ const collectImageIds = (doc) => {
   return ids
 }
 
-const fieldValue = (field, v) => {
-  if (v == null || v === '') return null
-  if (typeof v === 'boolean') return v ? 'Yes' : 'No'
-  if (typeof v === 'object' && Array.isArray(v.fileIds)) return `${v.fileIds.length} file(s)`
-  return String(v)
-}
 
 // The survey report's data: every tab record with its labelled values, rooms
 // with racks and photos.
@@ -61,20 +66,9 @@ async function surveyData(req, building, services) {
   const records = await SurveyTabRecord.find({ buildingId: building.id }).lean()
   const photoFiles = await File.find({ buildingId: building.id, deletedAt: null, category: { $in: PHOTO_CATEGORIES }, 'attachedTo.type': { $in: ['surveyTabRecord', 'room', 'rack'] } }, { attachedTo: 1 }).lean()
   const racks = await Rack.find({ buildingId: building.id }).lean()
-  const tabView = (rec) => {
-    const def = getTabDefinition(rec.tab)
-    const fields = []
-    for (const s of rec.sections ?? []) {
-      const sdef = def?.sections?.[s.sectionIndex]
-      for (const fv of s.fieldValues ?? []) {
-        const f = sdef?.fields?.find((x) => x.key === fv.key)
-        const value = fieldValue(f, fv.value)
-        if (value != null) fields.push({ label: f?.label ?? fv.key, value })
-      }
-      if (s.rows?.length) fields.push({ label: sdef?.section ?? 'Rows', value: `${s.rows.length} row(s)` })
-    }
-    return { tab: rec.tab, status: rec.status, fields }
-  }
+  // Every section in full: tables as tables (M6b review), labels from the template.
+  const rackCode = new Map(racks.map((k) => [String(k._id), k.code]))
+  const tabView = (rec) => surveyTabForReport(getTabDefinition(rec.tab), rec, { rackCodeOf: (id) => rackCode.get(String(id)) ?? null })
   const roomPhotos = (roomId) => {
     const recIds = new Set(records.filter((r) => String(r.roomId) === String(roomId)).map((r) => String(r._id)))
     const rackIds = new Set(racks.filter((k) => String(k.roomId) === String(roomId)).map((k) => String(k._id)))
@@ -82,8 +76,10 @@ async function surveyData(req, building, services) {
   }
   const rooms = tree.floors.flatMap((fl) => fl.rooms.map((r) => ({ id: r.id, code: r.code, floorName: fl.name ?? fl.token, tabs: records.filter((x) => String(x.roomId) === r.id && x.hasData).map(tabView), racks: racks.filter((k) => String(k.roomId) === r.id).map((k) => ({ code: k.code, heightU: k.heightU })), photos: roomPhotos(r.id) })))
   const buildingFields = records.filter((x) => !x.roomId && x.hasData).map(tabView)
+  const buildingRecIds = new Set(records.filter((x) => !x.roomId).map((x) => String(x._id)))
+  const buildingPhotos = photoFiles.filter((f) => f.attachedTo.type === 'surveyTabRecord' && buildingRecIds.has(String(f.attachedTo.id))).map((f) => String(f._id))
   const verified = records.length > 0 && records.every((r) => ['verified', 'imported'].includes(r.status))
-  return { status: verified ? 'Verified' : 'In progress', buildingFields, rooms }
+  return { status: verified ? 'Verified' : 'In progress', buildingFields, buildingPhotos, rooms }
 }
 
 // Every photo of the building, organised by room / rack / device (ZIP pack).
@@ -138,7 +134,11 @@ const marginOf = async () => (await projectSettings()).marginPercent
 export async function generate({ job, req, building, services, storage, branding, onStep, settings }) {
   const options = job.options ?? {}
   const ctx = { project: req.project.summary, building: building ? { code: building.code, name: building.name } : null, versionLabel: `v${job.version}`, generatedAt: job.requestedAt }
+  const internal = isInternal(job)
   const pdf = async (doc) => {
+    if (internal) doc.internal = true
+    // At most MAX_PHOTOS_PER_DOCUMENT photos printed; the document says where the rest are.
+    capImages(doc, MAX_PHOTOS_PER_DOCUMENT)
     onStep('Collecting photos')
     const images = await imagesFor(storage, collectImageIds(doc))
     const out = await renderPdf(doc, { branding, watermark: job.watermark, images, onStep })
@@ -168,7 +168,7 @@ export async function generate({ job, req, building, services, storage, branding
         return d ? { ...c, status: d.status, segments: c.segments.map((s) => ({ ...s, installed: d.segments.find((x) => x.index === s.index)?.installed ?? null })) } : c
       })
       const wb = A.cableWorkbook(ctx, { ...v, connections }, { headings: settings.headings })
-      return { buffer: renderXlsx(wb.sheets) }
+      return { buffer: await renderXlsx(wb.sheets) }
     }
     case 'survey-report':
       return pdf(A.surveyReport(ctx, await surveyData(req, building, services)))
@@ -177,6 +177,7 @@ export async function generate({ job, req, building, services, storage, branding
       const doc = A.solutionPackageDocument(ctx, { sp, hld, lld: lld.started ? lld : null, bom, prices: priceRules.prices, marginPercent: await marginOf(), headings: settings.headings })
       if (job.format === 'docx') {
         onStep('Writing the Word document')
+        if (internal) doc.internal = true
         return { buffer: await renderDocx(doc, { branding }) }
       }
       return pdf(doc)
@@ -184,7 +185,7 @@ export async function generate({ job, req, building, services, storage, branding
     case 'bom-final': {
       const bom = await services.delivery.bom.view(req, building.id)
       const out = A.bomDocument(ctx, bom, { prices: priceRules.prices, marginPercent: await marginOf() })
-      return job.format === 'xlsx' ? { buffer: renderXlsx([out.sheet]) } : pdf(out.doc)
+      return job.format === 'xlsx' ? { buffer: await renderXlsx(markSheets([out.sheet], internal)) } : pdf(out.doc)
     }
     case 'deployment-report': {
       const dep = await services.deployment.view(req, building.id)
@@ -217,7 +218,7 @@ export async function generate({ job, req, building, services, storage, branding
       const devs = await Device.find({ _id: { $in: list.map((d) => d.device._id) } }, { roomId: 1 }).lean()
       const roomOf = new Map(devs.map((d) => [String(d._id), rooms.get(String(d.roomId))]))
       const out = A.dguvReport(ctx, { settings: dguv, devices: list.map((d) => ({ label: d.label, room: roomOf.get(String(d.device._id)), lastInspectionDate: d.rec.dguv?.lastInspectionDate ?? null, inspector: d.rec.dguv?.inspector ?? null, dueDate: d.status?.dueDate ?? null, status: d.inspected ? d.status.status : null })) })
-      return job.format === 'xlsx' ? { buffer: renderXlsx([out.sheet]) } : pdf(out.doc)
+      return job.format === 'xlsx' ? { buffer: await renderXlsx([out.sheet]) } : pdf(out.doc)
     }
     case 'topology-diagram': {
       const v = await services.hld.view(req, building.id)

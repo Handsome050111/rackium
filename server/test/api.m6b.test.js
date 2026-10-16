@@ -410,3 +410,60 @@ describe('Handover package timing (found in M6b)', () => {
     expect(await col('generateddocuments').countDocuments({ typeKey: 'handover-package' })).toBe(1)
   }, 600000)
 })
+
+describe('M6b review: cost prices stay internal', () => {
+  it('cost mode: Org Admin/PM/Reviewer only, "INTERNAL — cost prices" on every page and sheet; never in a share link, a public download or a handover package', async () => {
+    const ctx = t()
+    const { p } = await deployable(ctx)
+    await p.architect.post(`${p.base}/documents`).send({ buildingId: p.b001, typeKey: 'bom-final', format: 'pdf', options: { prices: 'cost' } }).expect(403)
+    await p.fe.post(`${p.base}/documents`).send({ buildingId: p.b001, typeKey: 'bom-final', format: 'pdf', options: { prices: 'cost' } }).expect(403)
+    const pdf = await generate(ctx, p, p.admin.agent, { typeKey: 'bom-final', format: 'pdf', options: { prices: 'cost' } })
+    const pages = await pdfPages(await download(p, p.admin.agent, pdf.id))
+    expect(pages.length).toBeGreaterThan(2)
+    pages.forEach((page) => expect(page).toContain('INTERNAL — cost prices'))
+    expect(pages[0]).toContain('not for the client')
+    const xlsx = await generate(ctx, p, p.reviewer, { typeKey: 'bom-final', format: 'xlsx', options: { prices: 'cost' } })
+    const book = XLSX.read(await download(p, p.reviewer, xlsx.id), { type: 'buffer' })
+    expect(XLSX.utils.sheet_to_json(book.Sheets[book.SheetNames[0]], { header: 1 })[0]).toEqual(['INTERNAL — cost prices'])
+    // The Reviewer reads it; the Architect neither lists nor opens it.
+    await p.reviewer.get(`${p.base}/documents/${pdf.id}`).expect(200)
+    expect((await p.architect.get(`${p.base}/documents?buildingId=${p.b001}`).expect(200)).body.documents.map((d) => d.id)).not.toContain(pdf.id)
+    await p.architect.get(`${p.base}/documents/${pdf.id}/download`).expect(404)
+    // A share link refuses it, alone or among client-safe documents.
+    const sell = await generate(ctx, p, p.admin.agent, { typeKey: 'bom-final', format: 'pdf', options: { prices: 'sell' } })
+    expect((await p.admin.agent.post(`${p.base}/documents/share-links`).send({ buildingId: p.b001, documentIds: [sell.id, pdf.id] }).expect(400)).body.error.message).toBe('B001-bom-final-v1.pdf is internal (cost prices) and cannot be shared with a client')
+    // Even a link that somehow lists it never serves it.
+    const link = expectStatus(await p.admin.agent.post(`${p.base}/documents/share-links`).send({ buildingId: p.b001, documentIds: [sell.id] }), 201).body.shareLink
+    await col('sharelinks').updateOne({ _id: new mongoose.Types.ObjectId(link.id) }, { $push: { documentIds: new mongoose.Types.ObjectId(pdf.id) } })
+    const token = link.url.split('/').pop()
+    const view = (await ctx.agent().post(pub(token, '/view')).send({}).expect(200)).body
+    expect(view.documents.map((d) => d.id)).toEqual([sell.id])
+    await ctx.agent().post(pub(token, `/documents/${pdf.id}`)).send({}).expect(404)
+    // A handover package never takes cost prices.
+    await expect(ctx.app.__documents.enqueue({}, { buildingId: p.b001, typeKey: 'bom-final', format: 'xlsx', options: { prices: 'cost' }, handover: { round: 1 } }, {})).rejects.toThrow('A handover package cannot contain cost prices')
+  }, 300000)
+})
+
+describe('M6b review: the survey report prints its tables in full', () => {
+  it('a table section with many rows: every row, the column headings repeated on each page it spans', async () => {
+    const ctx = t()
+    const { p } = await deployable(ctx, { frozen: false })
+    const { getTabDefinition } = await import('@rackium/shared/surveyForm.js')
+    const def = getTabDefinition('Location Details')
+    const index = def.sections.findIndex((s) => s.layout === 'table')
+    const [first, second] = def.sections[index].fields
+    const rows = Array.from({ length: 90 }, (_, i) => ({ rowId: new mongoose.Types.ObjectId(), fieldValues: [{ key: first.key, value: `ROW-${String(i + 1).padStart(3, '0')}` }, { key: second.key, value: 'value' }] }))
+    const res = await col('surveytabrecords').updateOne({ tab: 'Location Details', roomId: null, buildingId: new mongoose.Types.ObjectId(p.b001) }, { $set: { sections: [{ sectionIndex: index, layout: 'table', fieldValues: [], rows }], hasData: true } })
+    expect(res.matchedCount).toBe(1)
+    const doc = await generate(ctx, p, p.architect, { typeKey: 'survey-report', format: 'pdf' })
+    const pages = await pdfPages(await download(p, p.architect, doc.id))
+    const all = flat(pages)
+    for (const n of [1, 45, 90]) expect(all).toContain(`ROW-${String(n).padStart(3, '0')}`)
+    expect(all).not.toMatch(/\d+row\(s\)/)
+    // The table spans pages; each of them repeats the column headings.
+    const heading = first.label.replace(/\s+/g, '')
+    const tablePages = pages.map((pg) => pg.replace(/\s+/g, '')).filter((pg) => /ROW-\d{3}/.test(pg))
+    expect(tablePages.length).toBeGreaterThan(1)
+    tablePages.forEach((pg) => expect(pg).toContain(heading))
+  }, 300000)
+})
