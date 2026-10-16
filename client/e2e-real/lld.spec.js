@@ -147,16 +147,26 @@ test('Rack Elevations: the Architect renames a planned patch panel — how a pan
   // The rename row fits a phone.
   for (const [width, height] of [[1440, 900], [1024, 768], [768, 1024], [390, 844]]) {
     await architect.setViewportSize({ width, height })
-    await expect(label).toBeVisible()
+    // A phone is view-only, as for every LLD edit: no rename there.
+    if (width < 768) await expect(label).toHaveCount(0)
+    else await expect(label).toBeVisible()
     const overflow = await architect.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth + (document.querySelector('main').scrollWidth - document.querySelector('main').clientWidth))
     expect(overflow, `rename row at ${width}px`).toBe(0)
     if (process.env.LLD_SHOTS) await architect.screenshot({ path: `${process.env.LLD_SHOTS}/lld-rename-${width}.png`, fullPage: true })
   }
   await architect.setViewportSize({ width: 1440, height: 900 })
-  // Back to its default label for the routes below.
-  await label.fill('PP-TR-EG-01-R01-01')
-  await rename.click()
-  await expect(architect.getByTitle('PP-TR-EG-01-R01-01')).toBeVisible()
+  // The PM may rename too (the rename rules), though not place: back to its
+  // default label for the routes below.
+  await owner.goto(lldUrl())
+  await expect(owner.locator('[data-page-state]')).toHaveAttribute('data-page-state', 'ready', { timeout: 30_000 })
+  await owner.getByRole('tab', { name: 'Rack Elevations' }).click()
+  const pmPanel = owner.getByTestId('lld-placement')
+  await pmPanel.getByLabel('Device to place').selectOption(pp.id)
+  await expect(pmPanel.getByRole('button', { name: 'Place', exact: true })).toBeDisabled()
+  await pmPanel.getByLabel('Panel label').fill('PP-TR-EG-01-R01-01')
+  await pmPanel.getByRole('button', { name: 'Rename' }).click()
+  await expect(owner.getByTitle('PP-TR-EG-01-R01-01')).toBeVisible()
+  expect((await lld()).devices.find((d) => d.id === pp.id).label).toBe('PP-TR-EG-01-R01-01')
 })
 
 test('Rackium Editor: ports from the catalogue, suggestions applied by the user, a patch-panel hop, a Cable ID', async () => {

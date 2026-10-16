@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
 import mongoose from 'mongoose'
 import { panelLabel } from '@rackium/shared/lldDesign.js'
 import { startReplSet, stopReplSet, clearAll } from './helpers/memoryDb.js'
-import { createTestApp } from './helpers/app.js'
+import { createTestApp, projectMember, signedInOrgAdmin } from './helpers/app.js'
 import { lldProject, withDesign, complete, PANEL } from './helpers/lld.js'
 import { surveyProject, roomWithRack } from './helpers/survey.js'
 import { seedPlatformCatalogue } from '../src/catalogue/seed.js'
@@ -105,6 +105,38 @@ describe('L-PANEL-LABEL and surveyed panels', () => {
     await surveyRack(p, p.racks[0].id, [surveyedPanel(10, { existingLabel: taken })])
     const added = expectStatus(await d.save('post', `${p.lld}/devices`, { buildingId: p.b001, catalogueKey: PANEL, rackId: p.racks[0].id, ru: 20, face: 'front' }), 201).body.device
     expect(added.label).toBe(panelLabel({ room: p.rooms.main.code, rack: p.racks[0].code, seq: 2 }))
+  })
+})
+
+describe('Renaming a planned panel: who and when (PR #14 review)', () => {
+  it('the Architect or PM renames (the rename rules); Reviewer, Field Engineer and Viewer cannot; out of scope or another organisation is 404; refused after handover and while submitted', async () => {
+    const ctx = t()
+    const p = await lldProject(ctx)
+    await p.architect.post(`${p.lld}/start`).send({ buildingId: p.b001 }).expect(201)
+    const d = withDesign(p)
+    const panel = await complete(d)
+    const rename = (agent, label) => d.save('put', `${p.lld}/devices/${panel.id}/label`, { label }, { agent })
+    expect(expectStatus(await rename(p.architect, 'PP-BY-ARCHITECT'), 200).body.device.label).toBe('PP-BY-ARCHITECT')
+    expect(expectStatus(await rename(p.admin.agent, 'PP-BY-PM'), 200).body.device.label).toBe('PP-BY-PM')
+    for (const agent of [p.reviewer, p.fe, p.viewer]) expectStatus(await rename(agent, 'PP-NOT-ALLOWED'), 403)
+    // Building scope: an Architect for B002 only does not find B001's panel.
+    const b002Architect = await projectMember(ctx, p.admin, { email: 'arch-b002@example.com', role: 'architect', projectId: p.projectId, scopes: [{ type: 'building', refId: p.building('B002').id }] })
+    expect(expectStatus(await rename(b002Architect, 'PP-OUT-OF-SCOPE'), 404).body.error.message).toBe('Building not found')
+    // Another organisation (its own project, where it is the PM): not found.
+    const other = await signedInOrgAdmin(ctx, { email: 'other@example.com', organisationName: 'Other Org' })
+    const otherProject = (await other.agent.post(`/api/v1/orgs/${other.orgId}/projects`).send({ name: 'Other', code: 'OTH' }).expect(201)).body.project.id
+    expectStatus(await other.agent.put(`/api/v1/orgs/${other.orgId}/projects/${otherProject}/lld/devices/${panel.id}/label`).send({ label: 'PP-FOREIGN', baseRevision: await d.rev() }), 404)
+    expect((await d.view()).devices.find((x) => x.id === panel.id).label).toBe('PP-BY-PM')
+    // After the client accepts the handover the design is read-only.
+    const accepted = { organisationId: new mongoose.Types.ObjectId(p.admin.orgId), projectId: new mongoose.Types.ObjectId(p.projectId), buildingId: new mongoose.Types.ObjectId(p.b001), state: 'accepted' }
+    const { insertedId } = await col('handoverworkflows').insertOne(accepted)
+    expect(expectStatus(await rename(p.architect, 'PP-AFTER-HANDOVER'), 409).body.error.code).toBe('handed_over')
+    await col('handoverworkflows').deleteOne({ _id: insertedId })
+    // Submitted for approval: locked until a PM or Reviewer decides.
+    expectStatus(await d.save('post', `${p.lld}/submit`, { buildingId: p.b001 }), 201)
+    expect(expectStatus(await rename(p.architect, 'PP-WHILE-SUBMITTED'), 409).body.error.code).toBe('lld_submitted')
+    // Every successful rename is audited; refused ones change nothing.
+    expect((await col('auditentries').find({ action: 'lld.device.relabelled' }).toArray()).map((a) => a.changes[0].after)).toEqual(['PP-BY-ARCHITECT', 'PP-BY-PM'])
   })
 })
 

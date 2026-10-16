@@ -759,6 +759,25 @@ From the CMO-vs-FMO naming report. Found and fixed, each with a test:
 - **The CMO import preview hid the server's own refusal text** (M3a): a row
   outside the importer's scope showed an empty Issues cell. Test:
   `cmoModel.test.js` (`rowIssueText`).
+- **A panel rename was not a design change in diffs** (found in the PR #14
+  review): the design diff compared a device's hostname, role, model and
+  placement but not its `label`, so once the design was frozen a change
+  request whose only change was a panel rename was refused as "no change",
+  and its impact — what the client approves — never showed a rename. The
+  diff now compares `label` for devices without a hostname (panels, cable
+  managers; a switch's label is display only — comparing it flagged every
+  hostname rename twice, caught by `api.m5a.test.js`). Tests: `lldDesign.test.js`; `api.m6b.test.js`
+  (rename through a change request: refused on the frozen LLD, the impact
+  shows it, applied on approval; the deployment view, QR cable labels, the LLD
+  document and the cable matrix generated afterwards read the new label,
+  those generated before keep version and bytes — fails without the fix).
+- **The PM could not rename a panel** (PR #14 review): the rename used the
+  LLD edit permission (Architect only) instead of the rename rules
+  (Architect or PM, as hostname renames). Now the rename rules, in the API
+  and the UI (the PM chooses the panel; placing stays the Architect's).
+  Tests: `api.cmo-naming.test.js` (Architect and PM rename; Reviewer, Field
+  Engineer and Viewer 403; out of scope and another organisation 404;
+  refused after handover and while submitted), `e2e-real/lld.spec.js`.
 - **A flaky HLD width check** (full Playwright run: failed on the first
   attempt, passed on retry): "the HLD and naming settings fit every width"
   allowed a page load the default 5 s to stop showing "Loading…"; with the

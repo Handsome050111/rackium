@@ -163,6 +163,18 @@ describe('LLD view → prototype tab context', () => {
     expect(ctx.entityById.p.type).toBe('patchpanel')
   })
 
+  it("a renamed panel: its hops, the route trace and the Cable Schedule export read the panel's current label (fix/cmo-naming-gaps)", () => {
+    const renamed = { ...view, devices: view.devices.map((d) => (d.id === 'p' ? { ...d, label: 'VT-MAIN-01' } : d)) }
+    const ctx = toLldContext(renamed)
+    const [c1] = ctx.rows
+    expect(c1.hops[0].label).toBe('VT-MAIN-01 01 front | front')
+    expect(c1.trace).toBe('E-1 Gi1/0/1 → VT-MAIN-01 01 front | VT-MAIN-01 01 front → A-1 Eth0')
+    const sheet = buildCableScheduleSheet(ctx.rows)
+    expect(sheet[1][3]).toBe('VT-MAIN-01 01 front | front')
+    expect(sheet.flat().join(' ')).not.toContain('PP-01')
+    expect(ctx.entityById.p.label).toBe('VT-MAIN-01')
+  })
+
   it('the Cable Schedule export has Cable ID as its first column', () => {
     const sheet = buildCableScheduleSheet(toLldContext(view).rows)
     expect(sheet[0][0]).toBe('Cable ID')

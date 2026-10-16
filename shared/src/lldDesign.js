@@ -324,7 +324,8 @@ export const ALL_RULES = { ...HLD_RULES, ...LLD_RULES }
 
 // --- Version diff (brief §6.10) ----------------------------------------------------
 
-const DEVICE_FIELDS = ['hostname', 'role', 'catalogueKey', 'roomId', 'rackId', 'ru', 'face', 'psuConfigured']
+// label: a patch panel's or cable manager's name (renamed: fix/cmo-naming-gaps).
+const DEVICE_FIELDS = ['hostname', 'label', 'role', 'catalogueKey', 'roomId', 'rackId', 'ru', 'face', 'psuConfigured']
 // segmentLengths: the Engineer Selected length of each cable after a panel (M5a review).
 const CONNECTION_FIELDS = ['source', 'dest', 'media', 'speed', 'sourceSfpCode', 'destSfpCode', 'cableId', 'hops', 'engineerSelectedM', 'segmentLengths']
 const show = (v) => (v == null ? null : typeof v === 'object' ? JSON.stringify(v) : v)
@@ -362,7 +363,10 @@ export function diffDesigns(before, after) {
   const na = names(after)
   const label = (n) => (c) => `${n.get(String(c.source.deviceId)) ?? '?'} ${c.source.portId ?? ''} → ${n.get(String(c.dest.deviceId)) ?? '?'} ${c.dest.portId ?? ''}`.replace(/\s+/g, ' ').trim()
   const labels = new Map([...(before.connections ?? []).map((c) => [String(c.id), label(nb)(c)]), ...(after.connections ?? []).map((c) => [String(c.id), label(na)(c)])])
-  const devices = diffList(before.devices ?? [], after.devices ?? [], DEVICE_FIELDS, (d) => d.hostname ?? d.label ?? d.role)
+  // A label is compared for devices without a hostname (panels, cable managers);
+  // a hostname-named device's label is display only and is not.
+  const named = (list) => list.map((d) => (d.hostname ? { ...d, label: null } : d))
+  const devices = diffList(named(before.devices ?? []), named(after.devices ?? []), DEVICE_FIELDS, (d) => d.hostname ?? d.label ?? d.role)
   const connections = diffList((before.connections ?? []).map(flatConn), (after.connections ?? []).map(flatConn), CONNECTION_FIELDS, (c) => labels.get(String(c.id)))
   const count = (x) => x.added.length + x.removed.length + x.changed.length
   return { devices, connections, total: count(devices) + count(connections) }

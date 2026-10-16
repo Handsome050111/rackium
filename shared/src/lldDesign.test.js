@@ -260,6 +260,14 @@ describe('version diff and HLD reconciliation', () => {
     expect(diffDesigns(after, after).total).toBe(0)
   })
 
+  it("a panel's renamed label is a design change: versions and change requests show it (found in the PR #14 review: a rename alone read as no change)", () => {
+    const before = { devices: [{ id: 'p1', hostname: null, label: 'PP-TR-EG-02-R01-01', catalogueKey: 'panel' }, { id: 'e1', hostname: 'E-1', label: null }], connections: [] }
+    const after = { devices: [{ id: 'p1', hostname: null, label: 'VT-MAIN-01', catalogueKey: 'panel' }, { id: 'e1', hostname: 'E-1', label: null }], connections: [] }
+    const diff = diffDesigns(before, after)
+    expect(diff.devices.changed).toEqual([{ id: 'p1', label: 'VT-MAIN-01', fields: [{ field: 'label', before: 'PP-TR-EG-02-R01-01', after: 'VT-MAIN-01' }] }])
+    expect(diff.total).toBe(1)
+  })
+
   it('reconciles the LLD with a newer HLD through each item’s hldRef', () => {
     const hld = {
       devices: [{ id: 'h-b', hostname: 'B-1', role: 'border', catalogueKey: 'C9500', roomId: 'r1' }, { id: 'h-e', hostname: 'E-1', role: 'edge', catalogueKey: 'C9300', roomId: 'r2' }, { id: 'h-fw', hostname: 'FW-1', role: 'firewall', roomId: 'r1' }],
