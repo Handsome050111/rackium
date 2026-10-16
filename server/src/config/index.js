@@ -19,6 +19,13 @@ const schema = z
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
     // Local-disk file store (DATA-MODEL §9, hosting: files on the VPS disk behind a storage interface).
     FILE_STORAGE_DIR: z.string().min(1).default('var/files'),
+    // Generated documents (M6b): a system Chromium for PDFs (empty: Playwright's
+    // own download), and whether this process renders queued documents itself.
+    CHROMIUM_PATH: z.string().optional(),
+    DOCUMENTS_AUTO_PROCESS: z
+      .enum(['true', 'false'])
+      .default('true')
+      .transform((v) => v === 'true'),
   })
   .superRefine((cfg, ctx) => {
     if (cfg.EMAIL_PROVIDER === 'resend' && !cfg.RESEND_API_KEY) {

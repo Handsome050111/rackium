@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, Download, Server, Link2, Boxes, AlertTriangle, CheckCircle2, Lock } from 'lucide-react'
+import DocumentExports from '../components/documents/DocumentExports.jsx'
 import StatusChip from '../components/StatusChip.jsx'
 import BomTable from '../components/bom/BomTable.jsx'
 import CalculationLogicPanel from '../components/bom/CalculationLogicPanel.jsx'
@@ -90,6 +91,28 @@ export default function RealBom() {
             <Download size={14} strokeWidth={2} />
             Export BOM
           </button>
+          <DocumentExports
+            orgId={orgId}
+            projectId={projectId}
+            buildingId={buildingId}
+            items={[
+              { typeKey: 'bom-final', format: 'xlsx', label: 'BOM, quantities only' },
+              { typeKey: 'bom-final', format: 'pdf', label: 'BOM, quantities only' },
+              ...(view.showPrices
+                ? [
+                    { typeKey: 'bom-final', format: 'xlsx', label: 'BOM with client prices', options: { prices: 'sell' } },
+                    { typeKey: 'bom-final', format: 'pdf', label: 'BOM with client prices', options: { prices: 'sell' } },
+                  ]
+                : []),
+              // Internal only (never shared with the client): Org Admin, PM, Reviewer.
+              ...(!readOnly && ['org_admin', 'pm', 'reviewer'].some(has)
+                ? [
+                    { typeKey: 'bom-final', format: 'xlsx', label: 'INTERNAL — BOM with cost prices', options: { prices: 'cost' } },
+                    { typeKey: 'bom-final', format: 'pdf', label: 'INTERNAL — BOM with cost prices', options: { prices: 'cost' } },
+                  ]
+                : []),
+            ]}
+          />
           {canApprove && (
             <button type="button" onClick={() => act(() => deliveryApi.approveBom(orgId, projectId, { buildingId }), 'Procurement BOM approved')} className="h-touch rounded-lg bg-brand px-4 text-xs font-medium text-white hover:bg-brand/90 sm:h-9">
               {procurement.bomApproved ? 'Re-approve procurement BOM' : 'Approve procurement BOM'}

@@ -11,6 +11,7 @@ import { spStatusByBuilding } from '../delivery/solutionPackage.js'
 import { bomStatusByBuilding } from '../delivery/bom.js'
 import { deploymentStatusesByBuilding } from '../deployment/service.js'
 import { connectionCounts, dguvSummary } from '../deployment/asBuilt.js'
+import { handoverStatusByBuilding } from '../handover/service.js'
 import { currentScope } from '../tenancy/scopeContext.js'
 import { AuditEntry } from '../models/auditEntry.js'
 import { notFound } from '../http/errors.js'
@@ -40,6 +41,7 @@ export function createDashboardService() {
       const asBuilt = await deploymentStatusesByBuilding()
       const deploymentStatus = asBuilt.deployment.get(String(building._id)) ?? 'not_started'
       const cmdbStatus = asBuilt.cmdb.get(String(building._id)) ?? 'not_started'
+      const handoverStatus = (await handoverStatusByBuilding()).get(String(building._id)) ?? 'not_started'
       const phases = activePhases.map(({ phaseKey, position }) => {
         if (phaseKey === 'cmo') return { phaseKey, position, status: cmoStatus, subLabel: null }
         if (phaseKey === 'survey') return { phaseKey, position, status: surveyStatus, subLabel: null }
@@ -50,6 +52,7 @@ export function createDashboardService() {
         if (phaseKey === 'bom') return { phaseKey, position, status: bomStatus, subLabel: spStatus === 'approved' ? null : bomStatus === 'not_started' ? null : 'Draft' }
         if (phaseKey === 'deployment') return { phaseKey, position, status: deploymentStatus, subLabel: null }
         if (phaseKey === 'cmdb') return { phaseKey, position, status: cmdbStatus, subLabel: null }
+        if (phaseKey === 'handover') return { phaseKey, position, status: handoverStatus, subLabel: null }
         const row = statusByPhase.get(phaseKey)
         return { phaseKey, position, status: row?.status ?? 'not_started', subLabel: row?.subLabel ?? null }
       })

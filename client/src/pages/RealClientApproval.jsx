@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { Lock, CheckCircle2, XCircle, FileCheck2, GitPullRequest } from 'lucide-react'
+import { Lock, CheckCircle2, XCircle, FileCheck2, GitPullRequest, PackageCheck, Download } from 'lucide-react'
 import { ApprovalShell as Shell, Stat, DecisionForm } from '../components/clientApproval/ApprovalParts.jsx'
 import DesignDiff from '../components/lld/real/DesignDiff.jsx'
 import { publicApprovalApi } from '../api/deliveryApi.js'
+import { publicDownload, FORMAT_LABEL, humanSize } from '../api/documentsApi.js'
 
 const inputClass = 'h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm text-text focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20'
 const DIFF_COLUMNS = [
@@ -60,7 +61,9 @@ export default function RealClientApproval() {
   }
 
   if (!status) return <Shell><p className="text-sm text-text-secondary">Loading…</p></Shell>
-  if (status.status !== 'active') {
+  // A decided handover link keeps serving its package (read-only) until it expires.
+  const readOnlyHandover = status.kind === 'handover' && status.status === 'decided'
+  if (status.status !== 'active' && !readOnlyHandover) {
     return (
       <Shell>
         <div className="flex items-center gap-3 rounded-xl border border-status-red/30 bg-status-red/5 p-6 text-status-red" role="alert">
@@ -116,8 +119,8 @@ export default function RealClientApproval() {
 
   return (
     <Shell>
-      {subject.kind === 'solution_package' ? <PackageSummary subject={subject} /> : <ChangeSummary subject={subject} />}
-      <DecisionForm token={token} packageLabel={subject.kindLabel} decisionFns={{ approve: fn('approved'), requestChanges: fn('changes_requested'), reject: fn('rejected') }} onSubmitted={setDecided} />
+      {subject.kind === 'solution_package' ? <PackageSummary subject={subject} /> : subject.kind === 'handover' ? <HandoverSummary subject={subject} token={token} password={password} /> : <ChangeSummary subject={subject} />}
+      {!readOnlyHandover && (subject.kind !== 'handover' || subject.handover.state === 'delivered') && <DecisionForm token={token} packageLabel={subject.kindLabel} decisionFns={{ approve: fn('approved'), requestChanges: fn('changes_requested'), reject: fn('rejected') }} onSubmitted={setDecided} />}
     </Shell>
   )
 }
@@ -149,6 +152,51 @@ function PackageSummary({ subject }) {
       <Table title="Sections" rows={pkg.sections.map((s) => [s.n, s.name, `${s.completeness}%`])} />
       <Table title="Bill of Materials" rows={pkg.bom.map((l) => [l.qty, l.item, l.spec])} />
       {pkg.acceptedWarnings.length > 0 && <Table title="Accepted warnings" rows={pkg.acceptedWarnings.map((w) => ['', w.text, `${w.acceptedByName}`])} />}
+    </div>
+  )
+}
+
+// The handover package (M6b): every document of the compiled round and the
+// whole package as one ZIP, downloadable before (and after) the decision.
+function HandoverSummary({ subject, token, password }) {
+  const [error, setError] = useState(null)
+  const get = async (file) => {
+    try {
+      setError(null)
+      await publicDownload(token, file.id, password, file.fileName)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+  const h = subject.handover
+  return (
+    <div className="space-y-4 rounded-xl border border-border bg-surface p-6" data-testid="handover-summary">
+      <Header subject={subject} icon={PackageCheck} title={`Handover package — ${subject.building.name}`} />
+      {h.state === 'accepted' && <p className="rounded-lg bg-status-green/10 px-3 py-2 text-sm text-status-green">The handover was accepted. The package stays available here until the link expires.</p>}
+      {h.package && (
+        <button type="button" onClick={() => get(h.package)} className="inline-flex h-10 items-center gap-2 rounded-lg bg-brand px-4 text-sm font-medium text-white hover:bg-brand/90">
+          <Download size={16} strokeWidth={2} /> Download the whole package ({humanSize(h.package.sizeBytes)})
+        </button>
+      )}
+      <ul className="divide-y divide-border rounded-lg border border-border" aria-label="Handover documents">
+        {h.documents.map((d) => (
+          <li key={d.key} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm">
+            <span className="text-text">{d.name}</span>
+            <span className="flex flex-wrap gap-1.5">
+              {d.files.map((f) => (
+                <button key={f.id} type="button" onClick={() => get(f)} className="inline-flex h-8 items-center gap-1 rounded-lg border border-border px-2 text-xs font-medium text-text hover:border-brand">
+                  <Download size={12} strokeWidth={2} /> {FORMAT_LABEL[f.format]}
+                </button>
+              ))}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {error && (
+        <p className="text-xs text-status-red" role="alert">
+          {error}
+        </p>
+      )}
     </div>
   )
 }

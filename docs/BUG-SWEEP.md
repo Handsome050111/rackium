@@ -606,3 +606,120 @@ Found and fixed, each with a test:
   goes to the PMs once per device, and the dashboard shows a DGUV summary.
   Test: `api.m6a.test.js` (reminders, once) and `e2e-real/m6a.spec.js`
   (the summary).
+
+## Part 10: M6b — Document engine and handover on the backend
+
+Found and fixed while building and testing M6b, each with a test:
+
+- **A large lifecycle import was refused** (M6a): the CMDB lifecycle import
+  posts the parsed sheet as JSON, but its route was not in the list allowed
+  a large body, so a sheet of a few thousand rows hit the 100 KB limit (413).
+  Test: `api.m6b.test.js` (3,000 rows; a logo above the limit too).
+- **The handover package was counted as one of its own documents** (found
+  while testing): the package ZIP carries the compile round, so the round
+  showed 13 of 12 files and the baseline would have listed the package twice.
+  Test: `api.m6b.test.js` (12 files, baseline of 12 documents).
+- **The Handover page stopped updating while compiling** (found in the
+  real-mode run): its refresh re-armed only when the count of ready files
+  changed, so two refreshes with the same count ended it and the page stayed
+  on "Compiling". It now refreshes on an interval while compiling. Test:
+  `e2e-real/m6b.spec.js` (compile → Compiled without reloading).
+- **Missing logos logged 404s in the console** (found in the real-mode run):
+  the settings screens asked for a logo that was not set. The settings now
+  say whether a logo exists. Test: `e2e-real/m6b.spec.js` (no console errors).
+- **The handover table hid its download buttons on a phone** (found
+  checking 390 px): a stacked list replaced the table. Test:
+  `e2e-real/m6b.spec.js` (no horizontal overflow at every width).
+- **One crashed document job could stop the queue** (found reviewing the
+  processor): each job now runs isolated; its lock expires and it is retried.
+  Test: `api.m6b.test.js` (a corrupt job ahead of a good one; the test fails
+  without the fix).
+- **The handover showed Compiled before its package existed** (found in the
+  full run): the round was marked Compiled and the package ZIP attached
+  afterwards, so the screen stopped refreshing without the package link. The
+  round is now claimed, the package built, and Compiled set together with it.
+  Test: `api.m6b.test.js` (Compiled with its package) and
+  `e2e-real/m6b.spec.js` (the package link after compiling, no reload).
+- **Two older checks expected the export stubs** (M5a and LLD specs): the
+  Solution Package's disabled Export PDF/Word buttons are now the live
+  Documents menu, and a generic "Export" label clashed with the cable
+  schedule's own Export button — the menu is labelled "Documents".
+
+Decisions to confirm are marked ★ in the M6b report and described in
+DATA-MODEL §5.12.
+
+### M6b review round: cost prices, survey tables, the PDF test isolation
+
+Found and fixed, each with a test:
+
+- **Cost prices could reach a client** (M6b): any user who could see prices
+  could export the BOM at cost and put that file in a download link. Cost
+  mode is now internal only: the Org Admin, PM and Reviewer request, list and
+  download it; every PDF page, the Word header and every sheet say
+  "INTERNAL — cost prices"; a download link refuses it (400), a public link
+  never lists or serves it even if its record names it, and a handover job or
+  package with cost prices is refused. The BOM menu offers "client price"
+  exports and, for those three roles, separate "INTERNAL" items. Tests:
+  `api.m6b.test.js` (role refusals, the mark on every page and sheet, the
+  share-link refusal, a forced link, the handover refusal) and
+  `e2e-real/m6b.spec.js` (Reviewer export marked on every page; no cost item
+  for the Architect; the menu at four widths).
+- **The survey report printed "N row(s)" instead of the survey tables**
+  (M6b): table sections and item lists now print as full tables with their
+  columns (a Rack column where rows belong to racks); long tables continue
+  across pages with the headings repeated. Tests: `documents.test.js`
+  (assembly) and `api.m6b.test.js` (90 rows across pages, headings on each).
+- **Photos beyond the 120 cap were dropped silently** (M6b): the document
+  now says how many further photos are in the photo evidence ZIP, at the
+  start and where they were cut. Test: `documents.test.js`.
+- **The survey-forms API tests timed out in the full server run** (M6b):
+  every test file paid for loading the PDF and Office renderers on import,
+  and the PDF tests ran headless Chromium in the same run. The renderers now
+  load on first use, and `npm run test:server` runs the PDF tests
+  (`api.m6b.test.js`) in a second Vitest process after all other files —
+  no reruns.
+
+- **A timed-out test could write into the next test's data** (found in the
+  full server run): `api.m5b.test.js` failed twice under heavy load on the
+  machine — the blockers test ran past its 60 s timeout, kept sending
+  requests while the next test ran, and the DGUV/mention test then saw its
+  notifications. Notification fan-out is awaited in the request, so the app
+  was not at fault; the tests were not isolated. Each test's apps now belong
+  to it: once it ends or times out they refuse requests, writes from its
+  in-flight work are refused at the driver, and the next test waits until its
+  requests are done. Test: `isolation.test.js` (a timed-out fixture test
+  that keeps calling the API and has a request in flight: nothing reaches
+  the next test; without the isolation 15 users leak in, so the check is
+  real).
+- **A test command's exit code was hidden by a pipe** (in this round's own
+  run): the server suite's output was filtered through grep and the shell
+  reported exit 0 with two failed tests. CLAUDE.md now requires the real exit
+  code (full log to a file, then filter).
+
+- **CI failed: the document tests had no Chromium** (PR #13, the first CI
+  run of M6b's PDF tests): the workflow installed the Playwright browser
+  only after the server API tests, so every document job failed at the
+  rendering step (12 of the 14 tests in `api.m6b.test.js`); locally the
+  browser was already installed. The browser is now installed before the
+  server tests, and a failed document job's reason is shown in the test
+  failure instead of only "failed". Test: `ci-workflow.test.js` (the
+  install steps come before the server tests; fails on the old order) —
+  reproduced locally with no browser available, where the HLD test now
+  reports "Executable doesn't exist".
+
+- **A flaky Organisation settings check** (PR #13 CI: failed on the first
+  attempt, passed on retry): "the Org Admin revokes it again; creation is
+  refused" got 201 instead of 403. The settings toggles update the screen at
+  once and save in the background (by design; a refusal restores the real
+  state), and the test took the "Not allowed" label as proof the revoke was
+  saved, then called the API before the save landed. The server reads the
+  permission fresh on every request, so the app was not at fault. The spec
+  now waits for each toggle's save to answer. Test: the revoke check now
+  slows the save by 1 s — the old test fails every time with it (403
+  expected, 201 received), the fixed one passes; no other real-mode spec acts
+  on a toggle before its save.
+
+Noted, not a bug: one client unit run during this round reported 22 files /
+233 tests instead of 27 / 247. No client test file was removed or changed
+(git), and the count could not be reproduced in five further runs (idle and
+under the same load); every later run found all 27 files.

@@ -5,6 +5,7 @@ import { ShareLinkIndex } from '../models/shareLinkIndex.js'
 import { Approval } from '../models/approval.js'
 import { SolutionPackage } from '../models/solutionPackage.js'
 import { ChangeRequest } from '../models/changeRequest.js'
+import { HandoverWorkflow } from '../models/handoverWorkflow.js'
 import { hashPassword, verifyPassword } from '../auth/tokens.js'
 import { runWithScope, currentScope } from '../tenancy/scopeContext.js'
 import { withTransaction } from '../db/transaction.js'
@@ -42,7 +43,11 @@ export function linkView(link, names = new Map()) {
     id: String(link._id),
     kind: link.kind,
     changeRequestId: link.changeRequestId ? String(link.changeRequestId) : null,
-    approvalId: String(link.approvalId),
+    approvalId: link.approvalId ? String(link.approvalId) : null,
+    documentIds: (link.documentIds ?? []).map(String),
+    label: link.label ?? null,
+    hasPassword: Boolean(link.passwordHash),
+    downloads: link.downloads ?? 0,
     status: linkStatus(link),
     createdAt: link.createdAt,
     createdBy: names.get(String(link.createdBy)) ?? null,
@@ -56,15 +61,17 @@ export function linkView(link, names = new Map()) {
 // Creates a link (in the caller's transaction). The password is hashed
 // before the transaction (argon2 is slow); token and password are returned
 // once and never stored.
-export async function prepareSecrets(password) {
-  const plain = password ?? newPassword()
+// `optional`: a download link may have no password at all (M6b).
+export async function prepareSecrets(password, { optional = false } = {}) {
   const token = newToken()
+  if (optional && !password) return { token, tokenHash: hashToken(token), password: null, passwordHash: null, generatedPassword: false }
+  const plain = password ?? newPassword()
   return { token, tokenHash: hashToken(token), password: plain, passwordHash: await hashPassword(plain), generatedPassword: !password }
 }
-export async function createLink({ building, kind, approvalId, changeRequestId = null, secrets, expiryDays, actor, session }) {
+export async function createLink({ building, kind, approvalId = null, changeRequestId = null, documentIds = [], label = null, secrets, expiryDays, actor, session }) {
   const { organisationId, projectId } = currentScope()
   const [link] = await ShareLink.create(
-    [{ buildingId: building.id, kind, approvalId, changeRequestId, tokenHash: secrets.tokenHash, passwordHash: secrets.passwordHash, createdBy: actor.userId, expiresAt: new Date(Date.now() + expiryDays * DAY_MS) }],
+    [{ buildingId: building.id, kind, approvalId, changeRequestId, documentIds, label, tokenHash: secrets.tokenHash, passwordHash: secrets.passwordHash, createdBy: actor.userId, expiresAt: new Date(Date.now() + expiryDays * DAY_MS) }],
     { session }
   )
   await ShareLinkIndex.create([{ tokenHash: secrets.tokenHash, organisationId, projectId, shareLinkId: link._id }], { session })
@@ -110,9 +117,11 @@ export function createShareLinkAdmin() {
       if (link.decidedAt) throw conflict('link_closed', 'The client already decided through this link')
       return withTransaction(async (session) => {
         await ShareLink.updateOne({ _id: link._id }, { $set: { revokedAt: new Date(), revokedBy: actor.userId } }, { session })
-        await Approval.updateOne({ _id: link.approvalId, status: 'pending' }, { $set: { status: 'expired' } }, { session })
+        if (link.approvalId) await Approval.updateOne({ _id: link.approvalId, status: 'pending' }, { $set: { status: 'expired' } }, { session })
         if (link.kind === 'solution_package') await SolutionPackage.updateOne({ buildingId: link.buildingId, pendingApprovalId: link.approvalId }, { $set: { state: 'draft', pendingApprovalId: null } }, { session })
-        else await ChangeRequest.updateOne({ _id: link.changeRequestId, status: 'awaiting_client' }, { $set: { status: 'submitted', approvalId: null } }, { session })
+        else if (link.kind === 'change_request') await ChangeRequest.updateOne({ _id: link.changeRequestId, status: 'awaiting_client' }, { $set: { status: 'submitted', approvalId: null } }, { session })
+        // A handover link withdrawn: the package goes back to Under review (M6b).
+        else if (link.kind === 'handover') await HandoverWorkflow.updateOne({ buildingId: link.buildingId, state: 'delivered', approvalId: link.approvalId }, { $set: { state: 'under_review', approvalId: null, updatedAt: new Date() }, $inc: { revision: 1 } }, { session })
         await audit(req, building, actor, 'share_link.revoked', `Link ${link._id} revoked`, session)
         return { revoked: String(link._id) }
       })
@@ -145,6 +154,9 @@ export function assertUsable(link, { forDecision = false } = {}) {
 // Password check with a per-link brute-force lock: after MAX_FAILED_ATTEMPTS
 // wrong passwords the link is locked for LOCK_MINUTES, even for the right one.
 export async function checkPassword(link, password) {
+  // A download link without a password (M6b).
+  if (!link.passwordHash) return
+  if (!password) throw new AppError(401, 'password_required', 'Enter the password you received with this link.')
   const now = new Date()
   if (link.lockedUntil && link.lockedUntil > now) {
     throw new AppError(429, 'link_locked', `Too many wrong passwords. Try again after ${link.lockedUntil.toISOString().slice(11, 16)} UTC.`, { lockedUntil: link.lockedUntil })

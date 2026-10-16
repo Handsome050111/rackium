@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Download, FileText, AlertTriangle, Clock, AlertOctagon, CheckCircle2 } from 'lucide-react'
+import { ArrowLeft, FileText, AlertTriangle, Clock, AlertOctagon, CheckCircle2 } from 'lucide-react'
+import DocumentExports from '../components/documents/DocumentExports.jsx'
 import StatusChip from '../components/StatusChip.jsx'
 import SectionsTable from '../components/solutionPackage/SectionsTable.jsx'
 import RequiredInputsRegister from '../components/solutionPackage/RequiredInputsRegister.jsx'
@@ -112,12 +113,21 @@ export default function RealSolutionPackage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <StatusChip status={view.status} />
-          {['Export PDF', 'Export Word'].map((label) => (
-            <button key={label} type="button" disabled title="Available with the document engine (M6)" className="flex h-touch items-center gap-1 rounded-lg border border-border px-3 text-xs font-medium text-text-secondary disabled:cursor-not-allowed sm:h-9">
-              <Download size={14} strokeWidth={2} />
-              {label}
-            </button>
-          ))}
+          <DocumentExports
+            orgId={orgId}
+            projectId={projectId}
+            buildingId={buildingId}
+            items={[
+              { typeKey: 'solution-package', format: 'pdf', label: 'Solution Package' },
+              { typeKey: 'solution-package', format: 'docx', label: 'Solution Package' },
+              ...(view.permissions.share
+                ? [
+                    { typeKey: 'solution-package', format: 'pdf', label: 'Client export with prices', options: { prices: 'sell' } },
+                    { typeKey: 'solution-package', format: 'docx', label: 'Client export with prices', options: { prices: 'sell' } },
+                  ]
+                : []),
+            ]}
+          />
         </div>
       </div>
 

@@ -1,4 +1,5 @@
 import { bomImpact, withMargin } from '@rackium/shared/bomCalc.js'
+import { assertNotHandedOver } from '../handover/guard.js'
 import { procurementProblem, PROCUREMENT_STATUSES, PROCUREMENT_LABELS, nextStatuses } from '@rackium/shared/procurement.js'
 import { canSeePrices } from '@rackium/shared/policy.js'
 import { BomDesign } from '../models/bomDesign.js'
@@ -98,6 +99,7 @@ export function createBomService({ storage, lld }) {
     // reviewer). Again after a change request changed it.
     async approve(req, { buildingId }, actor) {
       const building = await requireBuilding(req, buildingId)
+      await assertNotHandedOver(building.id)
       const { spApproved, bomDesign } = await state(building)
       if (!spApproved) throw conflict('solution_package_not_approved', 'The procurement BOM is approved after the client approves the Solution Package')
       const { bom } = await computeBom(lld, req, building)
@@ -117,6 +119,7 @@ export function createBomService({ storage, lld }) {
     // expected/actual delivery, notes. Optimistic `version`.
     async updateLine(req, body, actor) {
       const building = await requireBuilding(req, body.buildingId)
+      await assertNotHandedOver(building.id)
       const { spApproved, bomDesign } = await state(building)
       if (!spApproved || !bomDesign?.approvedVersionId) throw conflict('procurement_locked', 'Procurement unlocks once the Solution Package is approved and the PM approves the procurement BOM')
       const { bom } = await computeBom(lld, req, building)

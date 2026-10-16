@@ -3,13 +3,15 @@ import { createApp, DEFAULT_RATE_LIMITS } from '../../src/app.js'
 import { createLogger } from '../../src/logger.js'
 import { createMemoryEmailSender } from '../../src/email/index.js'
 import { testConfig } from './config.js'
+import { guard } from './isolation.js'
 
 export function createTestApp({ rateLimits, config: overrides } = {}) {
   const config = testConfig(overrides)
   const logger = createLogger({ level: process.env.TEST_LOG_LEVEL ?? 'silent' })
   const mailer = createMemoryEmailSender()
   const limits = rateLimits ?? { ...DEFAULT_RATE_LIMITS, enabled: false }
-  const app = createApp({ config, logger, mailer, rateLimits: limits })
+  // Owned by the running test: stale once it ends (./isolation.js).
+  const app = guard(createApp({ config, logger, mailer, rateLimits: limits }))
   return { app, config, mailer, agent: () => request.agent(app) }
 }
 

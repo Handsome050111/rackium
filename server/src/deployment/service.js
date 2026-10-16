@@ -38,6 +38,7 @@ import { callerAccess, requireBuilding } from '../access/scope.js'
 import { withTransaction } from '../db/transaction.js'
 import { notifyQuietly, paths } from '../notifications/notify.js'
 import { orgTimeSettings } from '../organisations/timeSettings.js'
+import { assertNotHandedOver } from '../handover/guard.js'
 
 const id = (v) => (v ? String(v) : null)
 const oid = (v) => new mongoose.Types.ObjectId(String(v))
@@ -174,6 +175,10 @@ export function createDeploymentService({ lld }) {
     const c = ctx.connections.find((x) => x.id === String(conn._id))
     if (!c) throw notFound('Connection not found')
     return { building, ctx, c }
+  }
+  // Deployment records are read-only after the handover is accepted (M6b).
+  async function writable(building) {
+    await assertNotHandedOver(building.id)
   }
   function requireFrozen(ctx) {
     if (!ctx.frozen) throw conflict('design_not_frozen', 'Deployment starts once the client approves the Solution Package (the LLD is frozen)')
@@ -384,6 +389,7 @@ export function createDeploymentService({ lld }) {
       const roles = await rolesOf(req)
       requireRole(roles, ['field_engineer'], 'Only the Field Engineer records installations')
       const { building, ctx, d } = await deviceContext(req, deviceId)
+      await writable(building)
       requireFrozen(ctx)
       if (!d.delivered && !INSTALLED_PLUS.has(d.status)) throw conflict('awaiting_delivery', `Awaiting delivery — ${d.label} can be installed once its procurement line is Delivered`)
       if (['accepted', 'in_service', 'maintenance'].includes(d.status)) throw conflict('accepted', 'This device is accepted — changes are operational edits in the CMDB')
@@ -495,6 +501,7 @@ export function createDeploymentService({ lld }) {
       const roles = await rolesOf(req)
       requireRole(roles, ['field_engineer', 'pm'], 'Only the Field Engineer or a PM records a DGUV inspection')
       const { building, ctx, d } = await deviceContext(req, deviceId)
+      await writable(building)
       requireFrozen(ctx)
       if (!d.mainsPowered) throw badRequest(`${d.label} is not mains-powered — DGUV V3 inspections apply to mains-powered devices only`)
       if (!INSTALLED_PLUS.has(d.status)) throw conflict('not_installed', 'Inspect the device once it is installed')
@@ -521,6 +528,7 @@ export function createDeploymentService({ lld }) {
     async setDeviceStatus(req, deviceId, body, actor) {
       const roles = await rolesOf(req)
       const { building, ctx, d } = await deviceContext(req, deviceId)
+      await writable(building)
       requireFrozen(ctx)
       const conns = ctx.connsOfDevice(d.id)
       const problem = deviceStepProblem(d.status, body.status, {
@@ -561,6 +569,7 @@ export function createDeploymentService({ lld }) {
       const roles = await rolesOf(req)
       requireRole(roles, ['field_engineer'], 'Only the Field Engineer confirms patching')
       const { building, ctx, c } = await connectionContext(req, connectionId)
+      await writable(building)
       requireFrozen(ctx)
       if (c.status === 'accepted') throw conflict('accepted', 'This connection is accepted — changes are operational edits in the CMDB')
       for (const e of [c.view.source, c.view.dest, ...c.view.hops.map((h) => ({ deviceId: h.patchPanelId }))]) {
@@ -619,6 +628,7 @@ export function createDeploymentService({ lld }) {
     async testConnection(req, connectionId, body, actor) {
       const roles = await rolesOf(req)
       const { building, ctx, c } = await connectionContext(req, connectionId)
+      await writable(building)
       requireFrozen(ctx)
       const to = body.result === 'pass' ? 'tested' : 'faulty'
       const problem = connectionStepProblem(c.status, to, { roles })
@@ -636,6 +646,7 @@ export function createDeploymentService({ lld }) {
     async acceptConnection(req, connectionId, actor) {
       const roles = await rolesOf(req)
       const { building, ctx, c } = await connectionContext(req, connectionId)
+      await writable(building)
       requireFrozen(ctx)
       const problem = connectionStepProblem(c.status, 'accepted', { roles })
       if (problem) throw /Only/.test(problem) ? forbidden(problem) : conflict('invalid_transition', problem)
@@ -654,6 +665,7 @@ export function createDeploymentService({ lld }) {
       const roles = await rolesOf(req)
       requireRole(roles, ['field_engineer'], 'Only the Field Engineer logs installation exceptions')
       const { building, ctx, d } = await deviceContext(req, body.deviceId)
+      await writable(building)
       requireFrozen(ctx)
       let deviations
       if (body.connectionId) {
@@ -686,6 +698,7 @@ export function createDeploymentService({ lld }) {
       const e = mongoose.isValidObjectId(exceptionId) ? await DeploymentException.findById(exceptionId).lean() : null
       if (!e) throw notFound('Exception not found')
       const building = await requireBuilding(req, e.buildingId)
+      await writable(building)
       if (e.status !== 'open') throw conflict('not_open', `This exception is already ${e.status}`)
       const actorName = (await namesOf([actor.userId])).get(String(actor.userId)) ?? null
       const saved = await withTransaction(async (session) => {

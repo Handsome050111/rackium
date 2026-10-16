@@ -11,6 +11,7 @@ import ConnectionDetailPanel from '../../components/ConnectionDetailPanel.jsx'
 import ValidationResultsPanel from '../../components/ValidationResultsPanel.jsx'
 import SurveyStepper from '../../components/SurveyStepper.jsx'
 import PhotoStrip from '../../components/survey/PhotoStrip.jsx'
+import DocumentExports from '../../components/documents/DocumentExports.jsx'
 import { surveyApi } from '../../api/surveyApi.js'
 import { useDragSensors } from '../../lib/useDragSensors.js'
 import { useProjectRoles } from '../../lib/useProjectRoles.js'
@@ -202,6 +203,7 @@ export default function RealSiteStructure({ mode = 'building' }) {
             <h1 className="text-2xl font-bold text-text">Physical Site Survey — {mode === 'campus' ? 'Multi-Building Structure' : 'Building & Room Structure'}</h1>
             <p className="text-sm text-text-secondary">{mode === 'campus' ? `Buildings of campus ${building.campusCode ?? ''} you can reach` : building.name}</p>
           </div>
+          {mode !== 'campus' && <DocumentExports orgId={orgId} projectId={projectId} buildingId={buildingId} items={[{ typeKey: 'survey-report', format: 'pdf', label: 'Survey report (rooms and photos)' }]} />}
           <button
             type="button"
             onClick={() => {

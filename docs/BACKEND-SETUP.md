@@ -136,6 +136,24 @@ npm run lint
 npm run build
 ```
 
+`test:server` runs the document-rendering tests (`api.m6b.test.js`, which
+start headless Chromium) in a second Vitest process after all other files, so
+PDF rendering can never slow the other API tests into their timeouts. Test
+files within each process run one at a time; each file has its own in-memory
+replica set, cleared before every test.
+
+A test that ends — or times out — can never touch the next test's data
+(`server/test/helpers/isolation.js`, set up for every file): its test apps
+then refuse requests (503 `stale_test`), database writes from work it left
+in flight are refused, and the next test starts only once its requests are
+done. `test/isolation.test.js` proves it with a deliberately timed-out
+fixture, with the isolation on and off.
+
+The server API tests render PDFs in headless Chromium, so install it once
+before the first run (`npx playwright install chromium`, also needed for
+the Playwright suite). Without it the document tests fail with "Cannot
+start Chromium for PDF generation". CI installs it before the server tests.
+
 The first `test:server` run downloads a MongoDB binary (about 780 MB) into
 `node_modules/.cache`. Later runs start in seconds. To fetch it ahead of time:
 
@@ -160,6 +178,26 @@ Jobs are stored in the `scheduledjobs` collection and claimed with a lock,
 so running several API processes never sends anything twice. Tests never
 start the scheduler; they call the jobs directly. In development, mail goes
 to the console provider (the server log).
+
+### Generated documents (M6b)
+
+PDFs are rendered by headless Chromium through `playwright-core`. On a
+development machine the Chromium that Playwright downloaded for the tests is
+used (`npx playwright install chromium` once). On a server without it, either
+run that command as the API's user or install the distribution's Chromium and
+point `CHROMIUM_PATH` at it in `server/.env`:
+
+```
+CHROMIUM_PATH=/usr/bin/chromium
+```
+
+Documents are background jobs in the `generateddocuments` collection. A
+request starts processing at once in the same process, and the scheduler's
+`documents` job (every 15 seconds) picks up anything left — after a restart,
+or a run that died (its lock expires; at most 3 attempts). Set
+`DOCUMENTS_AUTO_PROCESS=false` to leave rendering to the scheduler only.
+Files are stored through the file service under `FILE_STORAGE_DIR`
+(`documents/<project>/<file id>`); logos under `branding/`.
 
 ### Test database folders
 
@@ -188,6 +226,29 @@ before this was added) are left alone. Each folder can grow to a few hundred
 MB, and when the disk fills up `mongod` cannot start, so the API tests are
 reported as **skipped** instead of failing. If you see that, check free disk
 space first.
+
+### Stopping a test run without leaving processes behind
+
+A test run is a tree of processes: `npm` → Vitest (or Playwright) → its
+workers → the in-memory `mongod` and its watchdog. Stopping only the top
+process can leave the rest running, still using CPU (and slowing the next
+run into timeouts) and still writing to the old run's log. Always stop the
+whole tree, then check nothing is left before starting the next run:
+
+```powershell
+taskkill /T /F /PID <pid of the npm or vitest process>
+
+# Nothing from a test run may remain. Test databases run as
+# mongod-x64-win32-<version>.exe from node_modules\.cache\mongodb-memory-server;
+# a "mongod" from Program Files is an installed MongoDB service — leave it.
+Get-CimInstance Win32_Process |
+  Where-Object { $_.Name -like 'mongod-x64-win32*' -or ($_.Name -eq 'node.exe' -and $_.CommandLine -match 'vitest|playwright|test:server|test:e2e|testServer|mongo_killer') } |
+  Select-Object ProcessId, Name, CommandLine
+```
+
+The check must come back empty. Run test suites one at a time: two at once
+(or a test suite next to a build or other heavy work) can push tests past
+their timeouts.
 
 ## Running MongoDB yourself instead of Atlas
 

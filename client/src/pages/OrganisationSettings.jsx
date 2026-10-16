@@ -8,6 +8,8 @@ import StockLengthsSection from '../components/StockLengthsSection.jsx'
 import CageNutsSection from '../components/CageNutsSection.jsx'
 import TimeZoneSection from '../components/TimeZoneSection.jsx'
 import DguvSection from '../components/DguvSection.jsx'
+import { LogoField } from '../components/documents/BrandingSettings.jsx'
+import { documentsApi } from '../api/documentsApi.js'
 import { canIn } from '../lib/realRoles.js'
 
 function Section({ title, description, children }) {
@@ -147,6 +149,10 @@ export default function OrganisationSettings() {
             }}
           />
         )}
+      </Section>
+
+      <Section title="Logo" description="Printed on the cover of every generated document (with the client's logo, set per project).">
+        {settings && <LogoField label="Organisation logo" exists={settings.hasLogo} src={documentsApi.orgLogoUrl(orgId)} canEdit onSet={(uri) => documentsApi.setOrgLogo(orgId, uri)} onRemove={() => documentsApi.removeOrgLogo(orgId)} />}
       </Section>
 
       <Section title="Time zone" description="Task deadlines, due soon and overdue, and the daily digest email follow this time zone (default Europe/Berlin).">

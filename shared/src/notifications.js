@@ -19,6 +19,8 @@ export const NOTIFICATION_TYPES = [
   { key: 'sp_approved', label: 'Solution Package approved by the client', group: 'Client approval' },
   { key: 'sp_changes_requested', label: 'Client requested changes to the Solution Package', group: 'Client approval' },
   { key: 'sp_rejected', label: 'Solution Package rejected by the client', group: 'Client approval' },
+  { key: 'handover_accepted', label: 'Handover accepted by the client', group: 'Client approval' },
+  { key: 'handover_changes_requested', label: 'Client requested changes to (or rejected) the handover', group: 'Client approval' },
   { key: 'cr_submitted', label: 'Change request submitted', group: 'Change requests' },
   { key: 'cr_sent', label: 'Change request sent to the client', group: 'Change requests' },
   { key: 'cr_approved', label: 'Change request approved by the client', group: 'Change requests' },

@@ -9,3 +9,8 @@ Before reporting any step as complete:
 5. In the report, list: bugs found and fixed, anything found but not fixed (with reason), and test counts.
 
 Never report a step as complete with failing or newly skipped tests.
+
+Never pipe a test, lint or build command through grep/head/tail (or anything
+else) in a way that hides its exit code: keep the full output in a log file
+and filter that, or use `set -o pipefail` / `${PIPESTATUS[0]}`. Always report
+the command's real exit code.

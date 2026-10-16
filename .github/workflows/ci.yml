@@ -29,15 +29,14 @@ jobs:
       - name: Unit tests (client)
         run: npm run test:client
 
-      - name: API tests (server, in-memory replica set)
-        run: npm run test:server
-
-      - name: Build (client)
-        run: npm run build
-
+      # Chromium is needed from here on: the server API tests render PDFs
+      # with it (documents), then the Playwright suite runs in it. The server's
+      # playwright-core and the client's @playwright/test are the same hoisted
+      # package, so one browser serves both.
       - name: Get installed Playwright version
         id: playwright-version
-        run: echo "version=$(node -p "require('./client/node_modules/@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+        working-directory: client
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
 
       - name: Cache Playwright browser
         id: playwright-cache
@@ -58,6 +57,12 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         working-directory: client
         run: npx playwright install-deps chromium
+
+      - name: API tests (server, in-memory replica set)
+        run: npm run test:server
+
+      - name: Build (client)
+        run: npm run build
 
       # Mock-mode projects (desktop/iPad/tablet/phone) and the real-mode
       # project (client/e2e-real/, server/e2e/testServer.mjs + an in-memory

@@ -7,6 +7,8 @@ export default defineConfig({
     // Gives the run one folder for its in-memory databases and removes it at
     // the end (test/helpers/testDbDirs.js).
     globalSetup: ['test/globalSetup.js'],
+    // A test that ends (or times out) can never touch the next test's data.
+    setupFiles: ['test/setup/isolation.js'],
     // Replica-set startup downloads and boots mongod; the first run is slow.
     hookTimeout: 180000,
     testTimeout: 60000,

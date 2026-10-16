@@ -4,6 +4,7 @@ import { ReactFlowProvider } from '@xyflow/react'
 import { DndContext, DragOverlay } from '@dnd-kit/core'
 import { ArrowLeft, Sparkles, AlertTriangle, RefreshCw, GitBranch, Lock } from 'lucide-react'
 import HldCanvas, { buildHldFlow } from '../components/hld/HldCanvas.jsx'
+import DocumentExports from '../components/documents/DocumentExports.jsx'
 import HldObjectLibrary from '../components/hld/HldObjectLibrary.jsx'
 import SurveyInputsPanel from '../components/hld/SurveyInputsPanel.jsx'
 import HldToolbar from '../components/hld/HldToolbar.jsx'
@@ -350,6 +351,16 @@ export default function RealHld() {
               Generated from validated physical survey data · Network Architect review required · revision {view.design.revision}
             </p>
           </div>
+          <DocumentExports
+            orgId={orgId}
+            projectId={projectId}
+            buildingId={buildingId}
+            items={[
+              { typeKey: 'hld-document', format: 'pdf', label: 'HLD document' },
+              { typeKey: 'topology-diagram', format: 'svg', label: 'Topology diagram' },
+              { typeKey: 'topology-diagram', format: 'png', label: 'Topology diagram' },
+            ]}
+          />
           {canEdit && !branchId && !frozenMain && (
             <div className="flex flex-wrap items-end gap-2">
               <label className="flex flex-col gap-1 text-xs">

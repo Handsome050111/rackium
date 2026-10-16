@@ -32,6 +32,7 @@ import { Organisation } from '../models/organisation.js'
 import { User } from '../models/user.js'
 import { projectCatalogue } from '../catalogue/service.js'
 import { retireRemovedRecords } from '../deployment/asBuilt.js'
+import { assertNotHandedOver } from '../handover/guard.js'
 import { withTransaction } from '../db/transaction.js'
 import { currentScope } from '../tenancy/scopeContext.js'
 import { recordAudit, userActor } from '../audit/audit.js'
@@ -624,6 +625,7 @@ export function createLldService({ storage }) {
   async function write(req, { buildingId, branchId = null }, baseRevision, actor, fn) {
     const { building, lld, branch, layer } = await context(req, buildingId, branchId)
     if (!lld) throw conflict('lld_not_started', 'Start the LLD from the approved HLD first')
+    await assertNotHandedOver(building.id)
     if (branch && branch.status !== 'open') throw conflict('branch_closed', 'This branch was promoted or discarded')
     return withTransaction(async (session) => {
       const claimed = await claim({ buildingId: building.id, branchId: branch ? String(branch._id) : null }, baseRevision, actor, session)

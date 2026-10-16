@@ -1,4 +1,5 @@
 import mongoose from 'mongoose'
+import { assertNotHandedOver } from '../handover/guard.js'
 import {
   getTabDefinition,
   toComponentSections,
@@ -155,6 +156,7 @@ export function createSurveyFormService() {
   async function applyEdit(req, input, actor, { source = 'ui', opId = null, queuedAt = null } = {}) {
     const target = await resolveTarget(req, input)
     const { tabDef, building, room } = target
+    await assertNotHandedOver(building.id)
     const { roles } = await callerAccess(req)
     const customFields = await customFieldsFor(tabDef.tab)
     const invalid = validateSurveyOp(tabDef, input.op, { roles, customFields })
@@ -239,6 +241,7 @@ export function createSurveyFormService() {
     async transition(req, input, actor) {
       const target = await resolveTarget(req, input)
       const { tabDef, building, room } = target
+      await assertNotHandedOver(building.id)
       const { roles } = await callerAccess(req)
       const record = await ensureRecord(building, room, tabDef.tab)
       const view = await recordView(req, target, record.toObject())

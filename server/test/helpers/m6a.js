@@ -64,3 +64,30 @@ export async function patch(p, conn, { lengths = {}, cableIds = {} } = {}) {
 }
 
 export const step = (agent, p, device, status) => agent.post(`${p.dep}/devices/${device.id}/status`).send({ status })
+
+// Everything deployed and accepted (M6b handover): every device installed,
+// every link patched as designed and tested, DGUV recorded, all accepted.
+export async function acceptEverything(p) {
+  await deliverWholeBom(p)
+  let v = await depView(p.admin.agent, p)
+  for (const d of v.devices) await install(p, d)
+  v = await depView(p.fe, p)
+  for (const c of v.connections) {
+    await patch(p, c)
+    expectStatus(await p.fe.post(`${p.dep}/connections/${c.id}/test`).send({ result: 'pass' }), 200)
+  }
+  v = await depView(p.fe, p)
+  for (const d of v.devices) {
+    for (const s of ['configured', 'tested']) expectStatus(await step(p.fe, p, d, s), 200)
+    if (d.mainsPowered) expectStatus(await p.fe.put(`${p.dep}/devices/${d.id}/dguv`).send({ inspectionDate: '2026-10-01', inspector: 'Elektro Meyer' }), 200)
+    expectStatus(await step(p.reviewer, p, d, 'accepted'), 200)
+  }
+  for (const c of v.connections) expectStatus(await p.reviewer.post(`${p.dep}/connections/${c.id}/accept`), 200)
+  return depView(p.fe, p)
+}
+
+// Every BOM line delivered (devices, cables, optics, cords) — the handover checklist.
+export async function deliverWholeBom(p) {
+  const { bomView } = await import('./m5a.js')
+  for (const line of (await bomView(p.admin.agent, p)).lines) await deliver(p, line.key)
+}

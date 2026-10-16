@@ -19,6 +19,9 @@ import RealRackiumEditor from './pages/RealRackiumEditor.jsx'
 import RealBom from './pages/RealBom.jsx'
 import RealDeployment from './pages/RealDeployment.jsx'
 import RealCmdb from './pages/RealCmdb.jsx'
+import RealHandover from './pages/RealHandover.jsx'
+import RealDocumentDownload from './pages/RealDocumentDownload.jsx'
+import RealConnectionLink from './pages/RealConnectionLink.jsx'
 import RealSolutionPackage from './pages/RealSolutionPackage.jsx'
 import RealClientApproval from './pages/RealClientApproval.jsx'
 import { API_MODE } from './lib/apiMode.js'
@@ -94,6 +97,9 @@ export default function App() {
       <Route path="/demo-guide" element={<DemoGuide />} />
       {/* The public client approval page: the real one on the backend (M5a), the prototype's in mock mode. */}
       <Route path="/approve/:token" element={API_MODE === 'real' ? <RealClientApproval /> : <ClientApproval />} />
+      {/* M6b: documents shared by a download link (no login), and a cable label's QR code (sign-in required). */}
+      <Route path="/download/:token" element={<RealDocumentDownload />} />
+      <Route path="/l/:orgId/:projectId/c/:connectionId" element={<RequireAuth><RealConnectionLink /></RequireAuth>} />
       <Route path="/b/:buildingId" element={<RequireAuth><AppShell /></RequireAuth>}>
         <Route index element={<BuildingOverview />} />
         <Route path="cmo" element={<Cmo />} />
@@ -134,6 +140,7 @@ export default function App() {
         <Route path="projects/:projectId/buildings/:buildingId/bom" element={<RealBom />} />
         <Route path="projects/:projectId/buildings/:buildingId/deployment" element={<RealDeployment />} />
         <Route path="projects/:projectId/buildings/:buildingId/cmdb" element={<RealCmdb />} />
+        <Route path="projects/:projectId/buildings/:buildingId/handover" element={<RealHandover />} />
         <Route path="projects/:projectId/buildings/:buildingId/:phaseKey" element={<RealPhasePlaceholder />} />
         <Route path="settings" element={<OrganisationSettings />} />
         <Route path="tasks" element={<RealTasks key="mine" />} />

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, AlertTriangle, RefreshCw, PlayCircle, PenLine, Cable, GitBranch } from 'lucide-react'
 import ConnectivityTab from '../components/lld/ConnectivityTab.jsx'
+import DocumentExports from '../components/documents/DocumentExports.jsx'
 import RackElevationsTab from '../components/lld/RackElevationsTab.jsx'
 import PortScheduleTab from '../components/lld/PortScheduleTab.jsx'
 import CableScheduleTab from '../components/lld/CableScheduleTab.jsx'
@@ -166,12 +167,25 @@ export default function RealLld() {
         <ArrowLeft size={14} strokeWidth={2} />
         {view.building.code} dashboard
       </Link>
-      <div>
-        <h1 className="text-2xl font-bold text-text">LLD — Low-Level Design</h1>
-        <p className="text-sm text-text-secondary">
-          Building {view.building.code} · Exact port-to-port connections, rack elevations, cable specifications
-          {view.started ? ` · revision ${view.design.revision}` : ''}
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-text">LLD — Low-Level Design</h1>
+          <p className="text-sm text-text-secondary">
+            Building {view.building.code} · Exact port-to-port connections, rack elevations, cable specifications
+            {view.started ? ` · revision ${view.design.revision}` : ''}
+          </p>
+        </div>
+        {view.started && (
+          <DocumentExports
+            orgId={orgId}
+            projectId={projectId}
+            buildingId={buildingId}
+            items={[
+              { typeKey: 'lld-document', format: 'pdf', label: 'LLD document' },
+              { typeKey: 'cable-matrix', format: 'xlsx', label: 'Cable schedule, matrix and port schedule' },
+            ]}
+          />
+        )}
       </div>
     </>
   )

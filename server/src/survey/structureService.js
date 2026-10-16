@@ -1,4 +1,5 @@
 import mongoose from 'mongoose'
+import { assertNotHandedOver } from '../handover/guard.js'
 import { validateStructure } from '@rackium/shared/siteValidation.js'
 import { floorHostnameToken } from '@rackium/shared/hierarchyImport.js'
 import { Building } from '../models/building.js'
@@ -141,23 +142,27 @@ export function createStructureService({ hierarchy }) {
 
     async createFloor(req, body, actor) {
       await requireBuilding(req, body.buildingId)
+      await assertNotHandedOver(body.buildingId)
       return hierarchy.createFloor({ organisationId: req.org.id, projectId: req.project.id, actor, body })
     },
 
     async createRoom(req, body, actor) {
       const { floor, building } = await requireFloor(req, body.floorId)
+      await assertNotHandedOver(building.id)
       const code = body.code ?? (await nextRoomCode(floor, building))
       return hierarchy.createRoom({ organisationId: req.org.id, projectId: req.project.id, actor, body: { floorId: body.floorId, code, name: body.name, isMainRoom: false } })
     },
 
     async createRack(req, body, actor) {
-      await requireRoom(req, body.roomId)
+      const { building: rackBuilding } = await requireRoom(req, body.roomId)
+      await assertNotHandedOver(rackBuilding.id)
       const code = body.code ?? (await nextRackCode(body.roomId))
       return hierarchy.createRack({ organisationId: req.org.id, projectId: req.project.id, actor, body: { roomId: body.roomId, code, heightU: body.heightU } })
     },
 
     async updateRoomSurvey(req, roomId, body, actor) {
       const { building } = await requireRoom(req, roomId)
+      await assertNotHandedOver(building.id)
       const room = await Room.findById(roomId)
       const before = { ...roomSurvey(room) }
       for (const [k, v] of Object.entries(body)) room.set(`survey.${k}`, v)
@@ -173,6 +178,7 @@ export function createStructureService({ hierarchy }) {
     async createPathway(req, body, actor) {
       if (body.fromRoomId === body.toRoomId) throw badRequest('A pathway joins two different rooms')
       const a = await requireRoom(req, body.fromRoomId)
+      await assertNotHandedOver(a.building.id)
       const b = await requireRoom(req, body.toRoomId)
       const [low, high] = [a.room._id, b.room._id].map(String).sort()
       let pathway
@@ -200,6 +206,7 @@ export function createStructureService({ hierarchy }) {
       const pathway = mongoose.isValidObjectId(pathwayId) ? await Pathway.findById(pathwayId) : null
       if (!pathway) throw notFound('Pathway not found')
       const a = await requireRoom(req, pathway.roomLowId)
+      await assertNotHandedOver(a.building.id)
       const b = await requireRoom(req, pathway.roomHighId)
       const before = { routeStatus: pathway.routeStatus, distanceM: pathway.distanceM }
       if (body.routeStatus !== undefined) pathway.routeStatus = body.routeStatus
@@ -217,7 +224,7 @@ export function createStructureService({ hierarchy }) {
     async deletePathway(req, pathwayId, actor) {
       const pathway = mongoose.isValidObjectId(pathwayId) ? await Pathway.findById(pathwayId) : null
       if (!pathway) throw notFound('Pathway not found')
-      await requireRoom(req, pathway.roomLowId)
+      await assertNotHandedOver((await requireRoom(req, pathway.roomLowId)).building.id)
       await requireRoom(req, pathway.roomHighId)
       await Pathway.deleteOne({ _id: pathway._id })
       for (const buildingId of pathway.buildingIds) {

@@ -1,4 +1,5 @@
 import mongoose from 'mongoose'
+import { assertNotHandedOver } from '../handover/guard.js'
 import { bomImpact } from '@rackium/shared/bomCalc.js'
 import { ChangeRequest } from '../models/changeRequest.js'
 import { LldDesign } from '../models/lldDesign.js'
@@ -88,6 +89,7 @@ export function createChangeRequestService({ lld }) {
 
     async create(req, body, actor) {
       const building = await requireBuilding(req, body.buildingId)
+      await assertNotHandedOver(building.id)
       const lldDoc = await LldDesign.findOne({ buildingId: building.id }).lean()
       if (!lldDoc?.latestApprovedVersionId) throw conflict('no_approved_design', 'A change request changes an approved LLD — approve the LLD first')
       const last = await ChangeRequest.findOne({ buildingId: building.id }).sort({ number: -1 }).lean()
@@ -114,6 +116,7 @@ export function createChangeRequestService({ lld }) {
     // affected items default to what the diff names.
     async submit(req, crId, actor) {
       const { cr, building } = await load(req, crId)
+      await assertNotHandedOver(building.id)
       if (!EDITABLE.includes(cr.status)) throw conflict('change_request_locked', `CR-${cr.number} is already ${cr.status.replace('_', ' ')}`)
       const impact = await impactOf(req, building, cr)
       if (impact.design.total === 0) throw conflict('no_change', 'The change request does not change the design yet — edit its branch first')
@@ -138,6 +141,7 @@ export function createChangeRequestService({ lld }) {
     // share link (token and password shown once).
     async send(req, crId, body, actor) {
       const { cr, building } = await load(req, crId)
+      await assertNotHandedOver(building.id)
       if (cr.status !== 'submitted') throw conflict('change_request_not_submitted', cr.status === 'awaiting_client' ? `CR-${cr.number} is already with the client` : `CR-${cr.number} must be submitted by the Architect first`)
       const pending = await Approval.exists({ buildingId: building.id, gate: 'change_request', status: 'pending' })
       if (pending) throw conflict('change_request_pending', 'Another change request of this building is with the client — one at a time')

@@ -17,10 +17,11 @@ import { deliveryRoutes, publicRoutes } from './delivery.js'
 import { fileRoutes } from './files.js'
 import { deploymentRoutes } from './deployment.js'
 import { cmdbRoutes } from './cmdb.js'
+import { documentRoutes, projectBrandingRoutes, orgBrandingRoutes, handoverRoutes } from './documents.js'
 
 export const API_VERSION = '1'
 
-export function apiRouter({ config, auth, org, auditLog, hierarchy, blockers, viewAs, dashboard, catalogue, cmo, survey, files, hld, lld, delivery, tasks, notifications, deployment, cmdb, rateLimits, openapiDocument, version }) {
+export function apiRouter({ config, auth, org, auditLog, hierarchy, blockers, viewAs, dashboard, catalogue, cmo, survey, files, hld, lld, delivery, tasks, notifications, deployment, cmdb, documents, handover, rateLimits, openapiDocument, version }) {
   const r = recordingRouter()
 
   r.get('/health', (req, res) => {
@@ -55,6 +56,10 @@ export function apiRouter({ config, auth, org, auditLog, hierarchy, blockers, vi
     ['/orgs/:orgId/projects/:projectId/files', fileRoutes({ config, files })],
     ['/orgs/:orgId/projects/:projectId/deployment', deploymentRoutes({ config, deployment })],
     ['/orgs/:orgId/projects/:projectId/cmdb', cmdbRoutes({ config, cmdb })],
+    ['/orgs/:orgId/projects/:projectId/documents', documentRoutes({ config, documents })],
+    ['/orgs/:orgId/projects/:projectId', projectBrandingRoutes({ config, documents })],
+    ['/orgs/:orgId', orgBrandingRoutes({ config, documents })],
+    ['/orgs/:orgId/projects/:projectId/handover', handoverRoutes({ config, handover })],
   ]
   for (const [prefix, subRouter] of mounts) {
     r.use(prefix, subRouter)

@@ -500,6 +500,31 @@ export function buildRegistry() {
   route('patch', `${CM}/records/{deviceId}`, 'Operational edit (Architect or PM): asset tag, notes, in service / maintenance, warranty and refresh dates; audited as an operational change', { params: p({ deviceId: 1 }), body: C.cmdbOperationalBody, errors: { 409: err('Stale version or not in the CMDB') } })
   route('post', `${CM}/lifecycle-import`, 'Warranty and refresh dates from a sheet, matched by serial then hostname; preview, then apply', { body: C.lifecycleImportBody })
 
+  // --- M6b: document engine, labels, branding, handover ---
+  const DOC = `${PR}/documents`
+  route('get', DOC, 'Generated documents of a building (or the project), newest first, with the types and formats available', { query: C.documentListQuery })
+  route('post', DOC, 'Request a document (background job; 202, or 200 with the identical request already queued). Prices only for those who may see them; the audit log for its readers', { body: C.documentRequestBody, status: 202, errors: { 400: err('Unknown type or format'), 403: err('Prices or audit log not allowed') } })
+  route('get', `${DOC}/share-links`, 'Download links of a building’s documents', { query: z.object({ buildingId: z.string() }) })
+  route('post', `${DOC}/share-links`, 'Share chosen documents by a time-limited link, password optional (PM); token and password shown once', { body: C.documentShareLinkBody, status: 201 })
+  route('get', `${DOC}/{id}`, 'One document: status, progress, step, error, version', { params: p({ id: 1 }) })
+  route('get', `${DOC}/{id}/download`, 'The file of a ready document (audited)', { params: p({ id: 1 }), errors: { 409: err('Not ready') } })
+  route('get', `${PR}/settings/client-logo`, 'The client logo shown on generated documents', {})
+  route('put', `${PR}/settings/client-logo`, 'Set the client logo (PM): PNG or JPEG, at most 500 KB', { body: C.logoBody })
+  route('delete', `${PR}/settings/client-logo`, 'Remove the client logo (PM)', {})
+  route('get', `${PR}/settings/cable-headings`, 'Cable schedule column headings (placeholders until the client supplies its own)', {})
+  route('put', `${PR}/settings/cable-headings`, 'Set cable schedule column headings (PM)', { body: C.scheduleHeadingsBody })
+  route('get', `${PR}/connections/{connectionId}/locate`, 'Where a cable label’s QR code leads: the connection, for a signed-in member in scope', { params: p({ connectionId: 1 }) })
+  route('get', `${O}/settings/logo`, 'The organisation logo shown on generated documents', { params: orgP() })
+  route('put', `${O}/settings/logo`, 'Set the organisation logo (Org Admin): PNG or JPEG, at most 500 KB', { params: orgP(), body: C.logoBody })
+  route('delete', `${O}/settings/logo`, 'Remove the organisation logo (Org Admin)', { params: orgP() })
+  const HO = `${PR}/handover/buildings/{buildingId}`
+  route('get', HO, 'Handover: the calculated checklist, workflow state (Ready when the checklist is green), the 11 documents of the current round, share links, approvals and the baseline', { params: p({ buildingId: 1 }) })
+  route('post', `${HO}/compile`, 'Compile the package (PM): a new round of the 11 documents as background jobs; checklist must be green', { params: p({ buildingId: 1 }), status: 202, errors: { 409: err('Checklist not complete or wrong state') } })
+  route('post', `${HO}/retry`, 'Queue the failed documents of the current round again (PM)', { params: p({ buildingId: 1 }), status: 202 })
+  route('post', `${HO}/review`, 'Mark the compiled package reviewed (PM, Reviewer)', { params: p({ buildingId: 1 }) })
+  route('post', `${HO}/deliver`, 'Send the reviewed package to the client (PM): approval and a password-protected, time-limited share link', { params: p({ buildingId: 1 }), body: C.handoverDeliverBody, status: 201 })
+  route('post', `${PUB}/documents/{documentId}`, 'Public: download a document behind a handover or download link (password when the link has one); audited', { params: tok.extend({ documentId: z.string() }), body: C.publicDownloadBody, errors: { 401: err('Wrong password'), 404: err('Not part of this link'), 410: err('Expired or revoked') } })
+
   registry.registerPath({
     method: 'get',
     path: '/api/v1/orgs/{orgId}/projects/{projectId}/dashboard/buildings/{buildingId}',

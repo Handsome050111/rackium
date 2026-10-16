@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { ReactFlowProvider } from '@xyflow/react'
-import { ArrowLeft, ChevronLeft, Lock } from 'lucide-react'
+import { ArrowLeft, ChevronLeft, Lock, QrCode } from 'lucide-react'
 import HldCanvas, { buildHldFlow } from '../components/hld/HldCanvas.jsx'
 import LocationTree from '../components/deployment/LocationTree.jsx'
 import RoomChecklistPanel from '../components/deployment/RoomChecklistPanel.jsx'
@@ -11,6 +11,8 @@ import ExceptionRegister from '../components/realDeployment/ExceptionRegister.js
 import LogExceptionDialog from '../components/realDeployment/LogExceptionDialog.jsx'
 import { applyDeploymentStyling } from '@rackium/shared/deploymentFlow.js'
 import { deploymentApi } from '../api/deploymentApi.js'
+import DocumentExports from '../components/documents/DocumentExports.jsx'
+import LabelPrintDialog from '../components/documents/LabelPrintDialog.jsx'
 import { useMediaQuery } from '../lib/useMediaQuery.js'
 import { useProjectRoles } from '../lib/useProjectRoles.js'
 
@@ -29,6 +31,7 @@ export default function RealDeployment() {
   const [notice, setNotice] = useState(null)
   const [phoneView, setPhoneView] = useState('tree')
   const [logTarget, setLogTarget] = useState(null)
+  const [labels, setLabels] = useState(false)
   const selectedId = search.get('device')
   const select = useCallback((id) => setSearch(id ? { device: id } : {}, { replace: true }), [setSearch])
 
@@ -127,9 +130,28 @@ export default function RealDeployment() {
   return (
     <div className="mx-auto max-w-[1700px] space-y-4 p-4 sm:p-6" data-page-state="ready">
       {back}
-      <div>
-        <h1 className="text-xl font-bold text-text sm:text-2xl">Deployment &amp; Installation — {view.building.code}</h1>
-        <p className="text-sm text-text-secondary">Installed against the frozen LLD: every device, port, cable and length compared field by field</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold text-text sm:text-2xl">Deployment &amp; Installation — {view.building.code}</h1>
+          <p className="text-sm text-text-secondary">Installed against the frozen LLD: every device, port, cable and length compared field by field</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => setLabels(true)} className="inline-flex h-touch items-center gap-1.5 rounded-lg border border-border bg-surface px-3 text-sm font-medium text-text hover:border-brand sm:h-9">
+            <QrCode size={15} strokeWidth={2} /> Print labels
+          </button>
+          <DocumentExports
+            orgId={orgId}
+            projectId={projectId}
+            buildingId={buildingId}
+            items={[
+              { typeKey: 'deployment-report', format: 'pdf', label: 'Deployment report' },
+              { typeKey: 'exception-register', format: 'pdf', label: 'Exception register' },
+              { typeKey: 'as-built', format: 'pdf', label: 'As-built vs as-designed' },
+              { typeKey: 'dguv-report', format: 'pdf', label: 'DGUV report' },
+              { typeKey: 'dguv-report', format: 'xlsx', label: 'DGUV report' },
+            ]}
+          />
+        </div>
       </div>
       {!view.frozen && (
         <div className="flex items-center gap-2 rounded-xl border border-border bg-surface-muted px-4 py-2.5 text-xs text-text-secondary">
@@ -191,6 +213,15 @@ export default function RealDeployment() {
       />
       <RoomChecklistPanel roomChecklists={view.roomChecklists} />
 
+      {labels && (
+        <LabelPrintDialog
+          orgId={orgId}
+          projectId={projectId}
+          buildingId={buildingId}
+          onClose={() => setLabels(false)}
+          connections={view.connections.map((c) => ({ id: c.id, title: `${c.source.name} ${c.source.portId ?? ''} → ${c.dest.name} ${c.dest.portId ?? ''}`, cableIds: c.segments.map((s) => s.installed?.cableId ?? s.cableId).filter(Boolean) }))}
+        />
+      )}
       {logTarget && (
         <LogExceptionDialog
           target={logTarget}

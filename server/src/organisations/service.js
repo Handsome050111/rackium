@@ -19,6 +19,7 @@ import { lldStatusByBuilding } from '../lld/service.js'
 import { spStatusByBuilding } from '../delivery/solutionPackage.js'
 import { bomStatusByBuilding } from '../delivery/bom.js'
 import { deploymentStatusesByBuilding } from '../deployment/service.js'
+import { handoverStatusByBuilding } from '../handover/service.js'
 import { SurveyTabRecord } from '../models/surveyTabRecord.js'
 import { LldDesign } from '../models/lldDesign.js'
 import { applyActivePhases } from '@rackium/shared/phaseGating.js'
@@ -99,6 +100,8 @@ function settingsView(org) {
     defaultDigestTime: DEFAULT_DIGEST_TIME,
     dguv: dguvOf(org),
     defaultDguv: DEFAULT_DGUV,
+    // M6b: whether a logo is set (the screen loads it only then).
+    hasLogo: Boolean(org.settings?.logo?.storageKey),
   }
 }
 
@@ -478,7 +481,7 @@ export function createOrganisationService({ mailer, auth }) {
         const scopes = membershipScopes(membership, isOrgAdmin)
         const buildings = await runWithScope({ organisationId, projectId: p._id }, async () => {
           const view = scopeView(scopes, await buildingsWithSal())
-          const [buildingRows, statusRows, cmoStatuses, surveyStatuses, hldStatuses, lldStatuses, spStatuses, bomStatuses, asBuilt] = await Promise.all([Building.find().lean(), PhaseStatus.find().lean(), cmoStatusByBuilding(), surveyStatusByBuilding(), hldStatusByBuilding(), lldStatusByBuilding(), spStatusByBuilding(), bomStatusByBuilding(), deploymentStatusesByBuilding()])
+          const [buildingRows, statusRows, cmoStatuses, surveyStatuses, hldStatuses, lldStatuses, spStatuses, bomStatuses, asBuilt, handoverStatuses] = await Promise.all([Building.find().lean(), PhaseStatus.find().lean(), cmoStatusByBuilding(), surveyStatusByBuilding(), hldStatusByBuilding(), lldStatusByBuilding(), spStatusByBuilding(), bomStatusByBuilding(), deploymentStatusesByBuilding(), handoverStatusByBuilding()])
           const statusByBuilding = new Map()
           for (const s of statusRows) {
             const key = String(s.buildingId)
@@ -486,7 +489,7 @@ export function createOrganisationService({ mailer, auth }) {
             statusByBuilding.get(key).set(s.phaseKey, s.status)
           }
           // CMO is computed from imported devices, not stored (same as the dashboard).
-          for (const [phaseKey, statuses] of [['cmo', cmoStatuses], ['survey', surveyStatuses], ['hld', hldStatuses], ['lld', lldStatuses], ['solution-package', spStatuses], ['bom', bomStatuses], ['deployment', asBuilt.deployment], ['cmdb', asBuilt.cmdb]]) {
+          for (const [phaseKey, statuses] of [['cmo', cmoStatuses], ['survey', surveyStatuses], ['hld', hldStatuses], ['lld', lldStatuses], ['solution-package', spStatuses], ['bom', bomStatuses], ['deployment', asBuilt.deployment], ['cmdb', asBuilt.cmdb], ['handover', handoverStatuses]]) {
             for (const [buildingId, status] of statuses) {
               if (!statusByBuilding.has(buildingId)) statusByBuilding.set(buildingId, new Map())
               statusByBuilding.get(buildingId).set(phaseKey, status)
