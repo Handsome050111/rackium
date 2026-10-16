@@ -131,7 +131,7 @@ describe('real survey helpers', () => {
       { id: 'ru-1', kind: 'reserved', ru: 10, heightU: 1, face: 'front', label: 'Reserved' },
     ])
     expect(body).toHaveLength(3)
-    expect(body[0]).toEqual({ deviceId: 'd1', ru: 40, heightU: 1, face: 'front', fullDepth: false, mounting: 'rack', railSide: null, category: null, label: 'SW', sublabel: null })
+    expect(body[0]).toEqual({ deviceId: 'd1', ru: 40, heightU: 1, face: 'front', fullDepth: false, mounting: 'rack', railSide: null, category: null, label: 'SW', sublabel: null, existingLabel: null })
     expect(body[1]).toMatchObject({ deviceId: 'd2', ru: 0, heightU: 0, railSide: 'left', serial: 'P1', mac: null })
     expect(body[2]).not.toHaveProperty('serial')
   })

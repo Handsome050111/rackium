@@ -10,6 +10,7 @@ import { buildHostname } from '@rackium/shared/naming.js'
 import { summariseFindings } from '@rackium/shared/hldRules.js'
 import { portKey, portsOf, isPatchPanel, validateLld, diffDesigns, reconcileWithHld, routeSides, routeBookings, hopProblems, pairBookings, pairConflicts, nextPanelLabel } from '@rackium/shared/lldDesign.js'
 import { canApproveSubmission } from '@rackium/shared/policy.js'
+import { deviceDisplayName, cleanExistingLabel } from '@rackium/shared/deviceName.js'
 import { Device } from '../models/device.js'
 import { Connection } from '../models/connection.js'
 import { PortOccupancy } from '../models/portOccupancy.js'
@@ -92,10 +93,11 @@ function catalogueIndex(catalogue) {
   }
 }
 
-function deviceView(d, cat, racks) {
+function deviceView(d, cat, racks, rooms = []) {
   const item = cat.item(d.catalogueKey)
   const rack = d.rackId ? racks.find((r) => String(r._id) === String(d.rackId)) : null
   const info = roleInfo(d.role)
+  const roomId = id(d.roomId ?? rack?.roomId)
   return {
     id: String(d._id),
     origin: d.origin,
@@ -104,12 +106,16 @@ function deviceView(d, cat, racks) {
     role: d.role ?? null,
     roleLabel: info?.label ?? null,
     hostname: d.hostname ?? null,
-    label: d.hostname ?? d.label ?? info?.label ?? 'Device',
+    // Shown everywhere a device is listed; the stored label (what was
+    // placed, e.g. "24-port patch panel") still sets kind and port count.
+    label: deviceDisplayName(d, info?.label ?? 'Device'),
+    existingLabel: cleanExistingLabel(d.existingLabel),
     catalogueKey: d.catalogueKey ?? null,
     model: d.model ?? null,
     category: item?.category ?? d.category ?? null,
     isPanel: isPatchPanel(item, d),
-    roomId: id(d.roomId ?? rack?.roomId),
+    roomId,
+    roomCode: roomId ? rooms.find((r) => String(r._id) === roomId)?.code ?? null : null,
     rackId: id(d.rackId),
     rackCode: rack?.code ?? null,
     ru: d.ru ?? null,
@@ -188,7 +194,7 @@ function connectionView(c, length, segments = []) {
 function inputs(data) {
   const cat = catalogueIndex(data.catalogue)
   const rackPos = rackPositions(data.racks)
-  const views = [...data.existing, ...data.devices].map((d) => deviceView(d, cat, data.racks))
+  const views = [...data.existing, ...data.devices].map((d) => deviceView(d, cat, data.racks, data.rooms))
   const deviceById = new Map(views.map((d) => [d.id, d]))
   const { stockLengths } = data.settings
   const connections = data.connections.map((c) => connectionView(c, lengthOf(c, deviceById, rackPos, data.pathways, stockLengths), segmentsOf(c, deviceById, rackPos, data.pathways, stockLengths)))
@@ -306,13 +312,24 @@ async function claim({ buildingId, branchId }, baseRevision, actor, session) {
   throw await staleError(current, baseRevision, 'LLD')
 }
 
+// Names a planned panel label must not repeat: the layer's own labels and
+// hostnames (a repeat would be Critical, L-PANEL-LABEL).
+function designNamesExcept(data, deviceId) {
+  return data.devices.filter((d) => String(d._id) !== String(deviceId)).flatMap((d) => [d.label, d.hostname]).filter(Boolean)
+}
+// Names on the surveyed gear: recorded existing labels and hostnames — a
+// default label avoids them (a custom one may match: L-PANEL-LABEL-EXISTING).
+function existingNames(data) {
+  return data.existing.flatMap((d) => [cleanExistingLabel(d.existingLabel), d.hostname]).filter(Boolean)
+}
+
 // --- Registries (written in the caller's transaction) --------------------------
 
 function validPort(device, portId, cat) {
   const ports = portsOf(cat.item(device.catalogueKey), device)
   if (!ports.length) return portId
   const port = ports.find((p) => lower(p.id) === lower(portId))
-  if (!port) throw badRequest(`${portId} is not a port of ${device.hostname ?? device.label ?? 'the device'}`)
+  if (!port) throw badRequest(`${portId} is not a port of ${deviceDisplayName(device, 'the device')}`)
   return port.id
 }
 
@@ -328,7 +345,7 @@ const panelTest = (devices, cat) => (deviceId) => {
 }
 async function takePorts(conn, layer, devices, cat, session) {
   const bookings = routeBookings(conn, panelTest(devices, cat))
-  const nameOf = (deviceId) => devices.get(String(deviceId))?.hostname ?? devices.get(String(deviceId))?.label ?? 'the panel'
+  const nameOf = (deviceId) => deviceDisplayName(devices.get(String(deviceId)), 'the panel')
   // One connection per panel port: refuse a side whose other side another
   // connection uses (legacy pre-occupied cabling is exempt).
   const panelIds = [...new Set(bookings.filter((b) => b.side).map((b) => b.deviceId))]
@@ -470,7 +487,7 @@ async function writeConnection(doc, body, { layer, data, isNew }, session) {
       return body.hops !== undefined ? hop : { ...hop, inSide: null, outSide: null }
     }),
   }
-  const problems = hopProblems(route, isPanel, (pid) => devices.get(String(pid))?.label ?? devices.get(String(pid))?.hostname ?? 'panel')
+  const problems = hopProblems(route, isPanel, (pid) => deviceDisplayName(devices.get(String(pid)), 'panel'))
   if (problems.length) throw badRequest(problems.map((p) => p.message).join('; '), { problems })
   const sides = routeSides(route, isPanel)
   doc.hops.forEach((h, i) => {
@@ -971,14 +988,14 @@ export function createLldService({ storage }) {
         // Labels are unique in the building (rack codes repeat per room):
         // default PP-<room>-<rack>-NN / CM-…, the next number not yet used.
         const room = data.rooms.find((r) => String(r._id) === String(rack.roomId))
-        const used = [...data.existing, ...data.devices].flatMap((d) => [d.label, d.hostname]).filter(Boolean)
-        if (body.label && used.some((l) => l.toLowerCase() === body.label.toLowerCase())) throw conflict('label_in_use', `${body.label} is already used in this building — panel labels are unique per building`)
-        const label = body.label ?? nextPanelLabel({ prefix: item.category === 'patch_panel' ? 'PP' : 'CM', room: room?.code, rack: rack.code }, used)
+        const designNames = designNamesExcept(data, null)
+        if (body.label && designNames.some((l) => l.toLowerCase() === body.label.toLowerCase())) throw conflict('label_in_use', `${body.label} is already used in this design — panel labels are unique per building`)
+        const label = body.label ?? nextPanelLabel({ prefix: item.category === 'patch_panel' ? 'PP' : 'CM', room: room?.code, rack: rack.code }, [...designNames, ...existingNames(data)])
         const device = new Device({ origin: 'planned', status: 'planned', layer, salId: building.salId, buildingId: building.id, roomId: rack.roomId, rackId: rack._id, ru: body.ru, heightU: item.heightU ?? 1, face: body.face, fullDepth: Boolean(item.fullDepth), mounting: item.mounting === '0U' ? '0U' : 'rack', label, model: item.model, catalogueKey: item.key, category: item.category })
         if (body.ru != null) assertPlacement(device, rack, data)
         await device.save({ session })
         await audit(req, building, actor, 'lld.device.added', { objectType: 'Device', objectId: device._id, comment: `${label} in ${rack.code}${body.ru ? ` RU${body.ru}` : ''}`, session })
-        return { device: deviceView(device.toObject(), cat, data.racks) }
+        return { device: deviceView(device.toObject(), cat, data.racks, data.rooms) }
       })
     },
 
@@ -992,7 +1009,7 @@ export function createLldService({ storage }) {
           const rack = data.racks.find((r) => String(r._id) === body.rackId)
           if (!rack) throw notFound('Rack not found in this building')
           const item = catalogueIndex(data.catalogue).item(device.catalogueKey)
-          if (item && !item.rackMounted) throw badRequest(`${device.hostname ?? device.label} is not rack-mounted`)
+          if (item && !item.rackMounted) throw badRequest(`${deviceDisplayName(device)} is not rack-mounted`)
           Object.assign(device, { rackId: rack._id, roomId: rack.roomId, ru: body.ru, face: body.face })
           if (body.ru != null) assertPlacement(device, rack, data, catalogueIndex(data.catalogue))
         } else {
@@ -1000,7 +1017,7 @@ export function createLldService({ storage }) {
         }
         await device.save({ session })
         await audit(req, building, actor, 'lld.device.placed', { objectType: 'Device', objectId: device._id, changes: [{ objectType: 'Device', objectId: String(device._id), field: 'placement', before: `${before.rackId ?? '—'} RU${before.ru ?? '—'} ${before.face ?? ''}`.trim(), after: `${id(device.rackId) ?? '—'} RU${device.ru ?? '—'} ${device.face}` }], session })
-        return { device: deviceView(device.toObject(), catalogueIndex(data.catalogue), data.racks) }
+        return { device: deviceView(device.toObject(), catalogueIndex(data.catalogue), data.racks, data.rooms) }
       })
     },
 
@@ -1016,6 +1033,32 @@ export function createLldService({ storage }) {
         await Device.deleteOne({ _id: existing._id }, { session })
         await audit(req, building, actor, 'lld.device.deleted', { objectType: 'Device', objectId: existing._id, comment: `${existing.hostname ?? existing.label} and ${conns.length} connection(s)`, session })
         return { deleted: { device: deviceId, connections: conns.map((c) => String(c._id)) } }
+      })
+    },
+
+    // Renames a planned patch panel or cable manager (fix/cmo-naming-gaps):
+    // how the Architect resolves L-PANEL-LABEL and L-PANEL-LABEL-EXISTING.
+    // Hostname-safe (contract) and unique among the design's devices; an
+    // existing panel's recorded label is allowed (validation warns).
+    async relabel(req, deviceId, body, actor) {
+      const existing = await deviceInLayer(req, deviceId)
+      return write(req, { buildingId: existing.buildingId, branchId: branchOfLayer(existing.layer) }, body.baseRevision, actor, async ({ building, data, session }) => {
+        const cat = catalogueIndex(data.catalogue)
+        const device = await Device.findById(deviceId).session(session)
+        const item = cat.item(device.catalogueKey)
+        if (!isPatchPanel(item, device) && (item?.category ?? device.category) !== 'cable_management') {
+          throw badRequest('Only patch panels and cable managers are renamed here — devices are renamed by hostname')
+        }
+        if (designNamesExcept(data, deviceId).some((l) => l.toLowerCase() === body.label.toLowerCase())) {
+          throw conflict('label_in_use', `${body.label} is already used in this design — panel labels are unique per building`)
+        }
+        const before = device.label ?? null
+        if (before !== body.label) {
+          device.label = body.label
+          await device.save({ session })
+          await audit(req, building, actor, 'lld.device.relabelled', { objectType: 'Device', objectId: device._id, comment: `${before ?? '—'} → ${body.label}`, changes: [{ objectType: 'Device', objectId: String(device._id), field: 'label', before, after: body.label }], session })
+        }
+        return { device: deviceView(device.toObject(), cat, data.racks, data.rooms) }
       })
     },
 
@@ -1239,7 +1282,7 @@ function assertPlacement(device, rack, data, cat = catalogueIndex(data.catalogue
   const others = [
     ...[...data.existing, ...data.devices]
       .filter((d) => String(d.rackId) === String(rack._id) && String(d._id) !== String(device._id) && d.ru != null && (d.heightU ?? 0) > 0)
-      .map((d) => ({ id: String(d._id), ru: d.ru, heightU: catalogueIndex(data.catalogue).item(d.catalogueKey)?.heightU ?? d.heightU, face: d.face ?? 'front', fullDepth: Boolean(d.fullDepth), kind: 'device', label: d.hostname ?? d.label ?? 'device' })),
+      .map((d) => ({ id: String(d._id), ru: d.ru, heightU: catalogueIndex(data.catalogue).item(d.catalogueKey)?.heightU ?? d.heightU, face: d.face ?? 'front', fullDepth: Boolean(d.fullDepth), kind: 'device', label: deviceDisplayName(d, 'device') })),
     ...data.ruStates.filter((s) => String(s.rackId) === String(rack._id)).map((s) => ({ id: `ru-${s._id}`, ru: s.ru, heightU: 1, face: s.face === 'rear' ? 'rear' : 'front', fullDepth: s.face === 'both', kind: s.state, label: s.state === 'reserved' ? 'a reserved RU' : 'a blocked RU' })),
   ]
   const conflicts = findConflicts(candidate, others, rack.heightU)

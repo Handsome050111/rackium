@@ -7,7 +7,7 @@
 import { getCampusSiteStructure } from './siteStructure.js'
 import { getDevices } from './networkStore.js'
 import { updatePhaseStatus } from './buildings.js'
-import { applyColumnMapping, validateCmoRows, computeCmoKpis, computeBuildingCmoStatus, CMO_FIELDS } from '@rackium/shared/cmoModel.js'
+import { applyColumnMapping, validateCmoRows, computeCmoKpis, computeBuildingCmoStatus, cmoTemplateRows } from '@rackium/shared/cmoModel.js'
 import { registerStore, replaceArrayContents } from '../lib/persistentStore.js'
 
 function resolveAfter(value, ms = 25) {
@@ -105,9 +105,7 @@ function resolveRoomSync(resolver, buildingId, roomText) {
 
 export async function downloadCmoTemplate() {
   const XLSX = await import('xlsx')
-  const header = CMO_FIELDS.map((f) => f.label)
-  const example = ['E-DE-ERL-C01-B001-EG-001', 'Cisco C9300-48UX', 'FCW2637A1B2', '00:1A:2B:3C:4D:5E', 'B001', 'EG', 'TR-EG-01', 'R01', '40']
-  const sheet = XLSX.utils.aoa_to_sheet([header, example])
+  const sheet = XLSX.utils.aoa_to_sheet(cmoTemplateRows())
   const book = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(book, sheet, 'CMO Import')
   XLSX.writeFile(book, 'rackium-cmo-import-template.xlsx')

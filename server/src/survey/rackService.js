@@ -3,6 +3,7 @@ import { assertNotHandedOver } from '../handover/guard.js'
 import { findConflicts, computeFreeRU } from '@rackium/shared/rackValidation.js'
 import { computeReadiness } from '@rackium/shared/rackReadiness.js'
 import { normaliseMac, isValidMac } from '@rackium/shared/cmoModel.js'
+import { deviceDisplayName, cleanExistingLabel } from '@rackium/shared/deviceName.js'
 import { Rack } from '../models/rack.js'
 import { Room } from '../models/room.js'
 import { Floor } from '../models/floor.js'
@@ -33,13 +34,18 @@ function devicePlacement(d) {
     deviceId: String(d._id),
     kind: 'device',
     ru: d.ru ?? 0,
-    heightU: d.heightU ?? 0,
+    // A CMO device imported with a rack and RU has no height yet: 1U until surveyed.
+    heightU: d.heightU ?? (d.mounting === '0U' ? 0 : 1),
     face: d.face ?? 'front',
     fullDepth: Boolean(d.fullDepth),
     mounting: d.mounting ?? 'rack',
     railSide: d.railSide ?? null,
     category: d.category ?? null,
+    // What was placed (library item or CMO name) — sent back on save as is;
+    // the existing label recorded on site is shown instead when set.
     label: d.label ?? d.hostname ?? d.model ?? 'Device',
+    existingLabel: cleanExistingLabel(d.existingLabel),
+    displayName: deviceDisplayName(d),
     sublabel: d.sublabel ?? d.model ?? null,
     hostname: d.hostname ?? null,
     model: d.model ?? null,
@@ -73,7 +79,10 @@ async function loadRackSurvey(rackId, session = null) {
   const rack = await Rack.findById(rackId).session(session).lean()
   const room = await Room.findById(rack.roomId).session(session).lean()
   const floor = await Floor.findById(room.floorId).session(session).lean()
-  const devices = await Device.find({ rackId: rack._id, origin: 'existing' }).session(session).lean()
+  // Gear with a position (an RU, or 0U on a rail). A CMO device imported
+  // with a rack but no RU stays in the rack's CMO list until it is placed —
+  // never drawn at RU 0, never unplaced by a save.
+  const devices = await Device.find({ rackId: rack._id, origin: 'existing', $or: [{ ru: { $ne: null } }, { mounting: '0U' }] }).session(session).lean()
   const states = await RuState.find({ rackId: rack._id, releasedAt: null }).session(session).lean()
   return { rack, room, floor, devices, states }
 }
@@ -98,11 +107,14 @@ export function createRackService() {
         meta,
         readiness: computeReadiness({ placements, rackHeightU: rack.heightU, meta }),
         freeRu: { front: computeFreeRU(placements, rack.heightU, 'front'), rear: computeFreeRU(placements, rack.heightU, 'rear') },
+        // Every CMO device of the building, with or without a serial: one
+        // without can still be picked from this list (never serial-validated).
         roomCmoList: cmoDevices.map((d) => ({
           deviceId: String(d._id),
           serial: d.installation?.serial ?? null,
           mac: d.installation?.mac ?? null,
           expectedHostname: d.hostname ?? null,
+          vendor: d.vendor ?? null,
           model: d.model ?? null,
           placedInRackId: id(d.rackId),
         })),
@@ -125,7 +137,9 @@ export function createRackService() {
         const statePlacements = states.map(ruStatePlacement)
 
         // 1. Geometry: every placement against the RU states and every other placement.
-        const candidates = placements.map((p, i) => ({ ...p, id: `p${i}`, kind: 'device', ru: p.mounting === '0U' ? 0 : p.ru, heightU: p.mounting === '0U' ? 0 : p.heightU }))
+        // Messages name an item by its existing label when one is recorded.
+        const nameOf = (p) => cleanExistingLabel(p.existingLabel) ?? p.label
+        const candidates = placements.map((p, i) => ({ ...p, id: `p${i}`, kind: 'device', label: nameOf(p), ru: p.mounting === '0U' ? 0 : p.ru, heightU: p.mounting === '0U' ? 0 : p.heightU }))
         for (const c of candidates) {
           if (c.mounting !== '0U' && c.heightU < 1) throw badRequest(`${c.label}: a rack-mounted item is at least 1U`)
           const conflicts = findConflicts(c, [...statePlacements, ...candidates.filter((o) => o.id !== c.id)], rack.heightU)
@@ -140,11 +154,11 @@ export function createRackService() {
           // undo/redo and repeated autosaves keep addressing the same device.
           let device = p.deviceId ? await Device.findById(p.deviceId).session(session) : null
           if (device) {
-            if (device.origin !== 'existing' || String(device.buildingId) !== building.id) throw badRequest(`${p.label}: not a device of this building`)
+            if (device.origin !== 'existing' || String(device.buildingId) !== building.id) throw badRequest(`${nameOf(p)}: not a device of this building`)
           } else {
             device = new Device({ ...(p.deviceId ? { _id: p.deviceId } : {}), origin: 'existing', status: 'in_service', salId: building.salId, buildingId: building.id, organisationId, projectId })
           }
-          if (p.mac && !isValidMac(p.mac)) throw badRequest(`${p.label}: invalid MAC format`)
+          if (p.mac && !isValidMac(p.mac)) throw badRequest(`${nameOf(p)}: invalid MAC format`)
           // Omitted identity keeps what the device has. An imported CMO
           // device's serial is its identity and is not changed here.
           const oldSerial = device.installation?.serial ?? null
@@ -152,7 +166,7 @@ export function createRackService() {
           const newSerial = p.serial === undefined ? oldSerial : p.serial?.trim() || null
           const mac = p.mac === undefined ? oldMac : p.mac ? normaliseMac(p.mac) : null
           if (device.importBatchId && newSerial?.toLowerCase() !== oldSerial?.toLowerCase()) {
-            throw badRequest(`${p.label}: the serial of an imported CMO device cannot be changed here`)
+            throw badRequest(`${nameOf(p)}: the serial of an imported CMO device cannot be changed here`)
           }
           Object.assign(device, {
             roomId: rack.roomId,
@@ -166,6 +180,7 @@ export function createRackService() {
             category: p.category,
             label: p.label,
             sublabel: p.sublabel,
+            existingLabel: p.existingLabel === undefined ? device.existingLabel ?? null : cleanExistingLabel(p.existingLabel),
             catalogueKey: p.catalogueKey === undefined ? device.catalogueKey ?? null : p.catalogueKey,
             hostname: p.hostname === undefined ? device.hostname ?? null : p.hostname,
             model: p.model === undefined ? device.model ?? null : p.model,
@@ -182,8 +197,8 @@ export function createRackService() {
           try {
             await device.save({ session })
           } catch (err) {
-            if (err.code === 11000 && err.keyPattern?._id) throw conflict('duplicate', `${p.label}: this device id is already in use`)
-            if (err.code === 11000) throw conflict('duplicate', `${p.label}: hostname or MAC already used by another device in this project`)
+            if (err.code === 11000 && err.keyPattern?._id) throw conflict('duplicate', `${nameOf(p)}: this device id is already in use`)
+            if (err.code === 11000) throw conflict('duplicate', `${nameOf(p)}: hostname or MAC already used by another device in this project`)
             throw err
           }
           keptIds.add(String(device._id))

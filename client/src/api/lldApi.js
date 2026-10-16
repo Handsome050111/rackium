@@ -22,6 +22,7 @@ export const lldApi = {
   copyFromHld: (o, p, body) => (real ? apiRequest(`${base(o, p)}/copy-from-hld`, { method: 'POST', body }) : none(null)),
   addDevice: (o, p, body) => (real ? apiRequest(`${base(o, p)}/devices`, { method: 'POST', body }) : none(null)),
   place: (o, p, id, body) => (real ? apiRequest(`${base(o, p)}/devices/${id}/placement`, { method: 'PUT', body }) : none(null)),
+  relabel: (o, p, id, body) => (real ? apiRequest(`${base(o, p)}/devices/${id}/label`, { method: 'PUT', body }) : none(null)),
   deleteDevice: (o, p, id, baseRevision) => (real ? apiRequest(`${base(o, p)}/devices/${id}?baseRevision=${baseRevision}`, { method: 'DELETE' }) : none(null)),
   createConnection: (o, p, body) => (real ? apiRequest(`${base(o, p)}/connections`, { method: 'POST', body }) : none(null)),
   updateConnection: (o, p, id, body) => (real ? apiRequest(`${base(o, p)}/connections/${id}`, { method: 'PATCH', body }) : none(null)),
@@ -93,7 +94,8 @@ export function toLldContext(view, validation = null) {
     type: d.isPanel ? 'patchpanel' : 'device',
     role: d.isPanel ? 'patchpanel' : d.role,
     label: d.label,
-    hostname: d.hostname ?? d.label,
+    // A surveyed item goes by its display name (its existing label when recorded).
+    hostname: d.inDesign ? d.hostname ?? d.label : d.label,
     model: d.model,
     status: d.inDesign ? 'planned' : 'existing',
     ru: d.ru,

@@ -100,7 +100,8 @@ export default function RealCmdb() {
     if (!view) return out
     for (const r of view.records) out.set(r.id, { id: r.id, label: r.hostname ?? r.label, rackId: r.rackId, ru: r.ru, heightU: r.heightU ?? 1 })
     for (const p of view.panels ?? []) out.set(p.id, { ...p })
-    for (const x of view.existingDevices ?? []) out.set(x.id, { id: x.id, label: x.hostname ?? x.label, rackId: x.rackId, ru: x.ru, heightU: x.heightU ?? 1 })
+    // Surveyed gear: its display name (the existing label when recorded on site).
+    for (const x of view.existingDevices ?? []) out.set(x.id, { id: x.id, label: x.label, rackId: x.rackId, ru: x.ru, heightU: x.heightU ?? 1 })
     return out
   }, [view])
 

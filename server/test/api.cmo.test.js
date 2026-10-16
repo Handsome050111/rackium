@@ -62,10 +62,10 @@ describe('CMO import → Unassigned → PM assigns → phase Completed', () => {
     expect(preview.summary).toMatchObject({ rows: 3, valid: 3, blocked: 0, unassigned: 1 })
 
     const committed = (await admin.agent.post(`${base}/cmo/import`).send({ salId: sal('ERL').id, rows, fileName: 'cmo.xlsx' }).expect(201)).body
-    expect(committed.summary).toEqual({ imported: 3, assigned: 2, unassigned: 1, skipped: 0 })
+    expect(committed.summary).toEqual({ imported: 3, assigned: 2, unassigned: 1, noSerial: 0, skipped: 0 })
 
     const context = (await admin.agent.get(`${base}/cmo`).expect(200)).body
-    expect(context.kpis).toEqual({ total: 3, assigned: 2, unassigned: 1 })
+    expect(context.kpis).toEqual({ total: 3, assigned: 2, unassigned: 1, noSerial: 0 })
     const placed = context.devices.find((d) => d.serial === 'FCW001')
     expect(placed).toMatchObject({ origin: 'existing', status: 'in_service', buildingCode: 'B001', roomCode: 'TR-EG-01', rackCode: 'R01', ru: 40, mac: '00:1a:2b:3c:4d:01', catalogueKey: 'Cisco C9300-48UX' })
     expect(context.devices.find((d) => d.serial === 'FCW002').catalogueKey).toBeNull()
@@ -117,7 +117,7 @@ describe('CMO import → Unassigned → PM assigns → phase Completed', () => {
 })
 
 describe('row validation is re-run on the server', () => {
-  it('rejects serial (case-insensitive), MAC and hostname duplicates against the project, and missing serials', async () => {
+  it('rejects serial (case-insensitive), MAC and hostname duplicates against the project, and rows nothing identifies', async () => {
     const { admin, base, sal } = await setup()
     await admin.agent.post(`${base}/cmo/import`).send({ salId: sal('ERL').id, rows: [row({ hostname: 'SW-1', serial: 'ABC123', mac: '00:00:00:00:00:01', building: 'B001' })] }).expect(201)
 
@@ -130,6 +130,7 @@ describe('row validation is re-run on the server', () => {
             row({ serial: 'abc123', building: 'B001' }),
             row({ serial: 'NEW-1', mac: '00-00-00-00-00-01' }),
             row({ serial: 'NEW-2', hostname: 'sw-1' }),
+            // No hostname, serial, MAC or model (a row without only a serial imports: api.cmo-naming).
             row({ serial: null }),
             row({ serial: 'NEW-3', mac: 'not-a-mac' }),
             row({ serial: 'NEW-4', building: 'B999' }),
@@ -141,7 +142,7 @@ describe('row validation is re-run on the server', () => {
       ['duplicate_in_project'],
       ['duplicate_mac_in_project'],
       ['duplicate_hostname_in_project'],
-      ['missing_serial'],
+      ['no_identity'],
       ['invalid_mac'],
       ['unknown_building'],
     ])

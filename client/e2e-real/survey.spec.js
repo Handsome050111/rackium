@@ -131,6 +131,58 @@ test('Field Engineer surveys the rack: a device placed by RU, saved and read bac
   await expect(fe.getByLabel('Usable depth (mm)')).toHaveValue('800')
 })
 
+test('Rack Survey: an existing label recorded on site is shown instead of the library name; a CMO device without a serial is picked from the CMO list (fix/cmo-naming-gaps)', async () => {
+  // The PM imports the customer's list: a patch panel with no serial.
+  const imported = await owner.request.post(`/api/v1/orgs/${orgId}/projects/${projectId}/cmo/import`, {
+    data: { rows: [{ rowIndex: 0, hostname: 'VT-A-01', vendor: 'Panduit', model: 'Patch panel 24', serial: null, mac: null, building: 'B001', floor: null, room: null, rack: null, ru: null }] },
+  })
+  expect(imported.status()).toBe(201)
+  await fe.reload()
+  await expect(fe.getByText('24-port switch · 1U')).toBeVisible()
+
+  // The switch placed above: the label on it, as the customer uses it (free text).
+  await fe.getByText('24-port switch · 1U').click()
+  await fe.getByLabel('Existing label / name').fill('Schrank 3 / Feld A')
+  await expect(fe.getByText('Schrank 3 / Feld A · 1U')).toBeVisible()
+  await expect(fe.getByText(/^Saved/)).toBeVisible({ timeout: 10_000 })
+
+  // A library patch panel, then identified from the CMO list — it has no serial.
+  // (Typing scrolled the page: back to the top, so the library and the RU are both on screen.)
+  await fe.evaluate(() => document.querySelector('main').scrollTo(0, 0))
+  const libraryItem = fe.locator('div', { hasText: '24-port patch panel' }).last()
+  const targetRow = fe.locator('text=FRONT').locator('..').locator('span', { hasText: /^30$/ }).first()
+  const src = await libraryItem.boundingBox()
+  const dst = await targetRow.boundingBox()
+  await fe.mouse.move(src.x + src.width / 2, src.y + src.height / 2)
+  await fe.mouse.down()
+  await fe.mouse.move(dst.x + 40, dst.y + 10, { steps: 10 })
+  await fe.waitForTimeout(100)
+  await fe.mouse.up()
+  await expect(fe.getByText('24-port patch panel · 1U')).toBeVisible()
+  await fe.getByLabel('Pick a CMO device').selectOption({ label: 'VT-A-01 · Panduit Patch panel 24 · No serial' })
+  await expect(fe.getByLabel('Existing label / name')).toHaveValue('VT-A-01')
+  await expect(fe.getByText('No serial — picked from the CMO list, not serial-validated.')).toBeVisible()
+  await expect(fe.getByText('VT-A-01 · Patch panel 24')).toBeVisible()
+  await expect(fe.getByText(/^Saved/)).toBeVisible({ timeout: 10_000 })
+
+  // The identity panels fit every width.
+  for (const [width, height] of [[1440, 900], [1024, 768], [768, 1024], [390, 844]]) {
+    await fe.setViewportSize({ width, height })
+    await expect(fe.getByLabel('Existing label / name')).toBeVisible()
+    const overflow = await fe.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth + (document.querySelector('main').scrollWidth - document.querySelector('main').clientWidth))
+    expect(overflow, `rack survey at ${width}px`).toBe(0)
+    if (process.env.SURVEY_SHOTS) {
+      await fe.getByLabel('Existing label / name').scrollIntoViewIfNeeded()
+      await fe.screenshot({ path: `${process.env.SURVEY_SHOTS}/rack-identity-${width}.png` })
+    }
+  }
+  await fe.setViewportSize({ width: 1440, height: 900 })
+
+  await fe.reload()
+  await expect(fe.getByText('Schrank 3 / Feld A · 1U')).toBeVisible()
+  await expect(fe.getByText('VT-A-01 · Patch panel 24')).toBeVisible()
+})
+
 test('Storage Area: filled with a photo, submitted, rejected with a reason, resubmitted and verified', async () => {
   await fe.goto(surveyUrl('/room?tab=storage-area'))
   await expect(fe.getByRole('tab', { name: /Storage Area/, selected: true })).toBeVisible()

@@ -35,7 +35,7 @@ test.describe('CMO Inventory Validation', () => {
     await expect(page.getByText('Unassigned at SAL ERL (2)')).toBeVisible()
   })
 
-  test('import wizard validates missing serial, in-file and project duplicates, bad MAC, and routes an unknown building to Unassigned without blocking it', async ({ page }) => {
+  test('import wizard validates in-file and project duplicates and bad MAC, imports a row without a serial marked No serial, and routes an unknown building to Unassigned without blocking it', async ({ page }) => {
     const errors = []
     page.on('pageerror', (err) => errors.push(err.message))
     page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()) })
@@ -58,10 +58,11 @@ test.describe('CMO Inventory Validation', () => {
     await expect(page.getByText(/row\(s\)\. Map each/)).toBeVisible()
     await page.click('text=Preview import')
 
-    await expect(page.getByText('1 valid')).toBeVisible()
-    await expect(page.getByText('5 blocked (won\'t be imported)')).toBeVisible()
+    // A row without a serial imports, marked No serial (fix/cmo-naming-gaps).
+    await expect(page.getByText('2 valid')).toBeVisible()
+    await expect(page.getByText('4 blocked (won\'t be imported)')).toBeVisible()
     await expect(page.getByText('1 going to Unassigned')).toBeVisible()
-    await expect(page.locator('tr', { hasText: 'NEW-SW-02' })).toContainText('Missing serial')
+    await expect(page.locator('tr', { hasText: 'NEW-SW-02' })).toContainText('No serial')
     await expect(page.locator('tr', { hasText: 'NEW-SW-04' })).toContainText('Duplicate in project')
     await expect(page.locator('tr', { hasText: 'NEW-SW-05' })).toContainText('Invalid MAC format')
     await expect(page.locator('tr', { hasText: 'NEW-SW-06' })).toContainText('Unknown building')

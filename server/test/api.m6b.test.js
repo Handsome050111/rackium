@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
 import mongoose from 'mongoose'
+import crypto from 'node:crypto'
 import JSZip from 'jszip'
 import * as XLSX from 'xlsx'
 import { startReplSet, stopReplSet, clearAll } from './helpers/memoryDb.js'
@@ -250,6 +251,69 @@ describe('QR cable labels', () => {
     const feB002 = await projectMember(ctx, p.admin, { email: 'fe2@example.com', role: 'field_engineer', projectId: p.projectId, scopes: [{ type: 'building', refId: p.building('B002').id }] })
     await feB002.get(`${p.base}/connections/${ea.id}/locate`).expect(404)
   }, 180000)
+})
+
+describe('Renaming a planned panel once the design is frozen (PR #14 review)', () => {
+  it('refused on the frozen LLD; a change request carries it (its impact shows it) and, once the client approves, the LLD, deployment view, QR cable labels and documents generated afterwards read the new label — documents generated before keep their version and content', async () => {
+    const ctx = t()
+    const d = await deployable(ctx)
+    const { p, panel } = d
+    const before = panel.label
+    // Short enough to print whole on a cable label (longer names end in "…"
+    // there, so the old label is matched by its prefix on labels).
+    const after = 'VT-A1'
+    const beforeOnLabel = before.slice(0, 10)
+    const ea = (await depView(p.fe, p)).connections.find((c) => c.segments.length === 2)
+    const labelsBody = { typeKey: 'cable-labels', format: 'pdf', options: { labelSize: 'avery-l7160', connectionIds: [ea.id] } }
+    const cellsOf = async (doc, agent) => {
+      const book = XLSX.read(await download(p, agent, doc.id), { type: 'buffer' })
+      return book.SheetNames.flatMap((n) => XLSX.utils.sheet_to_json(book.Sheets[n], { header: 1 }).flat()).join(' ')
+    }
+    // Generated before the rename: the panel's label as it was.
+    const labels1 = await generate(ctx, p, p.fe, labelsBody)
+    const lld1 = await generate(ctx, p, p.architect, { typeKey: 'lld-document', format: 'pdf' })
+    const matrix1 = await generate(ctx, p, p.architect, { typeKey: 'cable-matrix', format: 'xlsx' })
+    has(flat(await pdfPages(await download(p, p.fe, labels1.id))), beforeOnLabel)
+    has(flat(await pdfPages(await download(p, p.architect, lld1.id))), before)
+    expect(await cellsOf(matrix1, p.architect)).toContain(before)
+
+    // Frozen by the Solution Package approval: not on the main LLD.
+    expect(expectStatus(await d.save('put', `${p.lld}/devices/${panel.id}/label`, { label: after }), 409).body.error.code).toBe('change_request_required')
+    // Through a change request whose only change is the rename (was refused as "no change").
+    const cr = expectStatus(await p.architect.post(`${p.base}/change-requests`).send({ buildingId: p.b001, title: 'Rename the patch panel', reason: "The customer's panel naming" }), 201).body.changeRequest
+    const branchPanel = (await d.view(cr.branchId)).devices.find((x) => x.inDesign && x.label === before)
+    expectStatus(await d.save('put', `${p.lld}/devices/${branchPanel.id}/label`, { label: after }, { branchId: cr.branchId }), 200)
+    const impact = (await p.admin.agent.get(`${p.base}/change-requests/${cr.id}`).expect(200)).body.changeRequest.impact
+    expect(impact.design.devices.changed.map((x) => x.fields)).toEqual([[{ field: 'label', before, after }]])
+    expectStatus(await p.architect.post(`${p.base}/change-requests/${cr.id}/submit`), 200)
+    const link = expectStatus(await p.admin.agent.post(`${p.base}/change-requests/${cr.id}/send`).send({}), 201).body.shareLink
+    expectStatus(await clientDecides(ctx, link, { comments: 'Approved' }), 200)
+
+    // Applied: the frozen LLD and what derives from it read the new label.
+    expect((await d.view()).devices.find((x) => x.id === panel.id)).toMatchObject({ label: after, isPanel: true })
+    const ends = (await depView(p.fe, p)).connections.find((c) => c.id === ea.id).segments.flatMap((s) => [s.from.name, s.to.name])
+    expect(ends).toContain(after)
+    expect(ends).not.toContain(before)
+    // Generated afterwards: new versions with the new label.
+    const labels2 = await generate(ctx, p, p.fe, labelsBody)
+    const lld2 = await generate(ctx, p, p.architect, { typeKey: 'lld-document', format: 'pdf' })
+    const matrix2 = await generate(ctx, p, p.architect, { typeKey: 'cable-matrix', format: 'xlsx' })
+    expect([labels2.version, lld2.version, matrix2.version]).toEqual([labels1.version + 1, lld1.version + 1, matrix1.version + 1])
+    for (const [doc, agent, old] of [[labels2, p.fe, beforeOnLabel], [lld2, p.architect, before]]) {
+      const text = flat(await pdfPages(await download(p, agent, doc.id)))
+      has(text, after)
+      expect(text).not.toContain(old)
+    }
+    expect(await cellsOf(matrix2, p.architect)).toContain(after)
+    expect(await cellsOf(matrix2, p.architect)).not.toContain(before)
+    // Generated before: the same version, the same bytes, the old label.
+    for (const [doc, agent] of [[labels1, p.fe], [lld1, p.architect], [matrix1, p.architect]]) {
+      const bytes = await download(p, agent, doc.id)
+      expect(crypto.createHash('sha256').update(bytes).digest('hex')).toBe(doc.sha256)
+      expect((await agent.get(`${p.base}/documents/${doc.id}`).expect(200)).body.document.version).toBe(doc.version)
+    }
+    has(flat(await pdfPages(await download(p, p.fe, labels1.id))), beforeOnLabel)
+  }, 300000)
 })
 
 describe('Branding', () => {

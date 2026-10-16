@@ -315,7 +315,7 @@ export default function RealHld() {
   }
 
   if (error && !view) return <div className="p-6 text-sm text-status-red">{error}</div>
-  if (!view || !library) return <div className="p-6 text-sm text-text-secondary">Loading…</div>
+  if (!view || !library) return <div className="p-6 text-sm text-text-secondary" data-page-state="loading">Loading…</div>
 
   const flow = buildHldFlow({
     floors: view.floors,
@@ -336,9 +336,10 @@ export default function RealHld() {
   const blockedLinks = Object.values(findingsByConn).filter((f) => f.blocked).length
   const summary = validation?.summary ?? { critical: 0, warning: 0, info: 0, blocksSubmit: false }
 
+  // data-page-state: "ready" once the design and its validation are loaded (tests wait for it).
   return (
     <DndContext sensors={sensors} onDragStart={(e) => setActiveDragData(e.active.data.current)} onDragEnd={handleDragEnd}>
-      <div className="mx-auto max-w-[1700px] space-y-4 p-4 sm:p-6">
+      <div className="mx-auto max-w-[1700px] space-y-4 p-4 sm:p-6" data-page-state={validation ? 'ready' : 'loading'}>
         <Link to={`/orgs/${orgId}/projects/${projectId}/buildings/${buildingId}`} className="inline-flex items-center gap-1 text-xs font-medium text-brand hover:underline">
           <ArrowLeft size={14} strokeWidth={2} />
           {view.building.code} dashboard

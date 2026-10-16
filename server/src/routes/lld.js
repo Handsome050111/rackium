@@ -53,6 +53,9 @@ export function lldRoutes({ config, lld }) {
   r.put('/devices/:id/placement', ...base, edit, validate({ params: idParam, body: C.lldPlacementBody }), async (req, res) => {
     res.json(await lld.place(req, req.input.params.id, req.input.body, actorOf(req)))
   })
+  r.put('/devices/:id/label', ...base, rename, validate({ params: idParam, body: C.lldDeviceLabelBody }), async (req, res) => {
+    res.json(await lld.relabel(req, req.input.params.id, req.input.body, actorOf(req)))
+  })
   r.delete('/devices/:id', ...base, edit, validate({ params: idParam, query: C.hldRevisionQuery }), async (req, res) => {
     res.json(await lld.deleteDevice(req, req.input.params.id, req.input.query, actorOf(req)))
   })

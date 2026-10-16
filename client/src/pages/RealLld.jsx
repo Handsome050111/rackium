@@ -90,6 +90,8 @@ export default function RealLld() {
   const ownSubmission = latest?.status === 'pending' && latest.submittedById === user?.id
   const canReview = !readOnly && (has('pm') || has('reviewer')) && !ownSubmission
   const canRename = !readOnly && (has('architect') || has('pm')) && !isPhone && !view?.renameLocked && !locked
+  // Renaming a planned panel: the rename rules (Architect or PM) and the design locks.
+  const canRelabel = !readOnly && (has('architect') || has('pm')) && !isPhone && !locked && !frozen
   const editorPath = (rackId) => `/orgs/${orgId}/projects/${projectId}/buildings/${buildingId}/lld/editor?rack=${rackId}${branchId ? `&branch=${branchId}` : ''}`
 
   // One design write with the latest loaded revision, queued behind any write
@@ -366,6 +368,8 @@ export default function RealLld() {
                 editable={editable}
                 onPlace={(deviceId, body) => write((rev) => lldApi.place(orgId, projectId, deviceId, { ...body, baseRevision: rev }))}
                 onAdd={(body) => write((rev) => lldApi.addDevice(orgId, projectId, { buildingId, branchId: branchId ?? undefined, ...body, baseRevision: rev }))}
+                canRelabel={canRelabel}
+                onRelabel={(deviceId, label) => write((rev) => lldApi.relabel(orgId, projectId, deviceId, { label, baseRevision: rev }))}
               />
               <RackElevationsTab rackElevations={context.rackElevations} editorPath={editorPath} />
             </>

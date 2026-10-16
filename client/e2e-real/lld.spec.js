@@ -125,6 +125,50 @@ test('Rack Elevations: place devices by RU and face; an overlap is refused; add 
   await expect(architect.getByTitle('PP-TR-EG-01-R01-01')).toBeVisible()
 })
 
+test('Rack Elevations: the Architect renames a planned patch panel — how a panel-label finding is fixed (fix/cmo-naming-gaps)', async () => {
+  const view = await lld()
+  const pp = view.devices.find((d) => d.label === 'PP-TR-EG-01-R01-01')
+  const panel = architect.getByTestId('lld-placement')
+  await panel.getByLabel('Device to place').selectOption(pp.id)
+  const label = panel.getByLabel('Panel label')
+  const rename = panel.getByRole('button', { name: 'Rename' })
+  await expect(label).toHaveValue('PP-TR-EG-01-R01-01')
+  await expect(rename).toBeDisabled()
+  await label.fill('PP 01')
+  await expect(panel.getByText('Letters, digits and hyphens only (up to 63)')).toBeVisible()
+  await expect(rename).toBeDisabled()
+  // The design's other panel already has this label: refused.
+  await label.fill('PP-TR-EG-02-R01-01')
+  await rename.click()
+  await expect(architect.getByRole('alert').filter({ hasText: 'already used in this design' })).toBeVisible()
+  await label.fill('VT-MAIN-01')
+  await rename.click()
+  await expect(architect.getByTitle('VT-MAIN-01')).toBeVisible()
+  // The rename row fits a phone.
+  for (const [width, height] of [[1440, 900], [1024, 768], [768, 1024], [390, 844]]) {
+    await architect.setViewportSize({ width, height })
+    // A phone is view-only, as for every LLD edit: no rename there.
+    if (width < 768) await expect(label).toHaveCount(0)
+    else await expect(label).toBeVisible()
+    const overflow = await architect.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth + (document.querySelector('main').scrollWidth - document.querySelector('main').clientWidth))
+    expect(overflow, `rename row at ${width}px`).toBe(0)
+    if (process.env.LLD_SHOTS) await architect.screenshot({ path: `${process.env.LLD_SHOTS}/lld-rename-${width}.png`, fullPage: true })
+  }
+  await architect.setViewportSize({ width: 1440, height: 900 })
+  // The PM may rename too (the rename rules), though not place: back to its
+  // default label for the routes below.
+  await owner.goto(lldUrl())
+  await expect(owner.locator('[data-page-state]')).toHaveAttribute('data-page-state', 'ready', { timeout: 30_000 })
+  await owner.getByRole('tab', { name: 'Rack Elevations' }).click()
+  const pmPanel = owner.getByTestId('lld-placement')
+  await pmPanel.getByLabel('Device to place').selectOption(pp.id)
+  await expect(pmPanel.getByRole('button', { name: 'Place', exact: true })).toBeDisabled()
+  await pmPanel.getByLabel('Panel label').fill('PP-TR-EG-01-R01-01')
+  await pmPanel.getByRole('button', { name: 'Rename' }).click()
+  await expect(owner.getByTitle('PP-TR-EG-01-R01-01')).toBeVisible()
+  expect((await lld()).devices.find((d) => d.id === pp.id).label).toBe('PP-TR-EG-01-R01-01')
+})
+
 test('Rackium Editor: ports from the catalogue, suggestions applied by the user, a patch-panel hop, a Cable ID', async () => {
   const view = await lld()
   const ea = linkOf(view, 'edge', 'ap')

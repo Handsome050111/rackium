@@ -4,7 +4,7 @@
 // scores.
 
 export function matchSerial(serial, roomCmoList, allProjectSerials, excludeDeviceId = null) {
-  const normalized = serial.trim().toLowerCase()
+  const normalized = String(serial ?? '').trim().toLowerCase()
   if (normalized.length === 0) return null
 
   const duplicateElsewhere = allProjectSerials.some(
@@ -12,7 +12,8 @@ export function matchSerial(serial, roomCmoList, allProjectSerials, excludeDevic
   )
   if (duplicateElsewhere) return 'duplicate'
 
-  const inCmo = roomCmoList.some((entry) => entry.serial.trim().toLowerCase() === normalized)
+  // CMO devices without a serial (fix/cmo-naming-gaps) never match one.
+  const inCmo = roomCmoList.some((entry) => entry.serial && entry.serial.trim().toLowerCase() === normalized)
   return inCmo ? 'validated' : 'not-in-cmo'
 }
 

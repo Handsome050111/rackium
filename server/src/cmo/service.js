@@ -5,6 +5,7 @@ import { Device } from '../models/device.js'
 import { SerialRegistry } from '../models/serialRegistry.js'
 import { ImportBatch } from '../models/importBatch.js'
 import { Blocker } from '../models/blocker.js'
+import { Floor } from '../models/floor.js'
 import { Room } from '../models/room.js'
 import { Rack } from '../models/rack.js'
 import { PlatformCatalogueItem } from '../models/platformCatalogueItem.js'
@@ -17,6 +18,8 @@ import { recordAudit, userActor } from '../audit/audit.js'
 import { notFound, badRequest, conflict } from '../http/errors.js'
 
 const lower = (v) => String(v).trim().toLowerCase()
+// A floor named by its token ("1.OG", or its hostname form "1OG") or its name.
+const floorKey = (v) => lower(v).replace(/[.\s]+/g, '')
 
 // A building, room, rack or SAL that devices still point at cannot be deleted
 // (M2's extensible delete check).
@@ -71,14 +74,19 @@ async function loadContext(session) {
   const { buildings, sals } = await buildingsWithSal(session)
   const serials = await SerialRegistry.find({}, { serial: 1 }).session(session).lean()
   const devices = await Device.find({}, { hostname: 1, 'installation.mac': 1 }).session(session).lean()
-  const rooms = await Room.find({}, { code: 1, buildingId: 1 }).session(session).lean()
+  const floors = await Floor.find({}, { token: 1, name: 1, buildingId: 1 }).session(session).lean()
+  const rooms = await Room.find({}, { code: 1, buildingId: 1, floorId: 1 }).session(session).lean()
   const racks = await Rack.find({}, { code: 1, roomId: 1 }).session(session).lean()
+  const floorIndex = new Map()
+  for (const f of floors) for (const key of [floorKey(f.token), floorKey(f.name)]) if (!floorIndex.has(`${f.buildingId}|${key}`)) floorIndex.set(`${f.buildingId}|${key}`, String(f._id))
   return {
     buildings,
     sals,
     projectSerials: new Set(serials.map((s) => lower(s.serial))),
     projectMacs: new Set(devices.map((d) => d.installation?.mac).filter(Boolean)),
     projectHostnames: new Set(devices.map((d) => d.hostname).filter(Boolean).map(lower)),
+    floorIndex,
+    roomFloor: new Map(rooms.map((r) => [String(r._id), r.floorId ? String(r.floorId) : null])),
     roomIndex: new Map(rooms.map((r) => [`${r.buildingId}|${lower(r.code)}`, String(r._id)])),
     rackIndex: new Map(racks.map((r) => [`${r.roomId}|${lower(r.code)}`, String(r._id)])),
   }
@@ -118,6 +126,8 @@ function validate(rows, ctx) {
     projectMacs: ctx.projectMacs,
     projectHostnames: ctx.projectHostnames,
     resolveBuilding: (text) => buildingByCode.get(lower(text))?.id ?? null,
+    resolveFloor: (buildingId, text) => ctx.floorIndex.get(`${buildingId}|${floorKey(text)}`) ?? null,
+    roomFloor: (roomId) => ctx.roomFloor.get(roomId) ?? null,
     resolveRoom: (buildingId, code) => ctx.roomIndex.get(`${buildingId}|${lower(code)}`) ?? null,
     resolveRack: (roomId, code) => ctx.rackIndex.get(`${roomId}|${lower(code)}`) ?? null,
   })
@@ -130,16 +140,22 @@ function summarise(validated) {
     blocked: validated.filter((r) => !r.valid).length,
     unassigned: validated.filter((r) => r.valid && !r.buildingId).length,
     warnings: validated.filter((r) => r.warnings.length).length,
+    noSerial: validated.filter((r) => r.valid && !r.serial).length,
   }
 }
 
 const optionalId = (v) => (v ? String(v) : null)
+
+// How a CMO device is named in blockers and the audit: hostname, else serial,
+// else vendor and model (a device without a serial may have only those).
+const cmoName = (d) => d.hostname || d.installation?.serial || [d.vendor, d.model].filter(Boolean).join(' ') || 'device without serial'
 
 function toDevice(d, lookups) {
   return {
     id: String(d._id),
     origin: d.origin,
     hostname: d.hostname ?? null,
+    vendor: d.vendor ?? null,
     model: d.model ?? null,
     catalogueKey: d.catalogueKey ?? null,
     serial: d.installation?.serial ?? null,
@@ -148,6 +164,9 @@ function toDevice(d, lookups) {
     salCode: lookups.salCode.get(String(d.salId)) ?? null,
     buildingId: optionalId(d.buildingId),
     buildingCode: d.buildingId ? lookups.buildingCode.get(String(d.buildingId)) ?? null : null,
+    // The floor the import named, else the floor of the device's room.
+    floorId: optionalId(d.floorId),
+    floorToken: lookups.floorToken.get(String(d.floorId ?? lookups.roomFloor.get(String(d.roomId)) ?? '')) ?? null,
     roomId: optionalId(d.roomId),
     roomCode: d.roomId ? lookups.roomCode.get(String(d.roomId)) ?? null : null,
     rackId: optionalId(d.rackId),
@@ -165,9 +184,10 @@ export function createCmoService() {
       const all = await buildingsWithSal()
       const buildings = scope ? scope.buildings : all.buildings
       const sals = scope ? scope.sals : all.sals
-      const [devices, rooms, racks, lastBatch, statuses] = await Promise.all([
+      const [devices, floors, rooms, racks, lastBatch, statuses] = await Promise.all([
         Device.find({ origin: 'existing' }).sort({ createdAt: 1 }).lean(),
-        Room.find({}, { code: 1 }).lean(),
+        Floor.find({}, { token: 1 }).lean(),
+        Room.find({}, { code: 1, floorId: 1 }).lean(),
         Rack.find({}, { code: 1 }).lean(),
         ImportBatch.findOne({ type: 'cmo', status: 'committed' }).sort({ uploadedAt: -1 }).lean(),
         cmoStatusByBuilding(),
@@ -175,6 +195,8 @@ export function createCmoService() {
       const lookups = {
         salCode: new Map(all.sals.map((s) => [s.id, s.code])),
         buildingCode: new Map(all.buildings.map((b) => [b.id, b.code])),
+        floorToken: new Map(floors.map((f) => [String(f._id), f.token])),
+        roomFloor: new Map(rooms.map((r) => [String(r._id), r.floorId ? String(r.floorId) : null])),
         roomCode: new Map(rooms.map((r) => [String(r._id), r.code])),
         rackCode: new Map(racks.map((r) => [String(r._id), r.code])),
       }
@@ -226,21 +248,27 @@ export function createCmoService() {
           status: 'in_service',
           salId: r.buildingId ? salOfBuilding.get(r.buildingId) : chosenSalId,
           buildingId: r.buildingId,
+          floorId: r.floorId,
           roomId: r.roomId,
           rackId: r.rackId,
           ru: r.ruPosition,
           hostname: r.hostname,
+          vendor: r.vendor,
           model: r.model,
           catalogueKey: matchCatalogue(r.model),
-          installation: { serial: r.serial, mac: normaliseMac(r.mac) },
+          // A row without a serial imports marked "No serial": no registry entry.
+          installation: { serial: r.serial || null, mac: normaliseMac(r.mac) },
           importBatchId: batch._id,
           createdAt: now,
         }))
         await Device.insertMany(devices, { session })
-        await SerialRegistry.insertMany(
-          devices.map((d) => ({ ...scope, serial: d.installation.serial, ownerType: 'device', ownerId: d._id, registeredAt: now })),
-          { session }
-        )
+        const serialised = devices.filter((d) => d.installation.serial)
+        if (serialised.length) {
+          await SerialRegistry.insertMany(
+            serialised.map((d) => ({ ...scope, serial: d.installation.serial, ownerType: 'device', ownerId: d._id, registeredAt: now })),
+            { session }
+          )
+        }
 
         const unassigned = devices.filter((d) => !d.buildingId)
         const salCode = new Map(ctx.sals.map((s) => [s.id, s.code]))
@@ -251,7 +279,7 @@ export function createCmoService() {
               buildingId: null,
               salId: d.salId,
               phaseKey: 'cmo',
-              description: `Unassigned CMO device ${d.hostname ?? d.installation.serial} (serial ${d.installation.serial}) at SAL ${salCode.get(String(d.salId)) ?? ''} — the PM assigns it to a building`.trim(),
+              description: `Unassigned CMO device ${cmoName(d)} (${d.installation.serial ? `serial ${d.installation.serial}` : 'no serial'}) at SAL ${salCode.get(String(d.salId)) ?? ''} — the PM assigns it to a building`.trim(),
               relatedObjectType: 'device',
               relatedObjectId: d._id,
               source: 'system',
@@ -264,7 +292,7 @@ export function createCmoService() {
           )
         }
 
-        const summary = { imported: devices.length, assigned: devices.length - unassigned.length, unassigned: unassigned.length, skipped: validated.length - importable.length }
+        const summary = { imported: devices.length, assigned: devices.length - unassigned.length, unassigned: unassigned.length, noSerial: devices.length - serialised.length, skipped: validated.length - importable.length }
         batch.summary = summary
         await batch.save({ session })
 
@@ -329,7 +357,7 @@ export function createCmoService() {
           objectId: device._id,
           changeType: 'design_intent',
           source: 'ui',
-          comment: `${device.hostname ?? device.installation?.serial} assigned to ${building.code}`,
+          comment: `${cmoName(device)} assigned to ${building.code}`,
           changes: [{ objectType: 'Device', objectId: String(device._id), field: 'buildingId', before: null, after: building.id }],
           session,
         })

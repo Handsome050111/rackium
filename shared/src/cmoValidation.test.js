@@ -30,5 +30,12 @@ describe('matchSerial', () => {
 
   it('returns null for empty input', () => {
     expect(matchSerial('   ', roomCmo, allProjectSerials)).toBeNull()
+    expect(matchSerial(null, roomCmo, allProjectSerials)).toBeNull()
+  })
+
+  it('CMO devices without a serial are skipped, never matched (fix/cmo-naming-gaps: crashed on null)', () => {
+    const withUnserialised = [{ serial: null, expectedHostname: 'VT-A' }, ...roomCmo]
+    expect(matchSerial('FCW1234ABCD', withUnserialised, allProjectSerials, 'dev-1')).toBe('validated')
+    expect(matchSerial('VT-A', withUnserialised, [], null)).toBe('not-in-cmo')
   })
 })

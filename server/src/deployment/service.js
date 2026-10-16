@@ -23,6 +23,7 @@ import {
 import { procurementLineKeyOf, SERIALISED_CATEGORIES } from '@rackium/shared/bomCalc.js'
 import { buildLocationTree } from '@rackium/shared/locationTree.js'
 import { localDate } from '@rackium/shared/timeZone.js'
+import { deviceDisplayName } from '@rackium/shared/deviceName.js'
 import { Device } from '../models/device.js'
 import { Connection } from '../models/connection.js'
 import { File } from '../models/file.js'
@@ -414,7 +415,7 @@ export function createDeploymentService({ lld }) {
           let holder = null
           if (held) {
             const owner = await Device.findById(held.ownerId, { hostname: 1, label: 1, origin: 1 }).lean()
-            holder = { kind: owner?.origin === 'existing' ? 'cmo' : 'device', name: owner?.hostname ?? owner?.label ?? 'another device' }
+            holder = { kind: owner?.origin === 'existing' ? 'cmo' : 'device', name: deviceDisplayName(owner, 'another device') }
           }
           const problem = serialProblem(serial, holder)
           if (problem) throw holder ? conflict('serial_in_use', problem) : badRequest(problem)
