@@ -149,6 +149,11 @@ in flight are refused, and the next test starts only once its requests are
 done. `test/isolation.test.js` proves it with a deliberately timed-out
 fixture, with the isolation on and off.
 
+The server API tests render PDFs in headless Chromium, so install it once
+before the first run (`npx playwright install chromium`, also needed for
+the Playwright suite). Without it the document tests fail with "Cannot
+start Chromium for PDF generation". CI installs it before the server tests.
+
 The first `test:server` run downloads a MongoDB binary (about 780 MB) into
 `node_modules/.cache`. Later runs start in seconds. To fetch it ahead of time:
 

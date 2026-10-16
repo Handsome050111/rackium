@@ -47,7 +47,10 @@ async function generate(ctx, p, agent, body) {
   const res = await agent.post(`${p.base}/documents`).send({ buildingId: p.b001, ...body })
   expect([200, 202], JSON.stringify(res.body)).toContain(res.status)
   await ctx.app.__documents.process()
-  return (await agent.get(`${p.base}/documents/${res.body.document.id}`).expect(200)).body.document
+  const doc = (await agent.get(`${p.base}/documents/${res.body.document.id}`).expect(200)).body.document
+  // A failed job says why (e.g. no Chromium in CI), not just "failed".
+  if (doc.status !== 'ready') throw new Error(`${doc.fileName} is ${doc.status}: ${doc.error ?? 'no error recorded'}`)
+  return doc
 }
 const download = async (p, agent, id) => (await binary(agent.get(`${p.base}/documents/${id}/download`)).expect(200)).body
 
@@ -61,7 +64,7 @@ describe('Document engine: background jobs, PDFs with contents, watermark and au
     expect((await p.architect.get(`${p.base}/documents/${res.body.document.id}/download`).expect(409)).body.error.code).toBe('not_ready')
     expect(await ctx.app.__documents.process()).toEqual({ done: 1 })
     const doc = (await p.architect.get(`${p.base}/documents/${res.body.document.id}`).expect(200)).body.document
-    expect(doc).toMatchObject({ status: 'ready', progress: 100, requestedBy: 'architect' })
+    expect(doc, `generation failed: ${doc.error}`).toMatchObject({ status: 'ready', progress: 100, requestedBy: 'architect' })
     expect(doc.pageCount).toBeGreaterThan(3)
     const r = await binary(p.architect.get(`${p.base}/documents/${doc.id}/download`)).expect(200)
     expect(r.headers['content-type']).toBe('application/pdf')

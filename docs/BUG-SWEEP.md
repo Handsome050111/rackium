@@ -696,6 +696,17 @@ Found and fixed, each with a test:
   reported exit 0 with two failed tests. CLAUDE.md now requires the real exit
   code (full log to a file, then filter).
 
+- **CI failed: the document tests had no Chromium** (PR #13, the first CI
+  run of M6b's PDF tests): the workflow installed the Playwright browser
+  only after the server API tests, so every document job failed at the
+  rendering step (12 of the 14 tests in `api.m6b.test.js`); locally the
+  browser was already installed. The browser is now installed before the
+  server tests, and a failed document job's reason is shown in the test
+  failure instead of only "failed". Test: `ci-workflow.test.js` (the
+  install steps come before the server tests; fails on the old order) —
+  reproduced locally with no browser available, where the HLD test now
+  reports "Executable doesn't exist".
+
 Noted, not a bug: one client unit run during this round reported 22 files /
 233 tests instead of 27 / 247. No client test file was removed or changed
 (git), and the count could not be reproduced in five further runs (idle and
