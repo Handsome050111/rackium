@@ -119,7 +119,7 @@ export default function RealBuildingDashboard() {
         <p className="text-sm text-text-secondary">{building.code}</p>
       </div>
 
-      <KpiStrip items={kpiItems} />
+      <KpiStrip items={kpiItems} nextMilestone={data.nextMilestone ? `${data.nextMilestone.name} · ${data.nextMilestone.dueDate}${data.nextMilestone.buildingId ? "" : " (project)"}` : null} />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {phases.map((entry) => {

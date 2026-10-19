@@ -735,11 +735,14 @@ export async function deploymentStatusesByBuilding(session = null) {
   }
   const deployment = new Map()
   const cmdb = new Map()
+  // Accepted out of designed devices (M7a-1: the phases' progress on the schedule).
+  const progress = new Map()
   for (const [buildingId, list] of byBuilding) {
     const accepted = list.filter((d) => ['accepted', 'in_service', 'maintenance'].includes(d.status)).length
     const designedCount = total.get(buildingId) ?? list.length
+    progress.set(buildingId, designedCount > 0 ? Math.min(1, accepted / designedCount) : 0)
     deployment.set(buildingId, accepted >= designedCount && designedCount > 0 ? 'completed' : 'in_progress')
     cmdb.set(buildingId, cmdbPhaseStatus(designedCount, accepted))
   }
-  return { deployment, cmdb }
+  return { deployment, cmdb, progress }
 }

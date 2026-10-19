@@ -12,6 +12,7 @@ import { bomStatusByBuilding } from '../delivery/bom.js'
 import { deploymentStatusesByBuilding } from '../deployment/service.js'
 import { connectionCounts, dguvSummary } from '../deployment/asBuilt.js'
 import { handoverStatusByBuilding } from '../handover/service.js'
+import { nextMilestoneForBuilding } from '../schedule/service.js'
 import { currentScope } from '../tenancy/scopeContext.js'
 import { AuditEntry } from '../models/auditEntry.js'
 import { notFound } from '../http/errors.js'
@@ -70,6 +71,8 @@ export function createDashboardService() {
       const connections = await connectionCounts(building._id)
       const { organisationId, projectId } = currentScope()
       const dguv = await dguvSummary({ organisationId, projectId, buildingId: building._id })
+      // The KPI bar's "Next milestone" (brief v2.3 §7.3; M7a-1).
+      const next = await nextMilestoneForBuilding(building._id)
 
       return {
         building: { id: String(building._id), code: building.code, name: building.name },
@@ -82,6 +85,7 @@ export function createDashboardService() {
           completionPercent,
         },
         dguv,
+        nextMilestone: next ? { name: next.name, dueDate: next.dueDate, buildingId: next.buildingId ?? null } : null,
         blockers: blockers.map((b) => ({
           id: String(b._id),
           description: b.description,

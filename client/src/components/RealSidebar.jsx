@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
-import { Plus, X, Building2, Boxes, Settings2, ListChecks, ScrollText } from 'lucide-react'
+import { Plus, X, Building2, Boxes, Settings2, ListChecks, ScrollText, CalendarRange } from 'lucide-react'
 import { ACTIONS } from '@rackium/shared/policy.js'
 import { useAuth } from '../lib/AuthContext.jsx'
 import { canIn, canCreateProjectsIn } from '../lib/realRoles.js'
@@ -127,6 +127,10 @@ function SidebarContent({ showLabels, orgId, projectId, buildingId, onNavigate, 
             <NavLink to={`/orgs/${orgId}/projects/${projectId}/tasks`} onClick={onNavigate} className={navLinkClass} title="Project tasks">
               <ListChecks size={16} strokeWidth={2} className="shrink-0" />
               {showLabels && <span className="truncate">Tasks</span>}
+            </NavLink>
+            <NavLink to={`/orgs/${orgId}/projects/${projectId}/schedule`} onClick={onNavigate} className={navLinkClass} title="Project schedule">
+              <CalendarRange size={16} strokeWidth={2} className="shrink-0" />
+              {showLabels && <span className="truncate">Schedule</span>}
             </NavLink>
           </nav>
           {showLabels && <div className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-text-secondary">Buildings</div>}

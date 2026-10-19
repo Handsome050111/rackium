@@ -29,6 +29,7 @@ export const appUrl = () => settings.appUrl
 export const paths = {
   building: (o, p, b, page = '') => `/orgs/${o}/projects/${p}/buildings/${b}${page ? `/${page}` : ''}`,
   tasks: (o, p, taskId = null) => `/orgs/${o}/projects/${p}/tasks${taskId ? `?task=${taskId}` : ''}`,
+  schedule: (o, p) => `/orgs/${o}/projects/${p}/schedule`,
 }
 
 // Active project members (by role and/or user id) whose scope covers the building.
@@ -65,7 +66,9 @@ export async function notify({ type, projectId = null, buildingId = null, title,
   const building = buildingId ? await buildingWithScopeIds(buildingId, session) : null
   const byRole = to.roles?.length ? await projectMembers({ projectId: pid, roles: to.roles, building, session }) : []
   const named = to.userIds?.length ? await projectMembers({ projectId: pid, userIds: to.userIds, building, session }) : []
-  const recipients = [...new Set([...byRole, ...named])].filter((u) => !actorId || u !== String(actorId))
+  // The organisation's Org Admins (M7a-1: an SLA breach escalates to them).
+  const admins = to.orgAdmins ? (await Membership.find({ level: 'organisation', role: 'org_admin', active: true }, { userId: 1 }).session(session).lean()).map((m) => String(m.userId)) : []
+  const recipients = [...new Set([...byRole, ...named, ...admins])].filter((u) => !actorId || u !== String(actorId))
   if (!recipients.length) return []
 
   const prefs = new Map((await NotificationPreference.find({ userId: { $in: recipients.map((u) => new mongoose.Types.ObjectId(u)) } }).session(session).lean()).map((p) => [String(p.userId), p.modes instanceof Map ? Object.fromEntries(p.modes) : p.modes ?? {}]))

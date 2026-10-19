@@ -7,6 +7,9 @@ const buildingSchema = new mongoose.Schema({
   code: { type: String, required: true, trim: true, maxlength: 10 },
   name: { type: String, required: true, trim: true, maxlength: 120 },
   siteSize: { type: String, enum: ['S'], default: 'S' },
+  // M7a-1 (v2.2 §21.5): the building's primary Architect and Field Engineer.
+  primaryArchitectId: { type: mongoose.Schema.Types.ObjectId, default: null },
+  primaryFieldEngineerId: { type: mongoose.Schema.Types.ObjectId, default: null },
 })
 
 buildingSchema.__modelName = 'Building'

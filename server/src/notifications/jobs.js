@@ -44,7 +44,7 @@ const zoneOf = (org) => org.settings?.timeZone ?? DEFAULT_TIME_ZONE
 
 // Every project of every organisation, each in its own tenant scope, with the
 // organisation's time zone.
-async function forEachProject(fn) {
+export async function forEachProject(fn) {
   const orgs = await Organisation.find({ deletedAt: null }, { _id: 1, 'settings.timeZone': 1 }).lean()
   for (const org of orgs) {
     const projects = await runWithScope({ organisationId: org._id }, () => Project.find({}, { _id: 1 }).lean())

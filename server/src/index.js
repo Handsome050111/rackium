@@ -13,6 +13,8 @@ import { CableIdRegistry } from './models/cableIdRegistry.js'
 import { createScheduler } from './jobs/scheduler.js'
 import { deliverOutbox, taskReminders, dailyDigest } from './notifications/jobs.js'
 import { dguvReminders } from './deployment/jobs.js'
+import { scheduleAlerts } from './schedule/service.js'
+import { forEachProject } from './notifications/jobs.js'
 import { closePdfBrowserIfLoaded } from './documents/render/chromium.js'
 import { configureNotifications } from './notifications/notify.js'
 
@@ -54,6 +56,7 @@ async function main() {
       { name: 'daily-digest', every: 15 * 60_000, run: ({ now }) => dailyDigest({ now }) },
       // DGUV V3 reminders (M6a): each level once per due date, on the local date.
       { name: 'dguv-reminders', every: 60 * 60_000, run: ({ now }) => dguvReminders({ now }) },
+      { name: 'schedule-alerts', every: 15 * 60_000, run: ({ now }) => scheduleAlerts({ now, forEachProject }) },
       // Generated documents (M6b): queued jobs, and any whose run died. Requests also start it at once.
       { name: 'documents', every: 15_000, run: ({ now }) => app.__documents.process({ now }) },
     ],
