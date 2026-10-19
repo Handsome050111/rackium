@@ -843,6 +843,35 @@ Found and fixed while building it, each with a test:
   overlap check first measured the whole tick column; it measures the tick
   label now, and fails with the earlier header layout.
 
+- **Schedule alerts were sent at local midnight, not in the morning** (found
+  in the PR #15 review): an overdue phase or a breached SLA was told the
+  first job run after local midnight. They now wait until the
+  organisation's local morning time (its digest time, default 07:00), the
+  same day. Tests: `api.schedule.test.js` — "status, projection and burn-down
+  …" (nothing at 06:59, all at 07:00, nothing more at 07:15 or 23:45) and
+  "deadlines follow the organisation's time zone across DST …" (Berlin
+  2026-10-25 and 2027-03-28, New York 2026-10-26 and 2026-11-01, a 09:30
+  morning time); both fail without the fix.
+- **The keyboard e2e typed dates in the wrong field order on another
+  locale**: a date field's day/month/year order follows the operating
+  system, not the page language. The spec finds the order with a probe date
+  first, so it holds on Windows (dd/mm/yyyy) and Linux CI (mm/dd/yyyy).
+
 Decisions waiting on the client (DATA-MODEL "Pending client confirmation"):
 the SLA breach escalates to the organisation's Org Admins (as "owner"), and
 DGUV exempt status (M7a-2).
+
+## Backlog for the final cleanup
+
+Known, harmless today, left for one cleanup pass before release:
+
+- **Four `react(set-state-in-effect)` lint warnings added in M7a-1**
+  (`client/src/components/schedule/SchedulePanels.jsx`), the same pattern as
+  the existing pages' warnings: the Targets panel resets its date drafts
+  (line 39) and its assignee choices (line 42) when the schedule reloads; the
+  SLA panel clears the burn-down before loading another (line 301); the
+  Settings panel resets its form when the saved settings change (line 393).
+  Each re-syncs a local draft with fresh server data; the cleanup is to key
+  the panel (or the form) on the data so React remounts it instead.
+  Behaviour is covered by `e2e-real/m7a1.spec.js`, so the change can be
+  checked against it.

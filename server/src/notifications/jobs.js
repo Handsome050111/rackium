@@ -43,12 +43,13 @@ export async function deliverOutbox({ mailer, now = new Date(), limit = 100 }) {
 const zoneOf = (org) => org.settings?.timeZone ?? DEFAULT_TIME_ZONE
 
 // Every project of every organisation, each in its own tenant scope, with the
-// organisation's time zone.
+// organisation's time zone and its local morning time (the digest time).
 export async function forEachProject(fn) {
-  const orgs = await Organisation.find({ deletedAt: null }, { _id: 1, 'settings.timeZone': 1 }).lean()
+  const orgs = await Organisation.find({ deletedAt: null }, { _id: 1, 'settings.timeZone': 1, 'settings.digestTime': 1 }).lean()
   for (const org of orgs) {
     const projects = await runWithScope({ organisationId: org._id }, () => Project.find({}, { _id: 1 }).lean())
-    for (const project of projects) await runWithScope({ organisationId: org._id, projectId: project._id }, () => fn({ organisationId: String(org._id), projectId: String(project._id), timeZone: zoneOf(org) }))
+    const morningTime = org.settings?.digestTime ?? DEFAULT_DIGEST_TIME
+    for (const project of projects) await runWithScope({ organisationId: org._id, projectId: project._id }, () => fn({ organisationId: String(org._id), projectId: String(project._id), timeZone: zoneOf(org), morningTime }))
   }
 }
 

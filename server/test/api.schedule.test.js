@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
 import mongoose from 'mongoose'
-import { localDate, addDays } from '@rackium/shared/timeZone.js'
+import { localDate, localTime, addDays, startOfLocalDay } from '@rackium/shared/timeZone.js'
 import { startReplSet, stopReplSet, clearAll } from './helpers/memoryDb.js'
-import { createTestApp, projectMember } from './helpers/app.js'
+import { createTestApp, projectMember, signedInOrgAdmin } from './helpers/app.js'
 import { surveyProject } from './helpers/survey.js'
 import { seedPlatformCatalogue } from '../src/catalogue/seed.js'
 import { scheduleAlerts, backfillPhaseHistory } from '../src/schedule/service.js'
@@ -28,6 +28,15 @@ const t = () => createTestApp()
 const col = (name) => mongoose.connection.db.collection(name)
 const today = () => localDate(new Date(), 'Europe/Berlin')
 const day = (n) => addDays(today(), n)
+// The instant a local day reaches a local clock time (DST-safe: searched minute by minute).
+function localAt(date, hhmm, tz = 'Europe/Berlin') {
+  const start = startOfLocalDay(date, tz).getTime()
+  for (let k = 0; k < 26 * 60; k++) {
+    const at = new Date(start + k * 60000)
+    if (localDate(at, tz) === date && localTime(at, tz) === hhmm) return at
+  }
+  throw new Error(`${date} ${hhmm} does not exist in ${tz}`)
+}
 
 function expectStatus(res, status) {
   expect(res.status, JSON.stringify(res.body)).toBe(status)
@@ -176,44 +185,81 @@ describe('SLAs and alerts (v2.2 §21.8)', () => {
     expect(burn.series.at(-1)).toMatchObject({ date: day(0), ideal: 0, actual: 3 })
 
     const notes = async () => (await col('notifications').find({ type: { $in: ['phase_overdue', 'sla_at_risk', 'sla_breached'] } }).toArray()).map((n) => [n.type, String(n.recipientId)])
-    expect(await runAlerts()).toEqual({ phaseOverdue: 1, slaAtRisk: 1, slaBreached: 1 })
+    // Sent at the organisation's local morning time (07:00 by default), not before.
+    const at = (hhmm) => localAt(today(), hhmm)
+    expect(await runAlerts(at('06:59'))).toEqual({ phaseOverdue: 0, slaAtRisk: 0, slaBreached: 0 })
+    expect(await notes()).toEqual([])
+    expect(await runAlerts(at('07:00'))).toEqual({ phaseOverdue: 1, slaAtRisk: 1, slaBreached: 1 })
     const first = await notes()
+    // One notification per recipient and alert.
+    expect(new Set(first.map((n) => n.join())).size).toBe(first.length)
     const to = (type) => first.filter((n) => n[0] === type).map((n) => n[1]).sort()
     // B001's PMs (the unscoped ones and the one scoped to B001) and its primary Field Engineer.
     expect(to('phase_overdue')).toEqual([ids.admin, ids.pm2, ids.pmB001, ids.fe].sort())
     expect(to('sla_at_risk')).toEqual([ids.admin, ids.pm2, ids.pmB001].sort())
     // Project-wide: every PM in the project, and the Org Admins (one not a project member).
     expect(to('sla_breached')).toEqual([ids.admin, ids.pm2, ids.pmB001, ids.admin2].sort())
-    // Once only.
-    expect(await runAlerts()).toEqual({ phaseOverdue: 0, slaAtRisk: 0, slaBreached: 0 })
-    expect((await notes()).length).toBe(first.length)
+    // Once only: the job runs again (every 15 minutes) and sends nothing more.
+    expect(await runAlerts(at('07:15'))).toEqual({ phaseOverdue: 0, slaAtRisk: 0, slaBreached: 0 })
+    expect(await runAlerts(at('23:45'))).toEqual({ phaseOverdue: 0, slaAtRisk: 0, slaBreached: 0 })
+    expect(await notes()).toEqual(first)
     // A new due date re-arms them; edits and deletes are audited.
     expectStatus(await p.admin.agent.patch(`${p.s}/slas/${atRisk.id}`).send({ dueDate: day(11) }), 200)
-    expect((await runAlerts()).slaAtRisk).toBe(1)
+    expect((await runAlerts(at('08:00'))).slaAtRisk).toBe(1)
     expectStatus(await p.admin.agent.delete(`${p.s}/slas/${breached.id}`), 200)
     expect((await col('auditentries').find({ action: /^schedule\.sla\./ }).toArray()).map((a) => a.action)).toEqual(['schedule.sla.created', 'schedule.sla.created', 'schedule.sla.updated', 'schedule.sla.deleted'])
     expect(await col('auditentries').countDocuments({ action: 'building.assignees.updated' })).toBe(1)
   })
 
-  it("deadlines follow the organisation's time zone, also across DST: breached from local midnight (Berlin autumn and spring, New York)", async () => {
+  it("deadlines follow the organisation's time zone across DST: overdue / breached from local midnight, told at the local morning time (Berlin autumn and spring, New York, a later morning time)", async () => {
     const p = await project()
-    const breaches = async (iso) => (await scheduleAlerts({ now: new Date(iso), forEachProject })).slaBreached
+    const run = (iso) => scheduleAlerts({ now: new Date(iso), forEachProject })
     const breachedAt = async (name) => (await col('slas').findOne({ name })).breachedNotifiedAt
-    await p.admin.agent.post(`${p.s}/slas`).send({ name: 'Autumn', startDate: '2026-10-01', dueDate: '2026-10-25' }).expect(201)
-    expect(await breaches('2026-10-25T22:59:00Z')).toBe(0) // 23:59 CET on the due day
-    expect(await breaches('2026-10-25T23:00:00Z')).toBe(1) // 00:00 CET the next day
-    expect(await breachedAt('Autumn')).toEqual(new Date('2026-10-25T23:00:00Z'))
-    await p.admin.agent.post(`${p.s}/slas`).send({ name: 'Spring', startDate: '2027-03-01', dueDate: '2027-03-28' }).expect(201)
-    expect(await breaches('2027-03-28T21:59:00Z')).toBe(0) // 23:59 CEST
-    expect(await breaches('2027-03-28T22:00:00Z')).toBe(1)
-    expect(await breachedAt('Spring')).toEqual(new Date('2027-03-28T22:00:00Z'))
-    // The same rule in another zone.
+    const target = (buildingId, startDate, targetDate) => p.admin.agent.put(`${p.s}/targets`).send({ targets: [{ buildingId, phaseKey: 'hld', startDate, targetDate }] }).expect(200)
+    const sla = (name, startDate, dueDate) => p.admin.agent.post(`${p.s}/slas`).send({ name, startDate, dueDate }).expect(201)
+
+    // Berlin, autumn: CEST → CET on Sunday 2026-10-25. B001's HLD was due on the
+    // 24th: overdue on the 25th (the DST day), told at 07:00 CET = 06:00Z.
+    await target(p.b1, '2026-10-01', '2026-10-24')
+    await sla('Autumn', '2026-10-01', '2026-10-25')
+    expect((await run('2026-10-24T21:59:00Z')).phaseOverdue).toBe(0) // 23:59 CEST on the target day: not overdue
+    expect((await run('2026-10-25T05:59:00Z')).phaseOverdue).toBe(0) // 06:59 CET: overdue, before the morning
+    expect((await run('2026-10-25T06:00:00Z')).phaseOverdue).toBe(1) // 07:00 CET
+    expect((await run('2026-10-25T21:59:00Z')).slaBreached).toBe(0) // 22:59 CET on the due day
+    expect((await run('2026-10-25T23:00:00Z')).slaBreached).toBe(0) // 00:00 CET on the 26th: breached, still night
+    expect((await run('2026-10-26T05:59:00Z')).slaBreached).toBe(0) // 06:59 CET
+    expect((await run('2026-10-26T06:00:00Z')).slaBreached).toBe(1) // 07:00 CET
+    expect(await breachedAt('Autumn')).toEqual(new Date('2026-10-26T06:00:00Z'))
+
+    // Berlin, spring: CET → CEST on Sunday 2027-03-28. B002's HLD due on the
+    // 27th: told at 07:00 CEST = 05:00Z on the DST day.
+    await target(p.b2, '2027-03-01', '2027-03-27')
+    await sla('Spring', '2027-03-01', '2027-03-28')
+    expect((await run('2027-03-28T04:59:00Z')).phaseOverdue).toBe(0) // 06:59 CEST
+    expect((await run('2027-03-28T05:00:00Z')).phaseOverdue).toBe(1) // 07:00 CEST
+    expect((await run('2027-03-29T04:59:00Z')).slaBreached).toBe(0)
+    expect((await run('2027-03-29T05:00:00Z')).slaBreached).toBe(1)
+    expect(await breachedAt('Spring')).toEqual(new Date('2027-03-29T05:00:00Z'))
+
+    // New York (EDT → EST on Sunday 2026-11-01): the organisation's own zone.
     await p.admin.agent.patch(`/api/v1/orgs/${p.admin.orgId}/settings`).send({ timeZone: 'America/New_York' }).expect(200)
-    await p.admin.agent.post(`${p.s}/slas`).send({ name: 'New York', startDate: '2026-10-01', dueDate: '2026-10-25' }).expect(201)
-    expect(await breaches('2026-10-26T03:59:00Z')).toBe(0) // 23:59 EDT
-    expect(await breaches('2026-10-26T04:00:00Z')).toBe(1)
-    expect(await breachedAt('New York')).toEqual(new Date('2026-10-26T04:00:00Z'))
+    await sla('New York', '2026-10-01', '2026-10-25')
+    expect((await run('2026-10-26T06:00:00Z')).slaBreached).toBe(0) // 07:00 in Berlin is 02:00 EDT
+    expect((await run('2026-10-26T10:59:00Z')).slaBreached).toBe(0) // 06:59 EDT
+    expect((await run('2026-10-26T11:00:00Z')).slaBreached).toBe(1) // 07:00 EDT
+    expect(await breachedAt('New York')).toEqual(new Date('2026-10-26T11:00:00Z'))
+    // B101's HLD due on 31 October: told at 07:00 EST = 12:00Z on the DST day.
+    await target(p.b101, '2026-10-01', '2026-10-31')
+    expect((await run('2026-11-01T11:59:00Z')).phaseOverdue).toBe(0) // 06:59 EST
+    expect((await run('2026-11-01T12:00:00Z')).phaseOverdue).toBe(1) // 07:00 EST
+
+    // A later morning time (the organisation's digest time) moves the alerts with it.
+    await p.admin.agent.patch(`/api/v1/orgs/${p.admin.orgId}/settings`).send({ digestTime: '09:30' }).expect(200)
+    await sla('Late morning', '2026-11-01', '2026-11-05')
+    expect((await run('2026-11-06T14:29:00Z')).slaBreached).toBe(0) // 09:29 EST
+    expect((await run('2026-11-06T14:30:00Z')).slaBreached).toBe(1) // 09:30 EST
     expect(await col('notifications').countDocuments({ type: 'sla_breached' })).toBeGreaterThan(0)
+    expect(await col('notifications').countDocuments({ type: 'phase_overdue' })).toBeGreaterThan(0)
   })
 })
 
@@ -243,9 +289,15 @@ describe('Phase history (append-only; live and backfill)', () => {
     // The backfill: B001 dated by its audit entry, B101 with no date; once.
     const run = () => backfillPhaseHistory({ forEachProject })
     expect((await run()).written).toBe(2)
+    const once = await rows()
     expect((await run()).written).toBe(0)
-    const derived = (await rows()).filter((r) => r.source === 'derived').map((r) => [String(r.buildingId), r.dateKnown, r.on, r.evidence?.action ?? null])
-    expect(derived).toEqual(expect.arrayContaining([[p.b1, true, today(), 'cmo.import.committed'], [p.b101, false, null, null]]))
+    expect(await rows()).toEqual(once) // no duplicates
+    const derived = once.filter((r) => r.source === 'derived').map((r) => [String(r.buildingId), r.phaseKey, r.event, r.dateKnown, r.on, r.evidence?.action ?? null])
+    expect(derived.sort()).toEqual([[p.b1, 'cmo', 'completed', true, today(), 'cmo.import.committed'], [p.b101, 'cmo', 'completed', false, null, null]].sort())
+    // Shown as such: B001 dated, B101 done with an unknown date (nothing invented).
+    view = await p.view()
+    expect(p.bar(view, p.b1, 'cmo')).toMatchObject({ completedOn: today(), dateKnown: true })
+    expect(p.bar(view, p.b101, 'cmo')).toMatchObject({ status: 'completed', completedOn: null, dateKnown: false })
     // An Unassigned device blocks ERL's buildings: their CMO is no longer done → reopened.
     await p.admin.agent.post(`${p.base}/cmo/import`).send({ salId: salErl, rows: [cmoRow(0, { hostname: 'SW-X', serial: 'SX' })] }).expect(201)
     await p.view()
@@ -253,5 +305,123 @@ describe('Phase history (append-only; live and backfill)', () => {
     // Append-only.
     await expect(runWithScope({ organisationId: p.admin.orgId, projectId: p.projectId }, () => PhaseHistory.updateOne({}, { $set: { on: '2000-01-01' } }))).rejects.toThrow('append-only')
     await expect(runWithScope({ organisationId: p.admin.orgId, projectId: p.projectId }, () => PhaseHistory.deleteMany({}))).rejects.toThrow('append-only')
+  })
+})
+
+describe('Access to every schedule endpoint', () => {
+  it('a wrong role gets 403; a PM scoped to B001 gets 404 for B002 and 403 for project-wide items; a non-member and another organisation get 404; refusals change and audit nothing', async () => {
+    const p = await project()
+    const ctx = p.ctx
+    // What the calls act on: B002's and project-wide items, made by the Org Admin.
+    const created = async (path, body, key) => expectStatus(await p.admin.agent.post(`${p.s}${path}`).send(body), 201).body[key].id
+    const mB2 = await created('/milestones', { buildingId: p.b2, name: 'B002 keys', dueDate: day(5) }, 'milestone')
+    const mP = await created('/milestones', { name: 'Project review', dueDate: day(6) }, 'milestone')
+    const sB2 = await created('/slas', { name: 'B002 SLA', buildingId: p.b2, dueDate: day(20) }, 'sla')
+    const sP = await created('/slas', { name: 'Project SLA', dueDate: day(20) }, 'sla')
+    const dep = await created('/dependencies', { from: { buildingId: p.b1, phaseKey: 'cmo' }, to: { buildingId: p.b2, phaseKey: 'survey' } }, 'dependency')
+    const audited = () => col('auditentries').countDocuments({ action: { $regex: '^(schedule\\.|building\\.assignees)' } })
+    const auditsBefore = await audited()
+
+    const buildingWrites = {
+      'PUT targets': ['put', '/targets', { targets: [{ buildingId: p.b2, phaseKey: 'survey', targetDate: day(5) }] }],
+      'PUT milestones/standard': ['put', '/milestones/standard', { buildingId: p.b2, standardKey: 'hld_approved', dueDate: day(9) }],
+      'POST milestones': ['post', '/milestones', { buildingId: p.b2, name: 'New', dueDate: day(3) }],
+      'PATCH milestones/:id': ['patch', `/milestones/${mB2}`, { name: 'Renamed' }],
+      'DELETE milestones/:id': ['delete', `/milestones/${mB2}`],
+      'POST dependencies': ['post', '/dependencies', { from: { buildingId: p.b1, phaseKey: 'hld' }, to: { buildingId: p.b2, phaseKey: 'lld' } }],
+      'DELETE dependencies/:id': ['delete', `/dependencies/${dep}`],
+      'POST slas': ['post', '/slas', { name: 'New SLA', buildingId: p.b2, dueDate: day(9) }],
+      'PATCH slas/:id': ['patch', `/slas/${sB2}`, { name: 'Renamed' }],
+      'DELETE slas/:id': ['delete', `/slas/${sB2}`],
+      'PATCH buildings/:id/assignees': ['patch', `/buildings/${p.b2}/assignees`, { primaryArchitectId: null }],
+    }
+    const projectWrites = {
+      'PUT settings': ['put', '/settings', { riskElapsedPct: 70 }],
+      'POST milestones (project)': ['post', '/milestones', { name: 'New', dueDate: day(3) }],
+      'PATCH milestones/:id (project)': ['patch', `/milestones/${mP}`, { name: 'Renamed' }],
+      'DELETE milestones/:id (project)': ['delete', `/milestones/${mP}`],
+      'POST slas (project)': ['post', '/slas', { name: 'New SLA', dueDate: day(9) }],
+      'PATCH slas/:id (project)': ['patch', `/slas/${sP}`, { name: 'Renamed' }],
+      'DELETE slas/:id (project)': ['delete', `/slas/${sP}`],
+    }
+    const reads = { 'GET schedule': ['get', ''], 'GET slas/:id/burndown': ['get', `/slas/${sB2}/burndown`] }
+    const all = { ...buildingWrites, ...projectWrites, ...reads }
+    const send = (agent, [method, path, body], base) => {
+      const req = agent[method](`${base ?? p.s}${path}`)
+      return body ? req.send(body) : req
+    }
+    const expectEach = async (who, agent, calls, status, base) => {
+      for (const [name, call] of Object.entries(calls)) expect((await send(agent, call, base)).status, `${who}: ${name}`).toBe(status)
+    }
+
+    // Architect, Field Engineer, Viewer: no planning rights — every write 403; they read.
+    for (const [who, agent] of [['architect', p.architect], ['field engineer', p.fe], ['viewer', p.viewer]]) {
+      await expectEach(who, agent, { ...buildingWrites, ...projectWrites }, 403)
+      await expectEach(who, agent, reads, 200)
+    }
+    // A PM scoped to B001: B002's items are not found; project-wide ones are forbidden.
+    await expectEach('PM scoped to B001', p.pmB001, buildingWrites, 404)
+    await expectEach('PM scoped to B001', p.pmB001, projectWrites, 403)
+    // A Viewer scoped to B001 cannot read B002's SLA.
+    await expectEach('Viewer scoped to B001', p.viewerB001, { 'GET slas/:id/burndown': reads['GET slas/:id/burndown'] }, 404)
+    // A member of the organisation who is not in this project (a PM of another one).
+    const second = expectStatus(await p.admin.agent.post(`/api/v1/orgs/${p.admin.orgId}/projects`).send({ name: 'Second', code: 'SEC' }), 201).body.project.id
+    const outsider = await projectMember(ctx, p.admin, { email: 'pm-elsewhere@example.com', role: 'pm', projectId: second })
+    await expectEach('non-member', outsider, all, 404)
+    // Another organisation: this project's URLs, and its own project's URLs with these ids.
+    const other = await signedInOrgAdmin(ctx, { email: 'other@example.com', organisationName: 'Other Org' })
+    await expectEach('other organisation', other.agent, all, 404)
+    const foreign = expectStatus(await other.agent.post(`/api/v1/orgs/${other.orgId}/projects`).send({ name: 'Other', code: 'OTH' }), 201).body.project.id
+    await expectEach('other organisation (own project)', other.agent, { ...buildingWrites, 'GET slas/:id/burndown': reads['GET slas/:id/burndown'] }, 404, `/api/v1/orgs/${other.orgId}/projects/${foreign}/schedule`)
+
+    // Nothing changed and nothing was audited.
+    expect(await audited()).toBe(auditsBefore)
+    const view = await p.view()
+    expect(view.milestones.filter((m) => m.custom).map((m) => m.name).sort()).toEqual(['B002 keys', 'Project review'])
+    expect(view.slas.map((s) => s.name).sort()).toEqual(['B002 SLA', 'Project SLA'])
+    expect(view.dependencies.map((d) => d.id)).toEqual([dep])
+    expect(view.settings.riskElapsedPct).toBe(80)
+    expect(p.bar(view, p.b2, 'survey').target).toBeNull()
+    expect(view.milestones.find((m) => m.buildingId === p.b2 && m.standardKey === 'hld_approved').dueDate).toBeNull()
+  })
+
+  it('every change of a target, milestone, dependency, SLA, setting or assignee writes an audit entry with who and what', async () => {
+    const p = await project()
+    const s = p.s
+    await p.admin.agent.put(`${s}/targets`).send({ targets: [{ buildingId: p.b1, phaseKey: 'survey', targetDate: day(10) }] }).expect(200)
+    await p.admin.agent.put(`${s}/milestones/standard`).send({ buildingId: p.b1, standardKey: 'hld_approved', dueDate: day(30) }).expect(200)
+    const m = (await p.admin.agent.post(`${s}/milestones`).send({ buildingId: p.b1, name: 'Keys', dueDate: day(4) }).expect(201)).body.milestone
+    await p.admin.agent.patch(`${s}/milestones/${m.id}`).send({ dueDate: day(5) }).expect(200)
+    await p.admin.agent.delete(`${s}/milestones/${m.id}`).expect(200)
+    const d = (await p.admin.agent.post(`${s}/dependencies`).send({ from: { buildingId: p.b1, phaseKey: 'survey' }, to: { buildingId: p.b2, phaseKey: 'hld' } }).expect(201)).body.dependency
+    await p.admin.agent.delete(`${s}/dependencies/${d.id}`).expect(200)
+    const sla = (await p.admin.agent.post(`${s}/slas`).send({ name: 'Design', buildingId: p.b1, dueDate: day(20) }).expect(201)).body.sla
+    await p.admin.agent.patch(`${s}/slas/${sla.id}`).send({ dueDate: day(25) }).expect(200)
+    await p.admin.agent.delete(`${s}/slas/${sla.id}`).expect(200)
+    await p.admin.agent.put(`${s}/settings`).send({ riskProgressPct: 40 }).expect(200)
+    const feId = (await p.fe.get('/api/v1/me').expect(200)).body.user.id
+    await p.admin.agent.patch(`${s}/buildings/${p.b1}/assignees`).send({ primaryFieldEngineerId: feId }).expect(200)
+    const entries = await col('auditentries').find({ action: { $regex: '^(schedule\\.|building\\.assignees)' } }).sort({ occurredAt: 1, _id: 1 }).toArray()
+    expect(entries.map((e) => e.action)).toEqual([
+      'schedule.targets.updated',
+      'schedule.milestone.updated',
+      'schedule.milestone.created',
+      'schedule.milestone.updated',
+      'schedule.milestone.deleted',
+      'schedule.dependency.created',
+      'schedule.dependency.deleted',
+      'schedule.sla.created',
+      'schedule.sla.updated',
+      'schedule.sla.deleted',
+      'schedule.settings.updated',
+      'building.assignees.updated',
+    ])
+    for (const e of entries) {
+      expect(String(e.actor.userId), e.action).toBe(p.admin.userId)
+      expect(String(e.projectId), e.action).toBe(p.projectId)
+    }
+    expect(entries[0].changes).toEqual([expect.objectContaining({ field: 'survey.targetDate', before: null, after: day(10) })])
+    expect(entries.find((e) => e.action === 'schedule.sla.updated').changes).toEqual([expect.objectContaining({ field: 'dueDate', before: day(20), after: day(25) })])
+    expect(entries.at(-1).changes).toEqual([expect.objectContaining({ field: 'primaryFieldEngineerId', before: null, after: feId })])
   })
 })

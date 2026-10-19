@@ -18,6 +18,7 @@ const today = localDate(new Date(), 'Europe/Berlin')
 let owner
 let architect
 let fe
+let pm
 let orgId
 let projectId
 let b001
@@ -31,10 +32,10 @@ test.beforeAll(async ({ browser }) => {
   owner = await browser.newPage()
 })
 test.afterAll(async () => {
-  for (const p of [owner, architect, fe]) await p?.context().close()
+  for (const p of [owner, architect, fe, pm]) await p?.context().close()
 })
 
-test('set up: a project with B001 and B002, an Architect and a Field Engineer', async ({ browser }) => {
+test('set up: a project with B001 and B002, a PM, an Architect and a Field Engineer', async ({ browser }) => {
   orgId = await signUpAndSignIn(owner, { email: `m7a1-${RUN_ID}@example.com`, organisationName: 'M7a1 Org' })
   projectId = await createProjectWithHierarchy(owner, orgId, { name: 'M7a1 Project', hierarchyCsv: fixture('hierarchy-two-buildings.csv') })
   api = `/api/v1/orgs/${orgId}/projects/${projectId}`
@@ -43,8 +44,9 @@ test('set up: a project with B001 and B002, an Architect and a Field Engineer', 
   b002 = buildings.find((b) => b.code === 'B002').id
   architect = await inviteAndAccept(owner, browser, { orgId, projectId, email: `m7a1-arch-${RUN_ID}@example.com`, role: 'architect', name: 'Ada Architect' })
   fe = await inviteAndAccept(owner, browser, { orgId, projectId, email: `m7a1-fe-${RUN_ID}@example.com`, role: 'field_engineer', name: 'Fiona Field' })
+  pm = await inviteAndAccept(owner, browser, { orgId, projectId, email: `m7a1-pm-${RUN_ID}@example.com`, role: 'pm', name: 'Pat PM' })
   // 409: the deliberate cycle refusal, shown in the page.
-  for (const [who, page] of [['owner', owner], ['architect', architect]]) page.on('console', (m) => m.type() === 'error' && !/status of 409/.test(m.text()) && errors.push(`${who}: ${m.text()}`))
+  for (const [who, page] of [['owner', owner], ['architect', architect], ['fe', fe], ['pm', pm]]) page.on('console', (m) => m.type() === 'error' && !/status of 409/.test(m.text()) && errors.push(`${who}: ${m.text()}`))
 })
 
 test('the Org Admin sets targets in the panel and drags a bar; the Gantt follows', async () => {
@@ -161,6 +163,70 @@ test('the Architect reads the schedule: no editing, no dragging', async () => {
   // The API agrees.
   const res = await architect.request.put(`${api}/schedule/targets`, { data: { targets: [{ buildingId: b001, phaseKey: 'cmo', targetDate: today }] } })
   expect(res.status()).toBe(403)
+})
+
+test('keyboard: the PM types a target and saves with Enter, and a bar opens its building; touch: the Org Admin taps dates in on a tablet', async ({ browser }) => {
+  await pm.goto(schedulePath())
+  const panel = pm.getByTestId('targets-panel')
+  await panel.getByLabel('Building').selectOption({ label: 'B002' })
+  // Typed digit by digit, as a keyboard user would. The field's day/month/year
+  // order follows the operating system's locale: found by typing 02 01 2026
+  // into a spare field (then cleared).
+  const probe = panel.getByLabel('LLD target')
+  await probe.focus()
+  await pm.keyboard.type('02012026')
+  const probed = await probe.inputValue()
+  const order = probed === '2026-01-02' ? ['day', 'month', 'year'] : probed === '2026-02-01' ? ['month', 'day', 'year'] : ['year', 'month', 'day']
+  await probe.fill('')
+  const typed = (date) => order.map((t) => ({ day: date.slice(8, 10), month: date.slice(5, 7), year: date.slice(0, 4) })[t]).join('')
+  const cmoTarget = panel.getByLabel('CMO target')
+  await cmoTarget.focus()
+  await pm.keyboard.type(typed(addDays(today, 10)))
+  await expect(cmoTarget).toHaveValue(addDays(today, 10))
+  await panel.getByRole('button', { name: 'Save targets' }).focus()
+  await pm.keyboard.press('Enter')
+  await expect(pm.getByText('Saved 1 target for B002')).toBeVisible()
+  expect((await barOf(pm, `${b002}|cmo`)).target).toBe(addDays(today, 10))
+  // A bar is a button: Enter on it brings its building into the Targets panel.
+  await pm.locator(`[data-bar="${b001}|survey"]`).focus()
+  await pm.keyboard.press('Enter')
+  await expect(panel.getByLabel('Building')).toHaveValue(b001)
+
+  // Touch, on a tablet: tap each date field, enter the date, tap Save.
+  const context = await browser.newContext({ storageState: await owner.context().storageState(), hasTouch: true, isMobile: false, viewport: { width: 1024, height: 768 } })
+  const tablet = await context.newPage()
+  tablet.on('console', (m) => m.type() === 'error' && errors.push(`tablet: ${m.text()}`))
+  await tablet.goto(schedulePath())
+  const tp = tablet.getByTestId('targets-panel')
+  await tp.getByLabel('Building').selectOption({ label: 'B002' })
+  for (const [label, value] of [['Physical Site Survey start', addDays(today, 12)], ['Physical Site Survey target', addDays(today, 20)]]) {
+    await tp.getByLabel(label).tap()
+    await tp.getByLabel(label).fill(value)
+  }
+  await tp.getByRole('button', { name: 'Save targets' }).tap()
+  await expect(tablet.getByText('Saved 1 target for B002')).toBeVisible()
+  expect(await barOf(tablet, `${b002}|survey`)).toMatchObject({ startDate: addDays(today, 12), target: addDays(today, 20) })
+  await context.close()
+})
+
+test('on a phone the schedule is a read-only list for every role: Org Admin, PM, Architect, Field Engineer', async () => {
+  for (const [who, page] of [['Org Admin', owner], ['PM', pm], ['Architect', architect], ['Field Engineer', fe]]) {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto(schedulePath())
+    const screen = page.getByTestId('schedule-page')
+    await expect(screen.getByTestId('schedule-list'), who).toBeVisible()
+    await expect(screen.getByTestId('schedule-list').locator(`[data-row="${b002}|cmo"]`), who).toContainText(addDays(today, 10))
+    // No control of any kind: no fields, pickers, buttons, drag handles or panels.
+    await expect(screen.locator('input, select, textarea, button, a[href], [contenteditable="true"], [draggable="true"], [tabindex]'), who).toHaveCount(0)
+    await expect(page.getByTestId('gantt'), who).toHaveCount(0)
+    for (const id of ['targets-panel', 'milestones-panel', 'sla-panel', 'dependencies-panel', 'schedule-settings']) await expect(page.getByTestId(id), `${who}: ${id}`).toHaveCount(0)
+    await page.setViewportSize({ width: 1440, height: 900 })
+  }
+  // The same Org Admin and PM do edit on a wide screen.
+  for (const page of [owner, pm]) {
+    await page.goto(schedulePath())
+    await expect(page.getByTestId('targets-panel').getByRole('button', { name: 'Save targets' })).toBeVisible()
+  }
 })
 
 test('the Gantt at 1440/1024/768 and the list on a phone, no overflow, no console errors', async () => {

@@ -3,7 +3,7 @@ import { PHASE_KEYS } from '@rackium/shared/phaseCalculations.js'
 import { scheduleBars, keyOf, standardMilestones, nextMilestone, slaItemKeys, slaStatus, slaBurndown, createsCycle, isDone, SCHEDULE_DEFAULTS, STANDARD_MILESTONE_KEYS } from '@rackium/shared/schedule.js'
 import { expectedSurveyTabs } from '@rackium/shared/surveyForm.js'
 import { PHASE_LABELS } from '@rackium/shared/notifications.js'
-import { DEFAULT_TIME_ZONE, localDate } from '@rackium/shared/timeZone.js'
+import { DEFAULT_TIME_ZONE, DEFAULT_DIGEST_TIME, localDate, localTime } from '@rackium/shared/timeZone.js'
 import { scopeCoversBuilding } from '@rackium/shared/scope.js'
 import { Building } from '../models/building.js'
 import { Project } from '../models/project.js'
@@ -511,10 +511,14 @@ export async function nextMilestoneForBuilding(buildingId, { now = new Date() } 
 
 // The alerts (job, every 15 minutes; v2.2 §21.8): phase overdue → PMs and the
 // building's primary person; SLA at risk → PMs; SLA breached → PMs and the
-// Org Admins. Each once, through a claim.
+// Org Admins. Each once, through a claim, from the organisation's local
+// morning time (its digest time, default 07:00).
 export async function scheduleAlerts({ now = new Date(), forEachProject }) {
   const out = { phaseOverdue: 0, slaAtRisk: 0, slaBreached: 0 }
-  await forEachProject(async ({ organisationId, projectId, timeZone }) => {
+  await forEachProject(async ({ organisationId, projectId, timeZone, morningTime = DEFAULT_DIGEST_TIME }) => {
+    // Sent in the organisation's local morning: a phase overdue or an SLA
+    // breached from local midnight is told at its morning time that day.
+    if (localTime(now, timeZone) < morningTime) return
     await syncPhaseHistory({ now, timeZone })
     const buildingDocs = await Building.find({}, { code: 1, primaryArchitectId: 1, primaryFieldEngineerId: 1 }).lean()
     if (!buildingDocs.length) return
