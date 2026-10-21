@@ -86,5 +86,12 @@ deviceSchema.index(
 )
 deviceSchema.index({ projectId: 1, 'installation.mac': 1 }, { unique: true, partialFilterExpression: { 'installation.mac': { $type: 'string' } } })
 deviceSchema.index({ projectId: 1, salId: 1, buildingId: 1 })
+// Global search (M7a-2, DATA-MODEL §5.16): case-insensitive, so exact and
+// prefix matches (a case-insensitive range) use them.
+const ci = { collation: { locale: 'en', strength: 2 } }
+deviceSchema.index({ projectId: 1, hostname: 1 }, ci)
+deviceSchema.index({ projectId: 1, label: 1 }, ci)
+deviceSchema.index({ projectId: 1, existingLabel: 1 }, ci)
+deviceSchema.index({ projectId: 1, 'installation.serial': 1 }, ci)
 
 export const Device = mongoose.models.Device || mongoose.model('Device', deviceSchema)

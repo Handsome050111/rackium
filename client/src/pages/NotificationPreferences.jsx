@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { BellRing } from 'lucide-react'
 import { notificationsApi } from '../api/workApi.js'
+import { WEEKLY_DIGEST_TYPES } from '@rackium/shared/notifications.js'
 
 // Notification preferences (brief v2.2 §9; M5b): per type, in-app, email,
 // both, or in-app plus a daily digest email. Saved as soon as one changes.
@@ -65,7 +66,10 @@ export default function NotificationPreferences() {
           <ul className="space-y-2">
             {g.types.map((t) => (
               <li key={t.key} className="grid grid-cols-1 items-center gap-1 text-xs sm:grid-cols-[minmax(0,1fr)_14rem] sm:gap-3">
-                <span className="text-text">{t.label}</span>
+                <span className="text-text">
+                  {t.label}
+                  {WEEKLY_DIGEST_TYPES.has(t.key) && <span className="block text-[11px] text-text-secondary">By email: once a week, in the Monday DGUV digest.</span>}
+                </span>
                 <select aria-label={`Delivery for ${t.label}`} value={prefs.modes[t.key]} onChange={(e) => change(t, e.target.value)} className="h-9 w-full min-w-0 rounded-lg border border-border bg-surface px-2 text-xs text-text focus:border-brand focus:outline-none">
                   {prefs.deliveryModes.map((m) => (
                     <option key={m.key} value={m.key}>

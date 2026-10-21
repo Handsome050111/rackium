@@ -9,6 +9,11 @@ describe('policy (v2.3 §4.3)', () => {
     }
   })
 
+  it('only Org Admin manages field help (tooltips, M7a-2)', () => {
+    expect(can(['org_admin'], ACTIONS.MANAGE_TOOLTIPS)).toBe(true)
+    for (const role of ['pm', 'architect', 'reviewer', 'field_engineer', 'viewer']) expect(can([role], ACTIONS.MANAGE_TOOLTIPS)).toBe(false)
+  })
+
   it('Org Admin with no project role has no design approval rights', () => {
     expect(can(['org_admin'], ACTIONS.APPROVE_HLD_LLD_SP_INTERNAL)).toBe(false)
     expect(can(['org_admin'], ACTIONS.EDIT_SUBMIT_HLD_LLD)).toBe(false)

@@ -139,7 +139,12 @@ export default function RealBuildingDashboard() {
       {data.dguv?.total > 0 && (
         // DGUV V3 of the installed mains-powered devices (M6a review).
         <div className="rounded-xl border border-border bg-surface p-4" data-testid="dguv-summary">
-          <h2 className="mb-2 text-sm font-semibold text-text">DGUV V3 inspections</h2>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-text">DGUV V3 inspections</h2>
+            <Link to={`/orgs/${orgId}/projects/${projectId}/dguv?level=building&id=${buildingId}`} className="text-xs font-medium text-brand hover:underline">
+              Compliance details
+            </Link>
+          </div>
           <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm">
             {[
               ['valid', 'Valid', 'text-status-green'],

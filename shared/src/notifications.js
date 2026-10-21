@@ -46,6 +46,10 @@ export const NOTIFICATION_TYPES = [
 ]
 export const NOTIFICATION_TYPE_KEYS = NOTIFICATION_TYPES.map((t) => t.key)
 export const typeLabel = (key) => NOTIFICATION_TYPES.find((t) => t.key === key)?.label ?? key
+// DGUV reminders by email (M7a-2): collected into the weekly DGUV digest
+// (Monday, the organisation's morning time) — never one email per item and
+// never in the daily digest, so each item is emailed once.
+export const WEEKLY_DIGEST_TYPES = new Set(['dguv_expiry', 'dguv_not_inspected'])
 
 // How a user receives one type: in the app, by email, both, or in the app plus
 // one summary email a day. Default: in the app.

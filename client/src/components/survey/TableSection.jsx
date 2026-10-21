@@ -1,6 +1,8 @@
 import { Copy, Trash2, Plus } from 'lucide-react'
 import FormField from './FormField.jsx'
 import RequirementBadge from './RequirementBadge.jsx'
+import FieldHelpButton from './FieldHelpButton.jsx'
+import { useAnyFieldHelp } from '../../lib/fieldHelpContext.js'
 import { calculatedFieldValue } from '../../lib/surveyFormModel.js'
 
 // Repeatable rows — a real table at tablet/desktop width, stacked cards on
@@ -8,6 +10,7 @@ import { calculatedFieldValue } from '../../lib/surveyFormModel.js'
 // the horizontal-scroll pattern used by the read-only data tables
 // elsewhere in the app, since these rows are actively edited on-site.
 export default function TableSection({ section, rows, ctx, editable, onAddRow, onDuplicateRow, onRemoveRow, onCellChange, onConfirmCell, onValidateSerial, rackStatsByCode }) {
+  const anyHelp = useAnyFieldHelp(section.fields.map((f) => f.key))
   // Comms Rooms Summary only (brief: "RU counts calculated from the rack
   // survey") — once a row names a real rack, its RU/power columns become
   // calculated instead of re-typed.
@@ -30,6 +33,17 @@ export default function TableSection({ section, rows, ctx, editable, onAddRow, o
       </div>
 
       {rows.length === 0 && <p className="text-xs text-text-secondary">No rows yet{editable ? ' — add one if this applies to this room.' : '.'}</p>}
+      {/* No rows, so no column headers: the columns with their help (real mode, M7a-2). */}
+      {rows.length === 0 && anyHelp && (
+        <ul aria-label={`${section.section} columns`} className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-text-secondary">
+          {section.fields.map((f) => (
+            <li key={f.key} className="inline-flex items-center gap-1">
+              {f.label}
+              <FieldHelpButton fieldKey={f.key} label={f.label} />
+            </li>
+          ))}
+        </ul>
+      )}
 
       {/* Table (sm and up) */}
       {rows.length > 0 && (
@@ -42,6 +56,7 @@ export default function TableSection({ section, rows, ctx, editable, onAddRow, o
                     <span className="flex items-center gap-1">
                       {f.label}
                       <RequirementBadge requirement={f.requirement} />
+                      <FieldHelpButton fieldKey={f.key} label={f.label} />
                     </span>
                   </th>
                 ))}

@@ -491,6 +491,18 @@ export function buildRegistry() {
   route('delete', `${T}/{id}`, 'Delete a task (assigner or PM)', { params: p({ id: 1 }) })
   const O = '/api/v1/orgs/{orgId}'
   const orgP = (extra = {}) => z.object({ orgId: z.string(), ...Object.fromEntries(Object.keys(extra).map((k) => [k, z.string()])) })
+  // --- M7a-2: global search, DGUV dashboards, field help (DATA-MODEL §5.16) ---
+  route('get', `${O}/search`, 'Global search over the caller’s projects (current project first): hierarchy, devices by hostname, name, existing label, serial, MAC (any notation), asset ID; cable IDs; panel ports. Each result is checked with the access rule of the screen it opens; no prices, branches or snapshots', { params: orgP(), query: C.searchQuery, errors: { 403: err('An invalid or expired View-As session') } })
+  const DG = `${PR}/dguv`
+  route('get', DG, 'DGUV compliance rollup of a node (project, country, SAL, building, floor, room, rack, device): counts per status, worst, compliant %, a row per child — buildings in scope, organisation date and thresholds', { query: C.dguvQuery, errors: { 404: err('A node outside the caller’s scope') } })
+  route('get', `${DG}/devices`, 'The devices of a node (optionally of one status), worst and soonest due first', { query: C.dguvQuery, errors: { 404: err('A node outside the caller’s scope') } })
+  route('get', `${DG}/export.csv`, 'The same devices as CSV (formula cells prefixed)', { query: C.dguvQuery, errors: { 404: err('A node outside the caller’s scope') } })
+  route('get', `${O}/field-help`, 'Field help for every field under a prefix: the organisation’s text over the platform default (placeholders), with reference photos', { params: orgP(), query: C.fieldHelpListQuery })
+  route('get', `${O}/field-help/photos/{photoId}`, 'A reference photo (re-encoded, no metadata), for any member of the organisation', { params: orgP({ photoId: 1 }), errors: { 404: err('No such photo') } })
+  route('put', `${O}/field-help/{key}`, 'Set the organisation’s help text for a field (Org Admin; plain text); audited', { params: orgP({ key: 1 }), body: C.fieldHelpBody, errors: { 404: err('No such field') } })
+  route('delete', `${O}/field-help/{key}`, 'Back to the platform default text (Org Admin); audited', { params: orgP({ key: 1 }), errors: { 404: err('No such field') } })
+  route('post', `${O}/field-help/{key}/photos`, 'Add a reference photo: the body is a JPG, PNG or WebP image (checked by its bytes, within the photo limit), re-encoded without EXIF/GPS (Org Admin); audited', { params: orgP({ key: 1 }), status: 201, errors: { 409: err('too_many_photos'), 413: err('Too large'), 415: err('Not a JPG, PNG or WebP image') } })
+  route('delete', `${O}/field-help/{key}/photos/{photoId}`, 'Remove a reference photo (Org Admin); audited', { params: orgP({ key: 1, photoId: 1 }), errors: { 404: err('No such photo') } })
   route('get', `${O}/tasks/mine`, 'My tasks: assigned to the caller in every project of the organisation', { params: orgP(), query: C.myTasksQuery })
   route('get', `${O}/notifications`, 'The caller’s notifications (All / Unread / Mentions), newest first, paged by createdAt', { params: orgP(), query: C.notificationListQuery })
   route('get', `${O}/notifications/unread-count`, 'The caller’s unread notification count', { params: orgP() })

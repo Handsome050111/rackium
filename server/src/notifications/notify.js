@@ -1,11 +1,14 @@
 import mongoose from 'mongoose'
 import { scopeCoversBuilding } from '@rackium/shared/scope.js'
-import { channelsFor, resolvePreferences, typeLabel, groupKeyOf, groupedTitle, GROUP_WINDOW_MS, EMAIL_GROUP_HOLD_MS } from '@rackium/shared/notifications.js'
+import { channelsFor, resolvePreferences, typeLabel, groupKeyOf, groupedTitle, GROUP_WINDOW_MS, EMAIL_GROUP_HOLD_MS, WEEKLY_DIGEST_TYPES } from '@rackium/shared/notifications.js'
+import { nextWeekly, DEFAULT_TIME_ZONE, DEFAULT_DIGEST_TIME } from '@rackium/shared/timeZone.js'
 import { Membership } from '../models/membership.js'
 import { User } from '../models/user.js'
 import { Notification } from '../models/notification.js'
 import { NotificationPreference } from '../models/notificationPreference.js'
 import { EmailOutbox } from '../models/emailOutbox.js'
+import { Organisation } from '../models/organisation.js'
+import { Project } from '../models/project.js'
 import { buildingWithScopeIds } from '../access/scope.js'
 import { currentScope } from '../tenancy/scopeContext.js'
 
@@ -80,9 +83,11 @@ export async function notify({ type, projectId = null, buildingId = null, title,
   const gLink = groupLink ?? link
   const created = []
   let queued = 0
+  const weekly = WEEKLY_DIGEST_TYPES.has(type)
+  let weeklyContext = null
   for (const userId of recipients) {
     const channels = channelsFor(resolvePreferences(prefs.get(userId))[type])
-    const delivered = channels.digest ? ['in_app', 'digest'] : ['in_app']
+    const delivered = channels.digest && !weekly ? ['in_app', 'digest'] : ['in_app']
     if (channels.inApp) {
       // Part of a burst: the open group (unread, not yet in a digest, recent) counts it.
       const grouped = await Notification.findOneAndUpdate(
@@ -97,6 +102,14 @@ export async function notify({ type, projectId = null, buildingId = null, title,
       }
     }
     const email = users.get(userId)?.email
+    if (weekly) {
+      // By email or digest: once, in the weekly DGUV digest.
+      if ((channels.emailNow || channels.digest) && email) {
+        weeklyContext ??= await weeklyContextOf(organisationId, pid, session)
+        await queueWeekly({ organisationId, userId, to: email, item: { title, link, projectName: weeklyContext.projectName }, now, context: weeklyContext, session })
+      }
+      continue
+    }
     if (channels.emailNow && email) {
       // A mail still waiting for this group takes the event; otherwise a new one waits a minute.
       const waiting = await EmailOutbox.findOneAndUpdate({ userId: new mongoose.Types.ObjectId(userId), groupKey, kind: 'notification', status: 'pending', attempts: 0 }, { $inc: { count: 1 } }, { session, returnDocument: 'after' })
@@ -110,6 +123,45 @@ export async function notify({ type, projectId = null, buildingId = null, title,
   }
   if (queued && settings.onOutbox) setTimeout(() => settings.onOutbox(), EMAIL_GROUP_HOLD_MS + 1000).unref?.()
   return created
+}
+
+// The weekly DGUV digest (M7a-2): the organisation's zone and morning time, the project's name.
+async function weeklyContextOf(organisationId, projectId, session) {
+  const org = await Organisation.findById(organisationId, { 'settings.timeZone': 1, 'settings.digestTime': 1 }).session(session).lean()
+  const project = projectId ? await Project.findById(projectId, { name: 1 }).session(session).lean() : null
+  return { tz: org?.settings?.timeZone ?? DEFAULT_TIME_ZONE, time: org?.settings?.digestTime ?? DEFAULT_DIGEST_TIME, projectName: project?.name ?? null }
+}
+
+export function weeklyMail(items, date) {
+  const n = items.length
+  const lines = items.map((i) => `- ${i.title}${i.projectName ? ` (${i.projectName})` : ''}${i.link ? ` — ${settings.appUrl}${i.link}` : ''}`)
+  return {
+    subject: `Rackium: weekly DGUV digest — ${n} inspection reminder(s)`,
+    text: [`Your weekly DGUV digest for the week of ${date}: ${n} inspection reminder(s).`, '', ...lines, '', 'Each reminder is in one weekly digest only. DGUV reminders by email always come this way — change it in your notification preferences.'].join('\n'),
+  }
+}
+
+// Appends one reminder to the user's pending weekly mail (created on first
+// use) for the next local Monday morning. A mail already being sent for that
+// date (the boundary minute) passes the reminder to the week after.
+async function queueWeekly({ organisationId, userId, to, item, now, context, session }) {
+  let { date, at } = nextWeekly(now, { tz: context.tz, time: context.time })
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const dedupeKey = `dguv-weekly:${organisationId}:${userId}:${date}`
+    try {
+      const row = await EmailOutbox.findOneAndUpdate(
+        { dedupeKey, status: 'pending' },
+        { $setOnInsert: { organisationId, userId, to, kind: 'dguv_weekly', notBefore: at, subject: 'Rackium: weekly DGUV digest', text: '-', attempts: 0, createdAt: now }, $push: { items: item } },
+        { upsert: true, returnDocument: 'after', session }
+      )
+      await EmailOutbox.updateOne({ _id: row._id }, { $set: weeklyMail(row.items, date) }, { session })
+      return
+    } catch (err) {
+      if (err.code !== 11000) throw err
+      ;({ date, at } = nextWeekly(new Date(at.getTime() + 60000), { tz: context.tz, time: context.time }))
+    }
+  }
+  throw new Error('weekly DGUV digest: no send date found')
 }
 
 // A safe wrapper for events raised after the action itself is done: a

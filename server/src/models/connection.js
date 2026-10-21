@@ -73,5 +73,7 @@ connectionSchema.__modelName = 'Connection'
 tenantScope(connectionSchema, { scope: 'project' })
 connectionSchema.index({ projectId: 1, 'source.deviceId': 1 })
 connectionSchema.index({ projectId: 1, 'dest.deviceId': 1 })
+// Global search (M7a-2): the connections on a panel's ports.
+connectionSchema.index({ projectId: 1, 'hops.patchPanelId': 1 })
 
 export const Connection = mongoose.models.Connection || mongoose.model('Connection', connectionSchema)

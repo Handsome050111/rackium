@@ -8,6 +8,7 @@ import StockLengthsSection from '../components/StockLengthsSection.jsx'
 import CageNutsSection from '../components/CageNutsSection.jsx'
 import TimeZoneSection from '../components/TimeZoneSection.jsx'
 import DguvSection from '../components/DguvSection.jsx'
+import FieldHelpSection from '../components/FieldHelpSection.jsx'
 import { LogoField } from '../components/documents/BrandingSettings.jsx'
 import { documentsApi } from '../api/documentsApi.js'
 import { canIn } from '../lib/realRoles.js'
@@ -153,6 +154,10 @@ export default function OrganisationSettings() {
 
       <Section title="Logo" description="Printed on the cover of every generated document (with the client's logo, set per project).">
         {settings && <LogoField label="Organisation logo" exists={settings.hasLogo} src={documentsApi.orgLogoUrl(orgId)} canEdit onSet={(uri) => documentsApi.setOrgLogo(orgId, uri)} onRemove={() => documentsApi.removeOrgLogo(orgId)} />}
+      </Section>
+
+      <Section title="Field help" description="The ⓘ next to each survey field: what it means, what to look for, an example, common mistakes and reference photos.">
+        <FieldHelpSection orgId={orgId} />
       </Section>
 
       <Section title="Time zone" description="Task deadlines, due soon and overdue, and the daily digest email follow this time zone (default Europe/Berlin).">

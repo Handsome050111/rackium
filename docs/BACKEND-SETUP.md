@@ -267,6 +267,9 @@ idempotent: a second run writes nothing. Rows it writes are marked derived;
 where the audit log has no evidence of when a phase finished, the date stays
 empty and is shown as "date unknown" — the script never invents a date.
 
+There is no dev database with real data: the first run is on staging, as an
+item of the go-live checklist in DEPLOY-DEMO.
+
 ## Running MongoDB yourself instead of Atlas
 
 Any single-node replica set works, including the one the VPS will run. Start
