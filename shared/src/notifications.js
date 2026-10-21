@@ -39,6 +39,9 @@ export const NOTIFICATION_TYPES = [
   { key: 'device_accepted', label: 'Device accepted', group: 'Deployment' },
   { key: 'dguv_expiry', label: 'DGUV inspection expiring', group: 'Compliance' },
   { key: 'dguv_not_inspected', label: 'Installed device not DGUV-inspected', group: 'Compliance' },
+  { key: 'phase_overdue', label: 'Phase past its target date', group: 'Schedule' },
+  { key: 'sla_at_risk', label: 'SLA at risk', group: 'Schedule' },
+  { key: 'sla_breached', label: 'SLA breached', group: 'Schedule' },
   { key: 'mention', label: 'You were mentioned in a comment', group: 'Mentions' },
 ]
 export const NOTIFICATION_TYPE_KEYS = NOTIFICATION_TYPES.map((t) => t.key)

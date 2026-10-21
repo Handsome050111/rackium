@@ -20,6 +20,15 @@ const projectSettingsSchema = new mongoose.Schema({
   cableScheduleHeadings: { type: Map, of: String, default: {} },
   // The client's logo on generated documents (M6b): stored bytes, no public URL.
   clientLogo: { type: new mongoose.Schema({ storageKey: String, mimeType: String, updatedAt: Date }, { _id: false }), default: null },
+  // Schedule (M7a-1): risk thresholds, phases allowed to run in parallel with
+  // the previous one, and when live phase history tracking started.
+  schedule: {
+    type: new mongoose.Schema(
+      { riskElapsedPct: { type: Number, default: 80 }, riskProgressPct: { type: Number, default: 50 }, parallelPhases: { type: [String], default: [] }, historySince: { type: Date, default: null } },
+      { _id: false }
+    ),
+    default: () => ({}),
+  },
   updatedBy: { type: ObjectId, default: null },
   updatedAt: { type: Date, default: () => new Date() },
 })

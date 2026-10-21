@@ -28,6 +28,7 @@ import { createPublicApprovalService } from './delivery/publicApproval.js'
 import { createCommercialSettingsService } from './delivery/settings.js'
 import { createShareLinkAdmin } from './delivery/shareLinks.js'
 import { createTaskService } from './tasks/service.js'
+import { createScheduleService } from './schedule/service.js'
 import { createDeploymentService } from './deployment/service.js'
 import { createCmdbService } from './cmdb/service.js'
 import { createDocumentService } from './documents/service.js'
@@ -126,6 +127,7 @@ export function createApp({ config, logger, mailer, rateLimits = DEFAULT_RATE_LI
   // emails point at the public app.
   configureNotifications({ appUrl: config.PUBLIC_APP_URL })
   const tasks = createTaskService({ lld })
+  const schedule = createScheduleService()
   const notifications = createNotificationService()
   const auditLog = createAuditLogService()
   // Deployment and the CMDB (M6a): as-built records against the frozen LLD.
@@ -138,7 +140,7 @@ export function createApp({ config, logger, mailer, rateLimits = DEFAULT_RATE_LI
   const documents = createDocumentService({ storage, services: docServices, autoProcess: config.DOCUMENTS_AUTO_PROCESS !== false, logger })
   const handover = createHandoverService({ storage, services: docServices, documents })
   docServices.handover = handover
-  const api = apiRouter({ config, auth, org, auditLog, hierarchy, blockers, viewAs, dashboard, catalogue, cmo, survey, files, hld, lld, delivery, tasks, notifications, deployment, cmdb, documents, handover, rateLimits, openapiDocument, version: VERSION })
+  const api = apiRouter({ config, auth, org, auditLog, hierarchy, blockers, viewAs, dashboard, catalogue, cmo, survey, files, hld, lld, delivery, tasks, notifications, deployment, cmdb, documents, handover, schedule, rateLimits, openapiDocument, version: VERSION })
   api.get('/me', requireUser(config), async (req, res) => {
     const memberships = await membershipsForUser(req.user._id)
     res.json({ user: userSummary(req.user), memberships: memberships.map(membershipSummary) })

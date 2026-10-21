@@ -5,7 +5,7 @@
 // ordered, non-empty subset of these (DATA-MODEL §3.2).
 export const PHASE_KEYS = ['cmo', 'survey', 'hld', 'lld', 'solution-package', 'bom', 'deployment', 'cmdb', 'handover']
 
-const PROGRESS_WEIGHT = {
+export const PROGRESS_WEIGHT = {
   not_started: 0,
   in_progress: 0.5,
   awaiting_approval: 0.75,

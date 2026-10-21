@@ -463,6 +463,24 @@ export function buildRegistry() {
   route('post', `${PUB}/view`, 'Public: the package (or change request) behind a link, read-only; password required, 5 wrong passwords lock the link for 15 minutes', { params: tok, body: C.publicViewBody, errors: { 401: err('Wrong password'), 410: err('Expired or revoked'), 429: err('Locked') } })
   route('post', `${PUB}/decision`, "Public: the client's decision (approve, request changes, reject) with name, role, comments, acceptance and an optional signature; expiry checked at submit", { params: tok, body: C.publicDecisionBody, errors: { 401: err('Wrong password'), 409: err('Already decided'), 410: err('Expired or revoked'), 429: err('Locked') } })
 
+  // --- M7a-1: schedule (brief v2.2 §21.1–21.4, §21.7–21.8) ---
+  const SCH = `${PR}/schedule`
+  const scope404 = { 404: err('A building outside the caller\u2019s scope') }
+  route('get', SCH, 'The Gantt: buildings in scope × active phases with start, target, completion (phase history), status, progress and risk; milestones, dependencies, critical path and SLAs, by the organisation\u2019s local date', {})
+  route('put', `${SCH}/targets`, 'Set phase start and target dates (Org Admin, PM; local dates YYYY-MM-DD); audited per building', { body: C.scheduleTargetsBody, errors: { 400: err('Not an active phase, or a start after the target'), ...scope404 } })
+  route('put', `${SCH}/settings`, 'Risk thresholds and parallel phases (Org Admin, unscoped PM); audited', { body: C.scheduleSettingsBody, errors: { 403: err('A scoped PM') } })
+  route('post', `${SCH}/milestones`, 'Add a custom milestone to a building or the project (Org Admin, PM); audited', { body: C.milestoneCreateBody, status: 201, errors: scope404 })
+  route('put', `${SCH}/milestones/standard`, 'Move a standard milestone\u2019s due date for a building (null = the phase target); audited', { body: C.standardMilestoneDueBody, errors: scope404 })
+  route('patch', `${SCH}/milestones/{id}`, 'Change a custom milestone: name, due date, done on; audited', { params: p({ id: 1 }), body: C.milestoneUpdateBody, errors: scope404 })
+  route('delete', `${SCH}/milestones/{id}`, 'Delete a custom milestone; audited', { params: p({ id: 1 }), errors: scope404 })
+  route('post', `${SCH}/dependencies`, 'A cross-building dependency: one building\u2019s phase finishes before another\u2019s starts; no loops; audited', { body: C.dependencyCreateBody, status: 201, errors: { 400: err('The same building, or an inactive phase'), 409: err('dependency_exists or dependency_cycle'), ...scope404 } })
+  route('delete', `${SCH}/dependencies/{id}`, 'Delete a dependency (both buildings in scope); audited', { params: p({ id: 1 }), errors: scope404 })
+  route('post', `${SCH}/slas`, 'An SLA: a due date over the buildings × phases in its scope; audited', { body: C.slaCreateBody, status: 201, errors: { 403: err('Project-wide by a scoped PM'), ...scope404 } })
+  route('patch', `${SCH}/slas/{id}`, 'Change an SLA (a new due date re-arms its alerts); audited', { params: p({ id: 1 }), body: C.slaUpdateBody, errors: scope404 })
+  route('delete', `${SCH}/slas/{id}`, 'Delete an SLA; audited', { params: p({ id: 1 }), errors: scope404 })
+  route('get', `${SCH}/slas/{id}/burndown`, 'Remaining items per local day with the ideal line, over the caller\u2019s buildings', { params: p({ id: 1 }), errors: scope404 })
+  route('patch', `${SCH}/buildings/{id}/assignees`, 'The building\u2019s primary Architect and Field Engineer (members whose scope covers it); audited', { params: p({ id: 1 }), body: C.buildingAssigneesBody, errors: { 400: err('Not such a member of the project'), ...scope404 } })
+
   // --- M5b: tasks, notifications, audit log screen ---
   const T = `${PR}/tasks`
   route('get', T, 'Tasks of the project in the caller’s scope, filtered by status, assignee, building, related object and overdue', { query: C.taskListQuery })

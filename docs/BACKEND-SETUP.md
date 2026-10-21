@@ -250,6 +250,23 @@ The check must come back empty. Run test suites one at a time: two at once
 (or a test suite next to a build or other heavy work) can push tests past
 their timeouts.
 
+## Backfilling phase history (M7a-1, once per environment)
+
+Phase completion dates feed the SLA burn-downs. From M7a-1 the server records
+them as they happen (`phaseHistory`, append-only). Phases finished before
+that are filled in once, from the audit log, by a script — never on server
+start:
+
+```bash
+cd server
+node scripts/backfill-phase-history.mjs
+```
+
+It reads `server/.env` like the API, prints how many rows it wrote, and is
+idempotent: a second run writes nothing. Rows it writes are marked derived;
+where the audit log has no evidence of when a phase finished, the date stays
+empty and is shown as "date unknown" — the script never invents a date.
+
 ## Running MongoDB yourself instead of Atlas
 
 Any single-node replica set works, including the one the VPS will run. Start

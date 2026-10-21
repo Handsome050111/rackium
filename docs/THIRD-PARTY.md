@@ -54,3 +54,13 @@ matching the sourced icons' visual language:
 
 Per instruction, no icons were taken from `aci686/Network-Icons-SVG` or any
 Cisco/Microsoft stencil set.
+
+## Gantt chart (M7a-1) — built in-house, no library
+
+The project schedule's Gantt (`client/src/components/schedule/Gantt.jsx`,
+geometry in `client/src/lib/ganttLayout.js`) and the SLA burn-down
+(`client/src/components/schedule/BurndownChart.jsx`) are written for Rackium
+in plain React, HTML and SVG. No third-party Gantt or chart library is used
+(none GPL or commercial — dhtmlx-gantt, Bryntum and similar were ruled out),
+and no new package was added to `package.json` for them. Icons come from
+`lucide-react` (ISC), already a dependency.

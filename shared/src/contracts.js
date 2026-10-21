@@ -7,6 +7,7 @@ import { ALL_ROLES, PROJECT_ROLES, ORG_MEMBER_ROLE } from './policy.js'
 import { PHASE_KEYS } from './phaseCalculations.js'
 import { NOTIFICATION_TYPE_KEYS, DELIVERY_MODE_KEYS, TASK_STATUSES, TASK_RELATED_TYPES } from './notifications.js'
 import { isValidTimeZone } from './timeZone.js'
+import { isLocalDate, STANDARD_MILESTONE_KEYS } from './schedule.js'
 import { catalogueItemSchema, CATEGORY_GROUPS, CATALOGUE_CATEGORIES, OPTIC_MEDIA } from './catalogue.js'
 
 export const PASSWORD_MIN = 12
@@ -866,3 +867,26 @@ export const publicDownloadBody = z.object({ password: z.string().max(128).defau
 export const logoBody = z.object({ dataUrl: z.string().max(800_000).regex(/^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/, 'Use a PNG or JPEG image') })
 export const scheduleHeadingsBody = z.object({ headings: z.record(z.string().trim().min(1).max(30), z.string().trim().max(60)) })
 export const handoverDeliverBody = z.object({ password: sharePassword.optional(), expiryDays: z.number().int().min(1).max(30).default(14) })
+
+// --- M7a-1: schedule (targets, milestones, dependencies, SLAs) --------------
+const localDay = z.string().refine(isLocalDate, 'Use a date as YYYY-MM-DD')
+const schedulePhase = z.enum(PHASE_KEYS)
+export const scheduleTargetsBody = z.object({
+  targets: z
+    .array(z.object({ buildingId: objectId, phaseKey: schedulePhase, startDate: localDay.nullable().optional(), targetDate: localDay.nullable().optional() }))
+    .min(1)
+    .max(1000),
+})
+export const scheduleSettingsBody = z.object({
+  riskElapsedPct: z.number().int().min(1).max(100).optional(),
+  riskProgressPct: z.number().int().min(1).max(100).optional(),
+  parallelPhases: z.array(schedulePhase).max(PHASE_KEYS.length).optional(),
+})
+export const milestoneCreateBody = z.object({ buildingId: objectId.nullable().optional(), name: z.string().trim().min(1).max(120), dueDate: localDay.nullable().optional() })
+export const milestoneUpdateBody = z.object({ name: z.string().trim().min(1).max(120).optional(), dueDate: localDay.nullable().optional(), completedOn: localDay.nullable().optional() })
+export const standardMilestoneDueBody = z.object({ buildingId: objectId, standardKey: z.enum(STANDARD_MILESTONE_KEYS), dueDate: localDay.nullable() })
+const dependencyEnd = z.object({ buildingId: objectId, phaseKey: schedulePhase })
+export const dependencyCreateBody = z.object({ from: dependencyEnd, to: dependencyEnd })
+export const slaCreateBody = z.object({ name: z.string().trim().min(1).max(120), buildingId: objectId.nullable().optional(), phaseKey: schedulePhase.nullable().optional(), startDate: localDay.optional(), dueDate: localDay })
+export const slaUpdateBody = z.object({ name: z.string().trim().min(1).max(120).optional(), startDate: localDay.optional(), dueDate: localDay.optional() })
+export const buildingAssigneesBody = z.object({ primaryArchitectId: objectId.nullable().optional(), primaryFieldEngineerId: objectId.nullable().optional() })

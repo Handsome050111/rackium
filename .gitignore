@@ -24,3 +24,4 @@ server/e2e/.runtime-emails.json
 server/var/
 server/e2e/.runtime-files/
 client/dist-real/
+logs/
