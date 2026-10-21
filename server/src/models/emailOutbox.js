@@ -12,7 +12,10 @@ const emailOutboxSchema = new mongoose.Schema({
   to: { type: String, required: true },
   subject: { type: String, required: true },
   text: { type: String, required: true },
-  kind: { type: String, enum: ['notification', 'digest'], required: true },
+  kind: { type: String, enum: ['notification', 'digest', 'dguv_weekly'], required: true },
+  // The weekly DGUV digest (M7a-2): one row per user and send date, each
+  // reminder appended once as it is claimed; sent at `notBefore`.
+  items: { type: [new mongoose.Schema({ title: String, link: String, projectName: String }, { _id: false })], default: undefined },
   dedupeKey: { type: String, required: true, unique: true },
   status: { type: String, enum: ['pending', 'sending', 'sent', 'failed'], default: 'pending' },
   attempts: { type: Number, default: 0 },

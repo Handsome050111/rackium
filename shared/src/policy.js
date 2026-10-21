@@ -21,6 +21,8 @@ export const ROLE_LABELS = {
 
 export const ACTIONS = {
   MANAGE_USERS_SETTINGS_CATALOGUE: 'manage_users_settings_catalogue',
+  // Field help / tooltips (v2.3 §4.3; M7a-2): Org Admin only.
+  MANAGE_TOOLTIPS: 'manage_tooltips',
   INVITE_PROJECT_MEMBERS: 'invite_project_members',
   CREATE_BUILDINGS_SET_TARGETS: 'create_buildings_set_targets',
   FILL_SURVEY_UPLOAD_PHOTOS: 'fill_survey_upload_photos',
@@ -97,6 +99,7 @@ const MATRIX = {
   [ACTIONS.MANAGE_HIERARCHY_DETAIL]: ['org_admin', 'pm', 'architect'],
   [ACTIONS.RAISE_BLOCKER]: ['pm', 'architect', 'reviewer', 'field_engineer', 'viewer'],
   [ACTIONS.VIEW_AS]: ['org_admin'],
+  [ACTIONS.MANAGE_TOOLTIPS]: ['org_admin'],
   [ACTIONS.IMPORT_CMO]: ['org_admin', 'pm'],
   [ACTIONS.ASSIGN_CMO_DEVICE]: ['pm'],
   [ACTIONS.EDIT_SITE_STRUCTURE]: ['org_admin', 'pm', 'architect', 'field_engineer'],

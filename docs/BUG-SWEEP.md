@@ -861,6 +861,50 @@ Decisions waiting on the client (DATA-MODEL "Pending client confirmation"):
 the SLA breach escalates to the organisation's Org Admins (as "owner"), and
 DGUV exempt status (M7a-2).
 
+## Part 13: M7a-2 — global search, DGUV dashboards, field help
+
+New: the top bar's global search (DATA-MODEL §5.16: every kind the brief
+lists, existing labels, MACs in any notation, panel ports; each result checked
+with its screen's own access rule; no prices, branches or snapshots; indexes),
+the DGUV compliance rollup with drill-down and CSV, the weekly DGUV digest as
+the email side of the M6a reminders, and field help (placeholder defaults
+from the survey hints, the Org Admin's plain text and stripped photos, the ⓘ
+in the survey forms).
+
+Found and fixed while building it, each with a test:
+
+- **Search was too slow on a large project** (10,000 devices, 20,000
+  connections): every lookup ran one after the other and every candidate's
+  access was checked one by one — about 220 ms with no match, 705 ms for a MAC
+  prefix with 50 results. Now the lookups run together, the cable scan uses
+  the lower-case key, and candidates are ranked before their screens' access
+  checks run in batches, only until 50 are accepted: medians 131–331 ms
+  (target < 500 ms). Test: `api.search-perf.test.js` (numbers in
+  `logs/search-perf.json`).
+- **The top bar overflowed a 390 px phone** once the search icon was added
+  (by 8 px, then 1.5 px). The icon sits with the other buttons, and in real
+  mode the wordmark and the gaps are smaller on phones. Test:
+  `e2e-real/m7a2.spec.js` (the phone page has no horizontal overflow; it
+  failed before the fix).
+- **No survey field with a template hint showed its ⓘ until a row was
+  added**: all 37 hinted fields are table columns, and an empty table had no
+  header. An empty table now lists its columns with their help (real mode
+  only; mock mode unchanged). Test: `e2e-real/m7a2.spec.js` (the placeholder
+  help of "Building SAL code/Name").
+- **The help popover lost its button**: inside a table header it was clipped
+  by the table's scroll area, and after a window resize it stayed where it
+  was — the resize handler called `contains()` with the window and threw
+  (an uncaught error the console check did not see). The popover is fixed to
+  the viewport, follows its button on scroll and resize, and the spec now
+  records page errors too. Test: `e2e-real/m7a2.spec.js` ("help next to its
+  button" at every width; fails with the old handler).
+
+Found, not fixed: while the DGUV page loads the next level, the previous
+level's rows stay on screen and can be clicked again (harmless — it opens the
+same place). Noted for the cleanup pass.
+
+Not built, waiting on the client: a DGUV "exempt" status (DATA-MODEL §11).
+
 ## Backlog for the final cleanup
 
 Known, harmless today, left for one cleanup pass before release:
@@ -875,3 +919,6 @@ Known, harmless today, left for one cleanup pass before release:
   the panel (or the form) on the data so React remounts it instead.
   Behaviour is covered by `e2e-real/m7a1.spec.js`, so the change can be
   checked against it.
+- **DGUV dashboard: the previous level's rows stay clickable while the next
+  level loads** (M7a-2): harmless (it opens the same place again); show a
+  loading state over the table instead.

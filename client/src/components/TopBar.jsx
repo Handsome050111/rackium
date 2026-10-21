@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { Search, Settings, ChevronDown, Menu, FlaskConical, Check, WifiOff, Wifi, RotateCcw, Map } from 'lucide-react'
 import Logo from './Logo.jsx'
 import NotificationsPanel from './NotificationsPanel.jsx'
+import GlobalSearch, { PhoneSearch } from './GlobalSearch.jsx'
 import { useRole } from '../lib/RoleContext.jsx'
 import { ROLES } from '../lib/permissions.js'
 import { useOffline } from '../lib/OfflineContext.jsx'
@@ -140,7 +141,7 @@ export default function TopBar({ onMenuClick, settingsTo, orgId = null }) {
   const { buildingId = 'b001' } = useParams()
   const resolvedSettingsTo = settingsTo === null ? null : settingsTo ?? `/b/${buildingId}/settings`
   return (
-    <header className="flex h-16 shrink-0 items-center gap-3 border-b border-border bg-surface px-4 sm:px-6">
+    <header className={`flex h-16 shrink-0 items-center ${orgId ? 'gap-2 sm:gap-3' : 'gap-3'} border-b border-border bg-surface px-4 sm:px-6`}>
       <button
         type="button"
         onClick={onMenuClick}
@@ -150,22 +151,28 @@ export default function TopBar({ onMenuClick, settingsTo, orgId = null }) {
         <Menu size={22} strokeWidth={2} />
       </button>
 
-      <Logo className="shrink-0" />
+      {/* Real mode adds a search icon on phones: a smaller wordmark keeps the bar within 390 px. */}
+      <Logo className="shrink-0" heightClass={orgId ? 'h-6 sm:h-7' : 'h-7'} />
 
-      <div className="relative mx-2 hidden max-w-xl flex-1 sm:block">
-        <Search
-          size={18}
-          strokeWidth={2}
-          className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary"
-        />
-        <input
-          type="search"
-          placeholder="Search sites, buildings, rooms…"
-          className="h-11 w-full rounded-lg border border-border bg-surface-muted pl-10 pr-4 text-sm text-text placeholder:text-text-secondary focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20"
-        />
-      </div>
+      {orgId ? (
+        <GlobalSearch orgId={orgId} />
+      ) : (
+        <div className="relative mx-2 hidden max-w-xl flex-1 sm:block">
+          <Search
+            size={18}
+            strokeWidth={2}
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary"
+          />
+          <input
+            type="search"
+            placeholder="Search sites, buildings, rooms…"
+            className="h-11 w-full rounded-lg border border-border bg-surface-muted pl-10 pr-4 text-sm text-text placeholder:text-text-secondary focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20"
+          />
+        </div>
+      )}
 
       <div className="ml-auto flex items-center gap-1 sm:gap-2">
+        {orgId && <PhoneSearch orgId={orgId} />}
         <NotificationsPanel orgId={orgId} />
         {resolvedSettingsTo && (
           <Link

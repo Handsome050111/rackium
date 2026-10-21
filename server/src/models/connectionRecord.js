@@ -48,5 +48,7 @@ const connectionRecordSchema = new mongoose.Schema({
 connectionRecordSchema.__modelName = 'ConnectionRecord'
 tenantScope(connectionRecordSchema, { scope: 'project' })
 connectionRecordSchema.index({ projectId: 1, connectionId: 1 }, { unique: true })
+// Global search (M7a-2): the as-built cable IDs, case-insensitive.
+connectionRecordSchema.index({ projectId: 1, 'installed.segments.cableId': 1 }, { collation: { locale: 'en', strength: 2 } })
 
 export const ConnectionRecord = mongoose.models.ConnectionRecord || mongoose.model('ConnectionRecord', connectionRecordSchema)

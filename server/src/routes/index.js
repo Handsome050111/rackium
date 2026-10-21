@@ -13,6 +13,9 @@ import { surveyRoutes } from './survey.js'
 import { hldRoutes } from './hld.js'
 import { taskRoutes, meRoutes } from './tasks.js'
 import { scheduleRoutes } from './schedule.js'
+import { searchRoutes } from './search.js'
+import { dguvRoutes } from './dguv.js'
+import { fieldHelpRoutes } from './fieldHelp.js'
 import { lldRoutes } from './lld.js'
 import { deliveryRoutes, publicRoutes } from './delivery.js'
 import { fileRoutes } from './files.js'
@@ -22,7 +25,7 @@ import { documentRoutes, projectBrandingRoutes, orgBrandingRoutes, handoverRoute
 
 export const API_VERSION = '1'
 
-export function apiRouter({ config, auth, org, auditLog, hierarchy, blockers, viewAs, dashboard, catalogue, cmo, survey, files, hld, lld, delivery, tasks, notifications, deployment, cmdb, documents, handover, schedule, rateLimits, openapiDocument, version }) {
+export function apiRouter({ config, auth, org, auditLog, hierarchy, blockers, viewAs, dashboard, catalogue, cmo, survey, files, hld, lld, delivery, tasks, notifications, deployment, cmdb, documents, handover, schedule, search, dguv, fieldHelp, rateLimits, openapiDocument, version }) {
   const r = recordingRouter()
 
   r.get('/health', (req, res) => {
@@ -44,6 +47,9 @@ export function apiRouter({ config, auth, org, auditLog, hierarchy, blockers, vi
     ['/orgs/:orgId', meRoutes({ config, tasks, notifications })],
     ['/orgs/:orgId/projects/:projectId/tasks', taskRoutes({ config, tasks })],
     ['/orgs/:orgId/projects/:projectId/schedule', scheduleRoutes({ config, schedule })],
+    ['/orgs/:orgId', searchRoutes({ config, search })],
+    ['/orgs/:orgId/projects/:projectId/dguv', dguvRoutes({ config, dguv })],
+    ['/orgs/:orgId', fieldHelpRoutes({ config, fieldHelp })],
     ['/orgs/:orgId/projects/:projectId/hierarchy', hierarchyRoutes({ config, hierarchy })],
     ['/orgs/:orgId/projects/:projectId/blockers', blockersRoutes({ config, blockers })],
     ['/orgs/:orgId/projects/:projectId/dashboard', dashboardRoutes({ config, dashboard })],

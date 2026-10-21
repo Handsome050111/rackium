@@ -82,5 +82,8 @@ tenantScope(deploymentRecordSchema, { scope: 'project' })
 deploymentRecordSchema.index({ projectId: 1, deviceId: 1 }, { unique: true })
 // MAC unique per project among installed devices (CMO gear is checked in the service).
 deploymentRecordSchema.index({ projectId: 1, 'installation.mac': 1 }, { unique: true, partialFilterExpression: { 'installation.mac': { $type: 'string' } } })
+// Global search (M7a-2, DATA-MODEL §5.16): case-insensitive serial and asset ID.
+deploymentRecordSchema.index({ projectId: 1, 'installation.serial': 1 }, { collation: { locale: 'en', strength: 2 } })
+deploymentRecordSchema.index({ projectId: 1, assetTag: 1 }, { collation: { locale: 'en', strength: 2 } })
 
 export const DeploymentRecord = mongoose.models.DeploymentRecord || mongoose.model('DeploymentRecord', deploymentRecordSchema)

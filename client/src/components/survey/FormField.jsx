@@ -4,6 +4,8 @@ import RequirementBadge from './RequirementBadge.jsx'
 import { parseHintOptions, fieldFormatError } from '../../lib/surveyFormModel.js'
 import { useSurveyMedia } from './SurveyMediaContext.js'
 import { PhotoField, FileField } from './PhotoField.jsx'
+import FieldHelpButton from './FieldHelpButton.jsx'
+import { FieldKeyContext } from '../../lib/fieldHelpContext.js'
 
 const inputClass =
   'h-9 w-full rounded-lg border border-border bg-surface px-2.5 text-xs text-text focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20 disabled:cursor-not-allowed disabled:bg-surface-muted disabled:text-text-secondary'
@@ -19,7 +21,16 @@ const SERIAL_STATUS_STYLE = {
 // site-structure/rack-survey data — shown read-only regardless of
 // `editable`, never a value the user re-types (brief: "Auto-fill from
 // existing data where obvious... show such fields as calculated/read-only").
-export default function FormField({ field, value, confirmed, onChange, onConfirm, editable, calculatedValue, onValidateSerial, linkTo, compact }) {
+// The field's key reaches its label's ⓘ (field help, M7a-2; real mode only).
+export default function FormField(props) {
+  return (
+    <FieldKeyContext.Provider value={props.field?.key ?? null}>
+      <FormFieldBody {...props} />
+    </FieldKeyContext.Provider>
+  )
+}
+
+function FormFieldBody({ field, value, confirmed, onChange, onConfirm, editable, calculatedValue, onValidateSerial, linkTo, compact }) {
   const [serialStatus, setSerialStatus] = useState(null)
   const [checking, setChecking] = useState(false)
   const media = useSurveyMedia()
@@ -216,6 +227,7 @@ function Field({ label, requirement, hint, compact, asDiv, children }) {
       <span className="flex items-center gap-1.5 text-xs text-text-secondary">
         {label}
         <RequirementBadge requirement={requirement} />
+        <FieldHelpButton label={label} />
       </span>
       {children}
       {hint && !parseHintOptions(hint) && <p className="text-[10px] text-text-secondary">{hint}</p>}

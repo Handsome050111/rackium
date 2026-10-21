@@ -28,6 +28,7 @@ import { API_MODE } from './lib/apiMode.js'
 import OrganisationSettings from './pages/OrganisationSettings.jsx'
 import RealTasks from './pages/RealTasks.jsx'
 import RealSchedule from './pages/RealSchedule.jsx'
+import RealDguv from './pages/RealDguv.jsx'
 import AuditLog from './pages/AuditLog.jsx'
 import NotificationPreferences from './pages/NotificationPreferences.jsx'
 import Catalogue from './pages/Catalogue.jsx'
@@ -147,6 +148,7 @@ export default function App() {
         <Route path="tasks" element={<RealTasks key="mine" />} />
         <Route path="projects/:projectId/tasks" element={<RealTasks key="project" />} />
         <Route path="projects/:projectId/schedule" element={<RealSchedule />} />
+        <Route path="projects/:projectId/dguv" element={<RealDguv />} />
         <Route path="audit" element={<AuditLog />} />
         <Route path="notifications/preferences" element={<NotificationPreferences />} />
         <Route path="catalogue" element={<Catalogue />} />

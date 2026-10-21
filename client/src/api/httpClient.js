@@ -15,15 +15,20 @@ export class ApiError extends Error {
   }
 }
 
-export async function apiRequest(path, { method = 'GET', body } = {}) {
-  const init = { method, credentials: 'include', headers: {} }
+// `headers`: extra request headers. A Blob/File `body` is sent as is (its own
+// type), e.g. a photo upload; anything else as JSON.
+export async function apiRequest(path, { method = 'GET', body, headers = {} } = {}) {
+  const init = { method, credentials: 'include', headers: { ...headers } }
   const viewAs = getViewAsSession()
   // Only attach it to requests inside the viewed project — otherwise, once
   // the viewer navigates elsewhere without clicking Exit first, every other
   // project's reads would also 403 (the server checks the session's own
   // project, but there's no reason to send it where it cannot apply).
   if (viewAs && path.includes(`/projects/${viewAs.projectId}/`)) init.headers['X-View-As-Session'] = viewAs.id
-  if (body !== undefined) {
+  if (typeof Blob !== 'undefined' && body instanceof Blob) {
+    init.headers['Content-Type'] = body.type || 'application/octet-stream'
+    init.body = body
+  } else if (body !== undefined) {
     init.headers['Content-Type'] = 'application/json'
     init.body = JSON.stringify(body)
   }

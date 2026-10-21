@@ -9,6 +9,7 @@ import { useRealSurveySync } from '../../lib/RealSurveySync.jsx'
 import { useProjectRoles } from '../../lib/useProjectRoles.js'
 import { newObjectId, baseOf } from '../../lib/realOfflineQueue.js'
 import { formatValue } from '../../lib/realSurveyModel.js'
+import FieldHelpProvider from '../../lib/FieldHelpProvider.jsx'
 
 const TEXT_DEBOUNCE_MS = 600
 
@@ -268,6 +269,7 @@ export default function RealSurveyTabForm({ orgId, projectId, buildingId, roomId
 
   return (
     <SurveyMediaContext.Provider value={media}>
+      <FieldHelpProvider orgId={orgId} tab={tabName}>
       <SurveyTabFormView
         tabDef={viewTabDef}
         sections={sections}
@@ -288,6 +290,7 @@ export default function RealSurveyTabForm({ orgId, projectId, buildingId, roomId
         notice={notice}
         handlers={handlers}
       />
+      </FieldHelpProvider>
     </SurveyMediaContext.Provider>
   )
 }

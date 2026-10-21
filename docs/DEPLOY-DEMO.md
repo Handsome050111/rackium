@@ -143,3 +143,20 @@ The demo above is static. When the Express API runs on the same VPS:
 - Nginx must set the header. In the API `location` block add
   `proxy_set_header X-Forwarded-For $remote_addr;`, which replaces any value
   the client sent instead of appending to it.
+
+## Go-live checklist (staging, then production)
+
+Once per environment, after the API with that release is deployed and
+before users rely on the new screens:
+
+- [ ] **Phase history backfill (M7a-1).** On the server, with the
+  environment's `server/.env`: `cd server && node scripts/backfill-phase-history.mjs`.
+  It prints how many rows it wrote; a second run writes 0. Rows are marked
+  derived; phases with no audit evidence get no date ("date unknown"). See
+  BACKEND-SETUP, "Backfilling phase history". There is no dev database with
+  real data, so this first runs on staging.
+- [ ] **Indexes (M7a-2).** The API builds the new search indexes on start
+  (Mongoose `autoIndex`). On a large database, check they exist before
+  opening search to users: `db.devices.getIndexes()` lists the
+  `hostname`, `label`, `existingLabel` and `installation.serial` indexes
+  (collation `en`, strength 2).

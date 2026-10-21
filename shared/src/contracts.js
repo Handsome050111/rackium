@@ -890,3 +890,14 @@ export const dependencyCreateBody = z.object({ from: dependencyEnd, to: dependen
 export const slaCreateBody = z.object({ name: z.string().trim().min(1).max(120), buildingId: objectId.nullable().optional(), phaseKey: schedulePhase.nullable().optional(), startDate: localDay.optional(), dueDate: localDay })
 export const slaUpdateBody = z.object({ name: z.string().trim().min(1).max(120).optional(), startDate: localDay.optional(), dueDate: localDay.optional() })
 export const buildingAssigneesBody = z.object({ primaryArchitectId: objectId.nullable().optional(), primaryFieldEngineerId: objectId.nullable().optional() })
+
+// --- M7a-2: global search, DGUV dashboards, field help (DATA-MODEL §5.16) ---
+export const searchQuery = z.object({ q: z.string().max(200), projectId: objectId.optional() })
+export const DGUV_LEVEL_KEYS = ['project', 'country', 'sal', 'building', 'floor', 'room', 'rack', 'device']
+export const DGUV_STATE_KEYS = ['overdue', 'not_inspected', 'expiring', 'expiring_soon', 'valid']
+export const dguvQuery = z.object({ level: z.enum(DGUV_LEVEL_KEYS).default('project'), id: objectId.optional(), status: z.enum(DGUV_STATE_KEYS).optional() })
+// Plain text (≤ 1000 characters each, as shared/fieldHelp.js); null clears a part.
+const helpText = z.string().max(1000).nullable().optional()
+export const fieldHelpBody = z.object({ meaning: helpText, lookFor: helpText, example: helpText, mistakes: helpText }).strict()
+export const fieldHelpListQuery = z.object({ prefix: z.string().regex(/^survey:[a-z0-9:_-]*$/).default('survey:') })
+export const fieldHelpKeyParam = z.object({ key: z.string().regex(/^survey:[a-z0-9-]+:[a-z0-9_]+$/) })
