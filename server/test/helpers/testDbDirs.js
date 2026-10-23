@@ -24,6 +24,36 @@ export function createDbDir(runDir) {
   return fs.mkdtempSync(path.join(runDir, 'mongo-mem-'))
 }
 
+// The files the test apps store (uploads, generated documents) go into one
+// folder per test process inside the run's folder: <run>/files-<pid>. Before
+// this they went to <tmp>/rackium-test-files-<pid> and nothing removed them —
+// 284 folders (143 MB) by M7a-2. The folder is removed after every test file
+// (test/setup/isolation.js, an afterAll that runs even when tests failed or
+// timed out) and when the process exits; a worker that crashed or was killed
+// is covered by the run teardown and the sweep, as for the databases.
+let filesDir = null
+let ownedRunDir = null
+
+export function testFilesDir(runDir = process.env.RACKIUM_TEST_DB_RUN) {
+  if (filesDir) return filesDir
+  let parent = runDir && fs.existsSync(runDir) ? runDir : null
+  // Outside a Vitest run (a script importing the helpers): a run folder of
+  // our own, so the sweep still finds it if this process is killed.
+  if (!parent) parent = ownedRunDir = createRunDir()
+  filesDir = path.join(parent, `files-${process.pid}`)
+  process.once('exit', () => {
+    removeDir(filesDir)
+    if (ownedRunDir) removeDir(ownedRunDir)
+  })
+  return filesDir
+}
+
+// Removes this process's file folder now; the next test file in the same
+// process starts with an empty one (file storage creates folders on write).
+export function removeTestFilesDir() {
+  return filesDir ? removeDir(filesDir) : true
+}
+
 export function pidAlive(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return false
   try {
@@ -81,4 +111,50 @@ export function sweepLeftovers({ root = TEST_DB_ROOT, isAlive = pidAlive, now = 
     else result.failed.push(dir)
   }
   return result
+}
+
+// Folders of the old layout, <tmp>/rackium-test-files-<pid>, left by runs
+// before the fix above. Only that exact name is touched. A pid can be reused
+// by an unrelated program long after the test ended, so a folder whose pid is
+// alive is still removed once it has not changed for a day — no test process
+// lives that long.
+const LEGACY_FILES_DIR = /^rackium-test-files-(\d+)$/
+const LEGACY_STALE_MS = 24 * 60 * 60 * 1000
+
+export function sweepLegacyFileDirs({ root = os.tmpdir(), isAlive = pidAlive, now = Date.now() } = {}) {
+  const result = { removed: [], inUse: [], failed: [], bytes: 0 }
+  let entries
+  try {
+    entries = fs.readdirSync(root, { withFileTypes: true })
+  } catch {
+    return result
+  }
+  for (const entry of entries) {
+    const match = entry.isDirectory() && LEGACY_FILES_DIR.exec(entry.name)
+    if (!match) continue
+    const dir = path.join(root, entry.name)
+    if (isAlive(Number(match[1])) && now - fs.statSync(dir).mtimeMs < LEGACY_STALE_MS) {
+      result.inUse.push(dir)
+      continue
+    }
+    const bytes = dirSize(dir)
+    if (removeDir(dir)) {
+      result.removed.push(dir)
+      result.bytes += bytes
+    } else result.failed.push(dir)
+  }
+  return result
+}
+
+function dirSize(dir) {
+  let total = 0
+  try {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, entry.name)
+      total += entry.isDirectory() ? dirSize(p) : fs.statSync(p).size
+    }
+  } catch {
+    // A file vanished while counting; the size is only for the report.
+  }
+  return total
 }

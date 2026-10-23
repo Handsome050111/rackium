@@ -214,13 +214,24 @@ Each in-memory database keeps its data on disk while tests run, in
 - each run first sweeps folders left by earlier runs that were killed outright.
 
 A folder is only ever swept when the process that created it has gone, so a
-test run in another terminal is never disturbed. To clean up by hand:
+test run in another terminal is never disturbed.
+
+Files the test apps store (uploads, generated documents) live in the same run
+folder, one per test process (`run-<id>/files-<pid>`). Each is removed when its
+test file ends — also after failed or timed-out tests — and when the process
+exits; the run teardown and the sweep catch a worker that crashed or was
+killed. Before M7a-3 they went to `<system temp>/rackium-test-files-<pid>` and
+were never removed; those old folders are swept too (at the start of a run
+and by `clean:test-db`), once their process has gone or they are a day old.
+
+To clean up by hand:
 
 ```bash
 npm run clean:test-db
 ```
 
-It only touches `rackium-test-db/run-*` folders whose run has ended. Other
+It only touches `rackium-test-db/run-*` folders whose run has ended and the
+old `rackium-test-files-<pid>` folders. Other
 `mongo-mem-*` folders in the temp folder (from other projects, or from runs
 before this was added) are left alone. Each folder can grow to a few hundred
 MB, and when the disk fills up `mongod` cannot start, so the API tests are
