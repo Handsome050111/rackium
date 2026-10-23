@@ -17,6 +17,7 @@ import { scheduleAlerts } from './schedule/service.js'
 import { forEachProject } from './notifications/jobs.js'
 import { closePdfBrowserIfLoaded } from './documents/render/chromium.js'
 import { configureNotifications } from './notifications/notify.js'
+import { sendScheduledReports } from './reports/schedules.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 dotenv.config({ path: path.join(here, '..', '.env'), quiet: true })
@@ -59,6 +60,8 @@ async function main() {
       { name: 'schedule-alerts', every: 15 * 60_000, run: ({ now }) => scheduleAlerts({ now, forEachProject }) },
       // Generated documents (M6b): queued jobs, and any whose run died. Requests also start it at once.
       { name: 'documents', every: 15_000, run: ({ now }) => app.__documents.process({ now }) },
+      // Scheduled reports (M7a-3): each at its local day and time; the email links to the recipient's own copy.
+      { name: 'report-schedules', every: 15 * 60_000, run: ({ now }) => sendScheduledReports({ now, documents: app.__documents }) },
     ],
   })
   // Queued notification mail goes out promptly, not only on the minute.

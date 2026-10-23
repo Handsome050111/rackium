@@ -136,8 +136,9 @@ npm run lint
 npm run build
 ```
 
-`test:server` runs the document-rendering tests (`api.m6b.test.js`, which
-start headless Chromium) in a second Vitest process after all other files, so
+`test:server` runs the document-rendering tests (`api.m6b.test.js` and
+`api.m7a3-pdf.test.js`, which start headless Chromium) in a second Vitest
+process after all other files, so
 PDF rendering can never slow the other API tests into their timeouts. Test
 files within each process run one at a time; each file has its own in-memory
 replica set, cleared before every test.
@@ -174,6 +175,10 @@ minute), task due-date reminders (every 15 minutes) and the daily digest
 email (checked every 15 minutes; each organisation's digest goes out at its
 own local digest time — Organisation settings → Time zone, default 07:00
 Europe/Berlin).
+Scheduled reports (M7a-3) are checked every 15 minutes too: each goes out
+on its day once the organisation's local time reaches its time, one copy per
+recipient (their own role and scope) and an email with a sign-in link — the
+file is never attached. In development the link points at `PUBLIC_APP_URL`.
 Jobs are stored in the `scheduledjobs` collection and claimed with a lock,
 so running several API processes never sends anything twice. Tests never
 start the scheduler; they call the jobs directly. In development, mail goes

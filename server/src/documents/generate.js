@@ -7,6 +7,7 @@ import { surveyTabForReport } from '@rackium/shared/documents/survey.js'
 import { HANDOVER_TYPES, typeOf, isInternal, INTERNAL_COST_MARK } from '@rackium/shared/documents/types.js'
 import { cableLabels, layoutLabels, labelSize, connectionPath } from '@rackium/shared/documents/labels.js'
 import * as A from '@rackium/shared/documents/assemble.js'
+import { REPORT_ASSEMBLERS, reportCsv } from '@rackium/shared/documents/reports.js'
 import { topologySvg } from '@rackium/shared/documents/svg.js'
 import { canSeePrices } from '@rackium/shared/policy.js'
 import { SurveyTabRecord } from '../models/surveyTabRecord.js'
@@ -146,6 +147,14 @@ export async function generate({ job, req, building, services, storage, branding
   }
   const priceRules = { prices: options.prices ?? 'none' }
   onStep('Reading the data')
+  // The seven standard reports (M7a-3): read with the requester's roles and scope.
+  if (typeOf(job.typeKey)?.report) {
+    const data = await services.reports.load(job.typeKey, req, { now: job.requestedAt ?? new Date(), options })
+    const out = REPORT_ASSEMBLERS[job.typeKey](ctx, data, priceRules)
+    if (job.format === 'xlsx') return { buffer: await renderXlsx(markSheets(out.sheets, internal)) }
+    if (job.format === 'csv') return { buffer: Buffer.from(`﻿${reportCsv(out.sheets, { internal })}`, 'utf8') }
+    return pdf(out.doc)
+  }
   switch (job.typeKey) {
     case 'hld-document': {
       const v = await services.hld.view(req, building.id)

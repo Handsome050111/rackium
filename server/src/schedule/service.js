@@ -165,7 +165,7 @@ async function procurementByBuilding() {
 }
 
 // Everything the schedule shows, for the given buildings (the caller's).
-async function computeSchedule({ buildings, now = new Date(), timeZone, scopeLimited = false }) {
+export async function computeSchedule({ buildings, now = new Date(), timeZone, scopeLimited = false }) {
   const today = localDate(now, timeZone)
   const project = await Project.findById(currentScope().projectId, { activePhases: 1 }).lean()
   const phaseKeys = (project?.activePhases ?? []).slice().sort((a, b) => a.position - b.position).map((p) => p.phaseKey).filter((p) => PHASE_KEYS.includes(p))

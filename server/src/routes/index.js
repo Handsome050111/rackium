@@ -22,10 +22,11 @@ import { fileRoutes } from './files.js'
 import { deploymentRoutes } from './deployment.js'
 import { cmdbRoutes } from './cmdb.js'
 import { documentRoutes, projectBrandingRoutes, orgBrandingRoutes, handoverRoutes } from './documents.js'
+import { insightRoutes, orgInsightRoutes } from './insights.js'
 
 export const API_VERSION = '1'
 
-export function apiRouter({ config, auth, org, auditLog, hierarchy, blockers, viewAs, dashboard, catalogue, cmo, survey, files, hld, lld, delivery, tasks, notifications, deployment, cmdb, documents, handover, schedule, search, dguv, fieldHelp, rateLimits, openapiDocument, version }) {
+export function apiRouter({ config, auth, org, auditLog, hierarchy, blockers, viewAs, dashboard, catalogue, cmo, survey, files, hld, lld, delivery, tasks, notifications, deployment, cmdb, documents, handover, schedule, search, dguv, fieldHelp, insights, reportSchedules, rateLimits, openapiDocument, version }) {
   const r = recordingRouter()
 
   r.get('/health', (req, res) => {
@@ -68,6 +69,9 @@ export function apiRouter({ config, auth, org, auditLog, hierarchy, blockers, vi
     ['/orgs/:orgId/projects/:projectId', projectBrandingRoutes({ config, documents })],
     ['/orgs/:orgId', orgBrandingRoutes({ config, documents })],
     ['/orgs/:orgId/projects/:projectId/handover', handoverRoutes({ config, handover })],
+    // M7a-3: dashboards, workload, analytics, report schedules.
+    ['/orgs/:orgId/projects/:projectId', insightRoutes({ config, insights, reportSchedules })],
+    ['/orgs/:orgId', orgInsightRoutes({ config, insights })],
   ]
   for (const [prefix, subRouter] of mounts) {
     r.use(prefix, subRouter)

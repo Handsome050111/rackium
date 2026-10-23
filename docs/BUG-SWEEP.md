@@ -905,6 +905,45 @@ same place). Noted for the cleanup pass.
 
 Not built, waiting on the client: a DGUV "exempt" status (DATA-MODEL §11).
 
+## Part 14: M7a-3 — dashboards, workload, reports, analytics
+
+New (DATA-MODEL §5.17): the project dashboard with its country/SAL rollup,
+the organisation dashboard, the workload matrix, the seven standard reports
+in the M6b engine (PDF, CSV, Excel), scheduled reports, and analytics (six
+metrics with monthly trends). Everything is counted over the buildings the
+caller can open; figures per person for the Org Admin and PM only; BOM
+values for those who may see prices only.
+
+Found and fixed, each with a test:
+
+- **Test file stores were never removed** (before the branch, carried over
+  from M7a-2): every test process stored uploads and generated documents in
+  `<tmp>/rackium-test-files-<pid>` — 284 folders, 143 MB, deleted at the
+  start of this branch. Each process's folder now lives inside the run's
+  folder, is removed after every test file (also after failed or timed-out
+  tests) and on exit; the run teardown and the sweep catch killed workers;
+  `npm run clean:test-db` and the start of each run sweep the old folders.
+  Tests: `testDbCleanup.test.js` (a child Vitest run with a failing and a
+  timed-out test; child processes that end normally, throw, or call
+  `process.exit`; the old-layout sweep) — three fail with the old helper.
+- **The organisation dashboard could add another project's tasks to a named
+  person's figures**: a PM in one project and Viewer in another would have
+  seen the Field Engineer's task counts from both. Named rows now count only
+  projects where the caller is the Org Admin or a PM. Test:
+  `api.m7a3.test.js` ("the workload matrix …"; fails without the fix).
+- **CSV and Excel reports did not say what they cover**: the coverage line
+  ("Covers N building(s) — the buildings in your scope") and the key figures
+  were only in the PDF. Both now start with a Summary sheet. Test:
+  `api.m7a3.test.js` ("each is generated as CSV and Excel with the
+  requester's scope").
+
+Checked by removing the rule and seeing its test fail: a report readable
+only by its requester; BOM values only with price visibility; named
+cross-project figures only from projects where the caller is Org Admin or PM.
+
+Decisions to confirm with the client (DATA-MODEL §11): the sixth analytics
+metric (blocker resolution time) and the BOM accuracy variance definition.
+
 ## Backlog for the final cleanup
 
 Known, harmless today, left for one cleanup pass before release:

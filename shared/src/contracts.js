@@ -9,6 +9,7 @@ import { NOTIFICATION_TYPE_KEYS, DELIVERY_MODE_KEYS, TASK_STATUSES, TASK_RELATED
 import { isValidTimeZone } from './timeZone.js'
 import { isLocalDate, STANDARD_MILESTONE_KEYS } from './schedule.js'
 import { catalogueItemSchema, CATEGORY_GROUPS, CATALOGUE_CATEGORIES, OPTIC_MEDIA } from './catalogue.js'
+import { REPORT_KEYS, REPORT_FORMATS, SCHEDULE_FREQUENCIES } from './reports.js'
 
 export const PASSWORD_MIN = 12
 export const PASSWORD_MAX = 128
@@ -901,3 +902,38 @@ const helpText = z.string().max(1000).nullable().optional()
 export const fieldHelpBody = z.object({ meaning: helpText, lookFor: helpText, example: helpText, mistakes: helpText }).strict()
 export const fieldHelpListQuery = z.object({ prefix: z.string().regex(/^survey:[a-z0-9:_-]*$/).default('survey:') })
 export const fieldHelpKeyParam = z.object({ key: z.string().regex(/^survey:[a-z0-9-]+:[a-z0-9_]+$/) })
+
+// --- M7a-3: dashboards, workload, reports, report schedules, analytics ---
+// Recipients are members, named by id — never free-text email addresses
+// (the schema is strict: an `emails` field is refused).
+const scheduleTiming = {
+  frequency: z.enum(SCHEDULE_FREQUENCIES),
+  weekday: z.number().int().min(0).max(6).optional(),
+  dayOfMonth: z.number().int().min(1).max(28).optional(),
+  time: digestTimeSchema.optional(),
+}
+const timingProblem = (b) => (b.frequency === 'weekly' && b.weekday === undefined) || (b.frequency === 'monthly' && b.dayOfMonth === undefined)
+export const reportScheduleBody = z
+  .object({
+    name: z.string().trim().max(120).optional(),
+    typeKey: z.enum(REPORT_KEYS),
+    format: z.enum(REPORT_FORMATS),
+    prices: z.enum(['none', 'sell', 'cost']).default('none'),
+    ...scheduleTiming,
+    recipientIds: z.array(objectId).min(1).max(50),
+  })
+  .strict()
+  .refine((b) => !timingProblem(b), { message: 'A weekly schedule needs a weekday; a monthly one a day of the month (1–28)' })
+export const reportScheduleUpdateBody = z
+  .object({
+    name: z.string().trim().max(120).optional(),
+    format: z.enum(REPORT_FORMATS).optional(),
+    prices: z.enum(['none', 'sell', 'cost']).optional(),
+    frequency: z.enum(SCHEDULE_FREQUENCIES).optional(),
+    weekday: z.number().int().min(0).max(6).optional(),
+    dayOfMonth: z.number().int().min(1).max(28).optional(),
+    time: digestTimeSchema.optional(),
+    recipientIds: z.array(objectId).min(1).max(50).optional(),
+    paused: z.boolean().optional(),
+  })
+  .strict()

@@ -1,6 +1,8 @@
 // Generated documents (brief v2.2 §3.11, §10, §11.8; v2.3 §5.5, §5.9; M6b).
 // One registry: what each document is, its formats, whether it belongs to
 // the handover package, and whether it can carry prices.
+import { REPORTS, REPORT_FORMATS } from '../reports.js'
+import { can, ACTIONS } from '../policy.js'
 
 export const DOCUMENT_TYPES = [
   // The 11 handover documents (v2.2 §3.11), in package order.
@@ -22,6 +24,9 @@ export const DOCUMENT_TYPES = [
   { key: 'audit-log', name: 'Audit log', formats: ['csv', 'pdf'], scope: 'project' },
   { key: 'cable-labels', name: 'Cable labels', formats: ['pdf'] },
   { key: 'handover-package', name: 'Handover package', formats: ['zip'], system: true },
+  // The seven standard reports (v2.2 §21.9; M7a-3): project-level, for the
+  // requester only (their roles and scope shaped the content).
+  ...REPORTS.map((r) => ({ key: r.key, name: `${r.name} report`, formats: REPORT_FORMATS, scope: 'project', report: true, ...(r.prices ? { prices: true } : {}), ...(r.person ? { person: true } : {}) })),
 ]
 export const DOCUMENT_TYPE_KEYS = DOCUMENT_TYPES.map((t) => t.key)
 export const HANDOVER_TYPES = DOCUMENT_TYPES.filter((t) => t.handover)
@@ -67,5 +72,10 @@ export function requestProblem({ typeKey, format, options = {}, roles = [], canS
   if (prices === 'cost' && !roles.some((r) => COST_ROLES.includes(r))) return 'Only an Org Admin, PM or Reviewer exports cost prices (internal documents)'
   if (prices === 'sell' && !canSeePrices) return 'Only those who may see prices can export them'
   if (typeKey === 'audit-log' && !roles.some((r) => ['org_admin', 'pm', 'architect', 'reviewer'].includes(r))) return 'Only an Org Admin, PM, Architect or Reviewer exports the audit log'
+  if (type.person && !can(roles, ACTIONS.VIEW_PERSON_METRICS)) return `Only an Org Admin or PM requests the ${type.name} (it shows figures per person)`
   return null
 }
+
+// Reports are made for one person (their roles and scope chose the content):
+// only they list and download them.
+export const isPersonalDocument = (d) => Boolean(typeOf(d?.typeKey)?.report)
