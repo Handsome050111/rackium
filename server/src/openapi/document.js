@@ -491,6 +491,19 @@ export function buildRegistry() {
   route('delete', `${T}/{id}`, 'Delete a task (assigner or PM)', { params: p({ id: 1 }) })
   const O = '/api/v1/orgs/{orgId}'
   const orgP = (extra = {}) => z.object({ orgId: z.string(), ...Object.fromEntries(Object.keys(extra).map((k) => [k, z.string()])) })
+  // --- M7a-3: dashboards, workload, analytics, report schedules (DATA-MODEL §5.17) ---
+  route('get', `${PR}/dashboard`, 'Project dashboard over the caller’s buildings: buildings by current phase, average progress, overdue phases, open validation findings, DGUV compliance, team utilisation (names and figures per person for the Org Admin and PM only)', {})
+  route('get', `${PR}/dashboard/rollup`, 'Country / SAL rollup over the caller’s buildings: buildings, average progress, overdue count; the BOM value (cost and client price) only for those who may see prices', {})
+  route('get', `${PR}/workload`, 'Workload matrix: member × building with open and overdue task counts, the buildings each person holds and their current phase (Org Admin, PM)', { errors: { 403: err('Not the Org Admin or a PM') } })
+  route('get', `${PR}/analytics`, 'Six metrics with monthly trend lines over the caller’s buildings: phase duration, blocker frequency and resolution time, BOM accuracy variance, survey completion (by technician for the Org Admin and PM only), approval turnaround; rows with an unknown date are left out and counted', {})
+  const RS = `${PR}/report-schedules`
+  route('get', RS, 'Scheduled reports of the project with their recipients (stopped ones marked) and next send date (Org Admin, PM)', { errors: { 403: err('Not the Org Admin or a PM') } })
+  route('get', `${RS}/recipients`, 'Who can receive a scheduled report: the organisation’s Org Admins and the project’s active members (Org Admin, PM)', { errors: { 403: err('Not the Org Admin or a PM') } })
+  route('post', RS, 'Schedule a standard report weekly or monthly at a local time; recipients are members by id (no email addresses), each allowed this report (Org Admin, PM); audited', { body: C.reportScheduleBody, status: 201, errors: { 400: err('A recipient is not a member with access, or may not receive this report'), 403: err('Not the Org Admin or a PM') } })
+  route('patch', `${RS}/{id}`, 'Change a schedule (timing, format, price mode, recipients, paused); re-adding a stopped recipient starts them again; audited', { params: p({ id: 1 }), body: C.reportScheduleUpdateBody, errors: { 400: err('A recipient is not a member with access, or may not receive this report'), 403: err('Not the Org Admin or a PM') } })
+  route('delete', `${RS}/{id}`, 'Delete a schedule; audited', { params: p({ id: 1 }), errors: { 403: err('Not the Org Admin or a PM') } })
+  route('get', `${O}/dashboard`, 'Organisation dashboard: active projects (the Org Admin: all; others: their own) with client, buildings, progress, status, overdue and at-risk; totals over the buildings the caller can open; total BOM value over the projects where the caller may see prices; cross-project utilisation (names only from projects where the caller is Org Admin or PM)', { params: orgP() })
+
   // --- M7a-2: global search, DGUV dashboards, field help (DATA-MODEL §5.16) ---
   route('get', `${O}/search`, 'Global search over the caller’s projects (current project first): hierarchy, devices by hostname, name, existing label, serial, MAC (any notation), asset ID; cable IDs; panel ports. Each result is checked with the access rule of the screen it opens; no prices, branches or snapshots', { params: orgP(), query: C.searchQuery, errors: { 403: err('An invalid or expired View-As session') } })
   const DG = `${PR}/dguv`

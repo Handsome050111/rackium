@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import mongoose from 'mongoose'
-import { requestProblem, typeOf, fileNameOf, FORMAT_MIME, DOCUMENT_TYPES, COST_ROLES, clientShareProblem } from '@rackium/shared/documents/types.js'
+import { requestProblem, typeOf, fileNameOf, FORMAT_MIME, DOCUMENT_TYPES, COST_ROLES, clientShareProblem, isPersonalDocument } from '@rackium/shared/documents/types.js'
 import { canSeePrices } from '@rackium/shared/policy.js'
 import { localDate } from '@rackium/shared/timeZone.js'
 import { GeneratedDocument } from '../models/generatedDocument.js'
@@ -72,6 +72,8 @@ export function createDocumentService({ storage, services, autoProcess = true, l
   // readers; priced exports only for those who may see prices.
   async function assertReadable(req, d) {
     if (d.buildingId) await requireBuilding(req, d.buildingId)
+    // A report was made with its requester's roles and scope (M7a-3): theirs alone.
+    if (isPersonalDocument(d) && String(d.requestedBy) !== String(req.user._id)) throw notFound('Document not found')
     const { roles } = await callerAccess(req)
     if (d.typeKey === 'audit-log' && !roles.some((r) => AUDIT_READERS.includes(r))) throw notFound('Document not found')
     const prices = d.options?.prices ?? 'none'
@@ -92,7 +94,7 @@ export function createDocumentService({ storage, services, autoProcess = true, l
 
   // Queues a document, or returns the identical request already queued or
   // generating. `handover`: { workflowId, round } when compiling a package.
-  async function enqueue(req, { buildingId, typeKey, format, options = {}, handover = null }, actor, { session = null } = {}) {
+  async function enqueue(req, { buildingId, typeKey, format, options = {}, handover = null }, actor, { session = null, source = 'ui' } = {}) {
     // A handover package goes to the client: never cost prices.
     if (handover && clientShareProblem({ options })) throw badRequest('A handover package cannot contain cost prices')
     const access = await callerAccess(req)
@@ -127,7 +129,7 @@ export function createDocumentService({ storage, services, autoProcess = true, l
           ],
           { session }
         )
-        await recordAudit({ organisationId: req.org.id, projectId: req.project.id, buildingId: building?.id ?? null, phaseKey: handover ? 'handover' : null, actor: userActor(actor.userId, actor.role), action: 'document.requested', objectType: 'GeneratedDocument', objectId: String(d._id), changeType: 'system', source: 'ui', comment: `${typeOf(typeKey).name} ${format.toUpperCase()} v${d.version}${options.prices && options.prices !== 'none' ? ` (prices: ${options.prices})` : ''}`, session })
+        await recordAudit({ organisationId: req.org.id, projectId: req.project.id, buildingId: building?.id ?? null, phaseKey: handover ? 'handover' : null, actor: userActor(actor.userId, actor.role), action: 'document.requested', objectType: 'GeneratedDocument', objectId: String(d._id), changeType: 'system', source, comment: `${typeOf(typeKey).name} ${format.toUpperCase()} v${d.version}${options.prices && options.prices !== 'none' ? ` (prices: ${options.prices})` : ''}`, session })
         if (!session) kick()
         return { document: documentView(d.toObject()), existing: false }
       } catch (err) {

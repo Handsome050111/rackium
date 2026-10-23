@@ -36,6 +36,9 @@ import { createDeploymentService } from './deployment/service.js'
 import { createCmdbService } from './cmdb/service.js'
 import { createDocumentService } from './documents/service.js'
 import { createHandoverService } from './handover/service.js'
+import { createInsightsService } from './insights/service.js'
+import { createReportData } from './reports/data.js'
+import { createReportScheduleService } from './reports/schedules.js'
 import { configurePdf } from './documents/render/chromium.js'
 import { createNotificationService } from './notifications/service.js'
 import { configureNotifications } from './notifications/notify.js'
@@ -142,11 +145,14 @@ export function createApp({ config, logger, mailer, rateLimits = DEFAULT_RATE_LI
   // The document engine and the handover (M6b). Jobs read data through the
   // same services the screens use, with the requester's roles and scope.
   configurePdf({ chromiumPath: config.CHROMIUM_PATH })
-  const docServices = { hld, lld, delivery, deployment, cmdb, survey, dashboard, auditLog }
+  // M7a-3: the standard reports read through the same facts as the dashboards.
+  const docServices = { hld, lld, delivery, deployment, cmdb, survey, dashboard, auditLog, reports: createReportData({ lld, deployment }) }
   const documents = createDocumentService({ storage, services: docServices, autoProcess: config.DOCUMENTS_AUTO_PROCESS !== false, logger })
   const handover = createHandoverService({ storage, services: docServices, documents })
   docServices.handover = handover
-  const api = apiRouter({ config, auth, org, auditLog, hierarchy, blockers, viewAs, dashboard, catalogue, cmo, survey, files, hld, lld, delivery, tasks, notifications, deployment, cmdb, documents, handover, schedule, search, dguv, fieldHelp, rateLimits, openapiDocument, version: VERSION })
+  const insights = createInsightsService({ lld, storage })
+  const reportSchedules = createReportScheduleService()
+  const api = apiRouter({ config, auth, org, auditLog, hierarchy, blockers, viewAs, dashboard, catalogue, cmo, survey, files, hld, lld, delivery, tasks, notifications, deployment, cmdb, documents, handover, schedule, search, dguv, fieldHelp, insights, reportSchedules, rateLimits, openapiDocument, version: VERSION })
   api.get('/me', requireUser(config), async (req, res) => {
     const memberships = await membershipsForUser(req.user._id)
     res.json({ user: userSummary(req.user), memberships: memberships.map(membershipSummary) })

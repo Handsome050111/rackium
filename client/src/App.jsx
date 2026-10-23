@@ -29,6 +29,11 @@ import OrganisationSettings from './pages/OrganisationSettings.jsx'
 import RealTasks from './pages/RealTasks.jsx'
 import RealSchedule from './pages/RealSchedule.jsx'
 import RealDguv from './pages/RealDguv.jsx'
+import RealProjectDashboard from './pages/RealProjectDashboard.jsx'
+import RealOrgDashboard from './pages/RealOrgDashboard.jsx'
+import RealWorkload from './pages/RealWorkload.jsx'
+import RealAnalytics from './pages/RealAnalytics.jsx'
+import RealReports from './pages/RealReports.jsx'
 import AuditLog from './pages/AuditLog.jsx'
 import NotificationPreferences from './pages/NotificationPreferences.jsx'
 import Catalogue from './pages/Catalogue.jsx'
@@ -149,6 +154,11 @@ export default function App() {
         <Route path="projects/:projectId/tasks" element={<RealTasks key="project" />} />
         <Route path="projects/:projectId/schedule" element={<RealSchedule />} />
         <Route path="projects/:projectId/dguv" element={<RealDguv />} />
+        <Route path="projects/:projectId/dashboard" element={<RealProjectDashboard />} />
+        <Route path="projects/:projectId/workload" element={<RealWorkload />} />
+        <Route path="projects/:projectId/analytics" element={<RealAnalytics />} />
+        <Route path="projects/:projectId/reports" element={<RealReports />} />
+        <Route path="dashboard" element={<RealOrgDashboard />} />
         <Route path="audit" element={<AuditLog />} />
         <Route path="notifications/preferences" element={<NotificationPreferences />} />
         <Route path="catalogue" element={<Catalogue />} />

@@ -173,6 +173,7 @@ Run in CI against a replica set, with two organisations of two projects each.
 | `branches` | design branches | — | building, version | — |
 | `handoverWorkflows` | one per building | `baseline` | building | `buildingId` |
 | `generatedDocuments` | document outputs | — | building, file | — |
+| `reportSchedules` | scheduled standard reports (M7a-3, §5.17) | `recipients[]` | users | — |
 | `documentTypes` | the 11 handover types and SP sections | — | — | global seed |
 | `deploymentExceptions` | install deviations | — | device, connection | — |
 | `files` | photos, PDFs, sheets, signatures | — | attached object (polymorphic) | `storageKey` |
@@ -1051,6 +1052,39 @@ Decisions marked ★ are interpretations — proposed, to confirm.
 - **Photos:** JPG, PNG or WebP by their bytes (not the declared type), within the organisation's photo upload limit and 10 MB; decoded and re-encoded (orientation applied, at most 1600 px), so EXIF, GPS and every other metadata is dropped; stored through the same file storage as other uploads (`help/<organisationId>/<photoId>`).
 - **Roles:** every organisation member reads (`GET /orgs/:o/field-help?prefix=`, `GET /orgs/:o/field-help/photos/:photoId`); the Org Admin edits (`PUT` / `DELETE /orgs/:o/field-help/:key`, `POST /orgs/:o/field-help/:key/photos`, `DELETE /orgs/:o/field-help/:key/photos/:photoId`). Audited: `field_help.updated`, `field_help.reset`, `field_help.photo_added`, `field_help.photo_removed`.
 
+### 5.17 Dashboards, workload, reports and analytics as built in M7a-3 (brief v2.2 §21.5, §21.6, §21.9)
+
+Decisions marked ★ are interpretations — proposed, to confirm.
+
+**One set of facts** (`server/src/insights/facts.js`): every figure below is counted per building **the caller can open** (`projectScope`), from the schedule of M7a-1 (phase status, risk, overdue — so every screen agrees), the open blockers, the tasks, the DGUV rollup of M7a-2 and, where asked, the design's validation findings and the BOM. A scoped member's totals are over their buildings only; nothing about another building is returned.
+
+**Project dashboard** (`GET /projects/:p/dashboard`, every member): buildings by **current phase** (the first active phase not Completed/Approved; "All phases done" otherwise), average progress, overdue phases (target passed, not done) and the buildings with one, buildings at risk, open validation findings (Critical, Warning) of each building's current design, DGUV compliance (compliant %, counts), team utilisation (members reaching the caller's buildings, how many have open tasks, open and overdue tasks). **Names and per-person figures only for the Org Admin and PM** (`ACTIONS.VIEW_PERSON_METRICS`); everyone else gets the counts without names or ids.
+
+**Country / SAL rollup** (`GET /projects/:p/dashboard/rollup`, every member): country → SAL with buildings, average progress, overdue count, and the **BOM value** (cost and client price = cost + project margin, the live BOM of each building with a design) **only for those who may see prices** (D20: Org Admin, PM, Reviewer; Architects when the organisation allows it). For everyone else the field is absent, not zero; the BOM is not even calculated.
+
+**Organisation dashboard** (`GET /orgs/:o/dashboard`, any organisation member): the Org Admin sees every project, anyone else the projects they are a member of; active projects listed (archived counted), each with client, buildings (the caller's), progress, overdue, at risk (an overdue, at-risk or blocked phase, or an SLA at risk or breached) and its BOM value where the caller may see prices there. Totals over the buildings the caller can open; the total BOM value over the projects where the caller may see prices (and how many were left out). Cross-project utilisation: counts for everyone; **named rows only built from projects where the caller is Org Admin or PM** — a person's tasks in a project where the caller is, say, a Viewer never reach their named figures.
+
+**Workload** (`GET /projects/:p/workload`, Org Admin and PM — 403 for any other role): member × building with open and overdue task counts, project-wide tasks in their own column, the buildings each person holds (primary Architect / Field Engineer, or tasks there) with each building's current phase. Members listed: active project members whose scope reaches one of the caller's buildings, or who have a task in one.
+
+**Analytics** (`GET /projects/:p/analytics`, every member; `shared/src/reports.js`): six metrics, each with a **monthly trend** (organisation's local month) ★ the brief lists five and "trend lines"; the sixth is blocker resolution time:
+1. **Phase duration** — from the previous active phase's completion (the first phase: its planned start, `phaseTargets.startDate`) to this phase's current completion (`phaseHistory`), calendar days; per phase and overall.
+2. **Blocker frequency** — blockers raised per month, per phase.
+3. **Blocker resolution time** — days from raised to resolved.
+4. **BOM accuracy variance** ★ — how far a building's latest approved procurement BOM (`designVersions`, `bom`) moved from its first: Σ |quantity change| per line ÷ the first version's total quantity.
+5. **Survey completion** — verified (or imported) tabs of the tabs the buildings need, verified per month; **by technician** (who submitted each tab: submitted, verified, rejected, verified of submitted) for the Org Admin and PM only.
+6. **Approval turnaround** — days from submission to decision per gate; the PM's own procurement-BOM sign-off (`bom_pm`) is not a review and is not counted.
+Rows whose date is unknown — a phase completion backfilled without evidence (`dateKnown: false`), a missing start, a stamp never recorded, an unreadable BOM snapshot — are **left out of the averages and counted** (`excluded`), and the screen says how many.
+
+**Reports** (`shared/src/reports.js REPORTS`, `shared/src/documents/reports.js`): seven document types of the M6b engine — `weekly-status`, `resource-utilisation`, `bom-summary`, `survey-progress`, `compliance-report`, `design-change`, `installation-progress` — project-level, **PDF, CSV and Excel** (CSV and Excel start with a Summary sheet: what the report covers and its key figures). Generated as background jobs with the **requester's roles and scope** (as every M6b document), so a scoped member's report holds their buildings only and says so ("Covers N building(s) — the buildings in your scope"). **A report is its requester's alone**: listed, opened and downloaded only by them (404 for anyone else, the Org Admin included); it cannot be put behind a download link (project-level). Resource Utilisation (figures per person) is requested by the Org Admin and PM only (403); the Survey Progress "By technician" section is in their copies only. **BOM Summary**: no prices by default; client prices (`sell`) only for those who may see prices; cost prices (`cost`) only for the Org Admin, PM and Reviewer as an internal document marked "INTERNAL — cost prices" (every PDF page, the first row of every sheet and of the CSV) — the M6b price modes.
+
+**`reportSchedules`** (new, project-scoped): `name` (O) · `typeKey` · `format` · `prices` · `frequency` (`weekly` / `monthly`) · `weekday` (0 Sunday … 6 Saturday) or `dayOfMonth` (1–28) · `time` (local `HH:MM`, default the organisation's morning time `digestTime`) · `recipients[]` { `userId`, `addedAt`, `stoppedAt`, `stopReason` (`access_removed` / `not_allowed`) } · `paused` · `lastSentOn` (local date, claimed before sending) · `lastRunAt` · `createdBy` · `createdAt` · `updatedAt`.
+- **Who:** the Org Admin and PM (`ACTIONS.MANAGE_REPORT_SCHEDULES`; 403 for anyone else). Audited: `report_schedule.created` / `.updated` / `.deleted` / `.recipient_stopped`.
+- **Recipients are members, never addresses:** user ids only (the schema is strict — an `emails` field or an address is refused), each an active user with an active Org Admin membership of the organisation or an active membership of this project, and allowed this report with these options (figures per person, price mode); otherwise 400. A change of format or price mode re-checks everyone.
+- **Sending** (job `report-schedules`, every 15 minutes, `sendScheduledReports`): a schedule is due on its local weekday / day of the month once the organisation's local time reaches its time (across DST: the local date and time decide); it is claimed for that date, so it goes once per send day. For each recipient still listed, access is checked **again**: a recipient who lost access (or may no longer receive this report, e.g. a PM made Viewer for a per-person report) is **stopped for good** and the others still receive it; re-adding them (after access is back) starts them again. Each remaining recipient gets **their own copy**, made with their roles and scope, and an email (`emailOutbox`, `kind: report`, key `report:<schedule>:<user>:<date>`) with a **sign-in link** to it — `/orgs/:o/projects/:p/reports?document=<id>` — **never the file** and none of its content.
+- Paused schedules are skipped.
+
+**Policy** (`shared/src/policy.js`): `VIEW_PERSON_METRICS` and `MANAGE_REPORT_SCHEDULES` — Org Admin, PM.
+
 ---
 
 ## 6. Calculated values (never stored)
@@ -1285,6 +1319,7 @@ Audit entries are kept for the life of the organisation. The GDPR purge (brief �
 3. **"CMO inventory has not same naming as FMO has" (client, before M7a).** Which is meant: (a) existing gear keeps its own names and the screens should tell the two schemes apart; (b) existing gear is renamed to the FMO pattern, with an old → new mapping (v2.2: "existing-to-new device mappings", the CMO-to-FMO migration inputs); or (c) the CMO screens use different columns and terms from the FMO screens. Until answered: names stay the customer's own (§4.6), nothing links a CMO item to the FMO item replacing it, there is no ghost overlay, and terminology is unchanged.
 4. **SLA escalation "to PM and owner" (v2.2 §21.8).** v2.3 has no Owner role; the escalation goes to the organisation's Org Admins until the client says otherwise (§5.10 as built in M7a-1).
 5. **DGUV exempt status.** v2.2 §20.9 has an "Exempt" status with a reason and a per-device `dguv_required` flag; v2.3 §6.9 decides by device category only, which is what is built. Ask the client whether exemptions per device are needed.
+6. **Analytics metrics (M7a-3).** v2.2 §21.9 names five metrics plus "trend lines". Built: six metrics, each with a monthly trend — the sixth is blocker resolution time; BOM accuracy variance is the latest approved procurement BOM against the first (§5.17). Confirm both definitions with the client.
 
 **Backlog** (agreed, not scheduled yet):
 

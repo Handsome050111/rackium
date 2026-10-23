@@ -1,5 +1,4 @@
-import os from 'node:os'
-import path from 'node:path'
+import { testFilesDir } from './testDbDirs.js'
 
 export const testConfig = (overrides = {}) => ({
   NODE_ENV: 'test',
@@ -13,8 +12,9 @@ export const testConfig = (overrides = {}) => ({
   EMAIL_FROM: 'Rackium <test@localhost>',
   LOG_LEVEL: 'silent',
   IS_PRODUCTION: false,
-  // One fresh directory per test process; files never touch the repo.
-  FILE_STORAGE_DIR: path.join(os.tmpdir(), `rackium-test-files-${process.pid}`),
+  // One folder per test process inside the run's folder, removed after each
+  // test file and on exit (helpers/testDbDirs.js); files never touch the repo.
+  FILE_STORAGE_DIR: testFilesDir(),
   // API tests run the document queue themselves (deterministic).
   DOCUMENTS_AUTO_PROCESS: false,
   ...overrides,

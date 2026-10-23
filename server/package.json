@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
-    "test": "vitest run --exclude test/api.m6b.test.js && vitest run test/api.m6b.test.js",
+    "test": "vitest run --exclude test/api.m6b.test.js --exclude test/api.m7a3-pdf.test.js && vitest run test/api.m6b.test.js test/api.m7a3-pdf.test.js",
     "clean:test-db": "node scripts/clean-test-db.mjs",
     "openapi": "node scripts/generate-openapi.js"
   },

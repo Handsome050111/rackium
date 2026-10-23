@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
-import { Plus, X, Building2, Boxes, Settings2, ListChecks, ScrollText, CalendarRange, ShieldCheck } from 'lucide-react'
+import { Plus, X, Building2, Boxes, Settings2, ListChecks, ScrollText, CalendarRange, ShieldCheck, Gauge, LayoutDashboard, Users, LineChart, FileBarChart } from 'lucide-react'
 import { ACTIONS } from '@rackium/shared/policy.js'
 import { useAuth } from '../lib/AuthContext.jsx'
 import { canIn, canCreateProjectsIn } from '../lib/realRoles.js'
@@ -98,6 +98,10 @@ function SidebarContent({ showLabels, orgId, projectId, buildingId, onNavigate, 
       {/* Organisation-wide; opened from inside a project it also shows that
           project's own items and prices for the user's role there. */}
       <nav aria-label="Organisation" className="mt-1 px-2">
+        <NavLink to={`/orgs/${orgId}/dashboard`} onClick={onNavigate} className={navLinkClass} title="Organisation dashboard">
+          <Gauge size={16} strokeWidth={2} className="shrink-0" />
+          {showLabels && <span className="truncate">Organisation dashboard</span>}
+        </NavLink>
         <NavLink to={`/orgs/${orgId}/catalogue${projectId ? `?projectId=${projectId}` : ''}`} onClick={onNavigate} className={navLinkClass} title="Equipment catalogue">
           <Boxes size={16} strokeWidth={2} className="shrink-0" />
           {showLabels && <span className="truncate">Equipment catalogue</span>}
@@ -124,6 +128,10 @@ function SidebarContent({ showLabels, orgId, projectId, buildingId, onNavigate, 
         <>
           <div className="mx-3 my-2 border-t border-border" />
           <nav aria-label="Project" className="px-2">
+            <NavLink to={`/orgs/${orgId}/projects/${projectId}/dashboard`} onClick={onNavigate} className={navLinkClass} title="Project dashboard">
+              <LayoutDashboard size={16} strokeWidth={2} className="shrink-0" />
+              {showLabels && <span className="truncate">Dashboard</span>}
+            </NavLink>
             <NavLink to={`/orgs/${orgId}/projects/${projectId}/tasks`} onClick={onNavigate} className={navLinkClass} title="Project tasks">
               <ListChecks size={16} strokeWidth={2} className="shrink-0" />
               {showLabels && <span className="truncate">Tasks</span>}
@@ -135,6 +143,21 @@ function SidebarContent({ showLabels, orgId, projectId, buildingId, onNavigate, 
             <NavLink to={`/orgs/${orgId}/projects/${projectId}/dguv`} onClick={onNavigate} className={navLinkClass} title="DGUV V3 compliance">
               <ShieldCheck size={16} strokeWidth={2} className="shrink-0" />
               {showLabels && <span className="truncate">DGUV compliance</span>}
+            </NavLink>
+            {/* Figures per person: the Org Admin and PMs (the server checks too). */}
+            {canIn(memberships, orgId, projectId, ACTIONS.VIEW_PERSON_METRICS) && (
+              <NavLink to={`/orgs/${orgId}/projects/${projectId}/workload`} onClick={onNavigate} className={navLinkClass} title="Workload">
+                <Users size={16} strokeWidth={2} className="shrink-0" />
+                {showLabels && <span className="truncate">Workload</span>}
+              </NavLink>
+            )}
+            <NavLink to={`/orgs/${orgId}/projects/${projectId}/analytics`} onClick={onNavigate} className={navLinkClass} title="Analytics">
+              <LineChart size={16} strokeWidth={2} className="shrink-0" />
+              {showLabels && <span className="truncate">Analytics</span>}
+            </NavLink>
+            <NavLink to={`/orgs/${orgId}/projects/${projectId}/reports`} onClick={onNavigate} className={navLinkClass} title="Reports">
+              <FileBarChart size={16} strokeWidth={2} className="shrink-0" />
+              {showLabels && <span className="truncate">Reports</span>}
             </NavLink>
           </nav>
           {showLabels && <div className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-text-secondary">Buildings</div>}

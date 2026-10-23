@@ -136,8 +136,9 @@ npm run lint
 npm run build
 ```
 
-`test:server` runs the document-rendering tests (`api.m6b.test.js`, which
-start headless Chromium) in a second Vitest process after all other files, so
+`test:server` runs the document-rendering tests (`api.m6b.test.js` and
+`api.m7a3-pdf.test.js`, which start headless Chromium) in a second Vitest
+process after all other files, so
 PDF rendering can never slow the other API tests into their timeouts. Test
 files within each process run one at a time; each file has its own in-memory
 replica set, cleared before every test.
@@ -174,6 +175,10 @@ minute), task due-date reminders (every 15 minutes) and the daily digest
 email (checked every 15 minutes; each organisation's digest goes out at its
 own local digest time — Organisation settings → Time zone, default 07:00
 Europe/Berlin).
+Scheduled reports (M7a-3) are checked every 15 minutes too: each goes out
+on its day once the organisation's local time reaches its time, one copy per
+recipient (their own role and scope) and an email with a sign-in link — the
+file is never attached. In development the link points at `PUBLIC_APP_URL`.
 Jobs are stored in the `scheduledjobs` collection and claimed with a lock,
 so running several API processes never sends anything twice. Tests never
 start the scheduler; they call the jobs directly. In development, mail goes
@@ -214,13 +219,24 @@ Each in-memory database keeps its data on disk while tests run, in
 - each run first sweeps folders left by earlier runs that were killed outright.
 
 A folder is only ever swept when the process that created it has gone, so a
-test run in another terminal is never disturbed. To clean up by hand:
+test run in another terminal is never disturbed.
+
+Files the test apps store (uploads, generated documents) live in the same run
+folder, one per test process (`run-<id>/files-<pid>`). Each is removed when its
+test file ends — also after failed or timed-out tests — and when the process
+exits; the run teardown and the sweep catch a worker that crashed or was
+killed. Before M7a-3 they went to `<system temp>/rackium-test-files-<pid>` and
+were never removed; those old folders are swept too (at the start of a run
+and by `clean:test-db`), once their process has gone or they are a day old.
+
+To clean up by hand:
 
 ```bash
 npm run clean:test-db
 ```
 
-It only touches `rackium-test-db/run-*` folders whose run has ended. Other
+It only touches `rackium-test-db/run-*` folders whose run has ended and the
+old `rackium-test-files-<pid>` folders. Other
 `mongo-mem-*` folders in the temp folder (from other projects, or from runs
 before this was added) are left alone. Each folder can grow to a few hundred
 MB, and when the disk fills up `mongod` cannot start, so the API tests are

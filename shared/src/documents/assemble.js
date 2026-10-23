@@ -12,7 +12,7 @@ const MEDIA = { cat6a: 'Cat6A', os2: 'OS2', om4: 'OM4', dac: 'DAC', stack: 'Stac
 const KIND = { patch_cord: 'Patch cord', trunk: 'Trunk', direct: 'Direct' }
 const PHASE = { cmo: 'CMO', survey: 'Survey', hld: 'HLD', lld: 'LLD', 'solution-package': 'Solution Package', bom: 'BOM', deployment: 'Deployment', cmdb: 'CMDB', handover: 'Handover' }
 const PHASE_STATUS = { not_started: 'Not started', in_progress: 'In progress', awaiting_approval: 'Awaiting approval', changes_requested: 'Changes requested', blocked: 'Blocked', approved: 'Approved', completed: 'Completed' }
-const money = (minor, currency) => (minor == null ? '—' : `${currency ?? 'EUR'} ${(minor / 100).toFixed(2)}`)
+export const money = (minor, currency) =>(minor == null ? '—' : `${currency ?? 'EUR'} ${(minor / 100).toFixed(2)}`)
 
 function base(ctx, title, subtitle) {
   return {

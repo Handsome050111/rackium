@@ -71,6 +71,11 @@ export const ACTIONS = {
   // M5b, brief v2.2 §8: tasks are created and assigned by a PM or an
   // Architect (within their membership scope; checked in the service).
   MANAGE_TASKS: 'manage_tasks',
+  // M7a-3, brief v2.2 §21.5, §21.9: figures about named people (workload
+  // per person, survey completion by technician, the Resource Utilisation
+  // report) and the scheduled reports are the Org Admin's and the PM's.
+  VIEW_PERSON_METRICS: 'view_person_metrics',
+  MANAGE_REPORT_SCHEDULES: 'manage_report_schedules',
 }
 
 // Who may perform each action. An Org Admin's organisation-level role grants
@@ -111,6 +116,8 @@ const MATRIX = {
   [ACTIONS.SET_COMMERCIAL_STANDARDS]: ['pm'],
   [ACTIONS.MANAGE_CHANGE_REQUESTS]: ['architect'],
   [ACTIONS.MANAGE_TASKS]: ['pm', 'architect'],
+  [ACTIONS.VIEW_PERSON_METRICS]: ['org_admin', 'pm'],
+  [ACTIONS.MANAGE_REPORT_SCHEDULES]: ['org_admin', 'pm'],
 }
 
 // Roles a user may hold at each level. Invitations and memberships are
