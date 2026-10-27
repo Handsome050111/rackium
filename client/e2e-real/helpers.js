@@ -62,7 +62,10 @@ export async function signUpAndSignIn(page, { email, organisationName = 'Acme Ne
 // Runs the project wizard with a hierarchy CSV. Returns the projectId.
 export async function createProjectWithHierarchy(page, orgId, { name, hierarchyCsv }) {
   await page.goto(`/orgs/${orgId}/projects`)
-  await page.getByRole('link', { name: 'New project' }).click()
+  // Two links once the empty list has rendered (the sidebar's + and the page's
+  // button), one before: either opens the wizard. Strict mode refused the click
+  // whenever the list rendered first (CI).
+  await page.getByRole('link', { name: 'New project' }).first().click()
   await page.getByLabel('Project name').fill(name)
   await page.getByLabel('Client name').fill('Acme Retail')
   await page.getByLabel('Wired Network Site Survey', { exact: false }).check()

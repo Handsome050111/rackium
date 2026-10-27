@@ -13,12 +13,20 @@ async function setRole(page, label) {
   }
 }
 
+// Opens the Storage Area tab and waits for its own form: an input read before
+// that could be the previous tab's, replaced as the new form loads (CI flake).
+async function openStorageArea(page) {
+  await page.click('text=Building-wide')
+  await page.click('text=Storage Area')
+  await expect(page).toHaveURL(/storage-area/)
+  await expect(page.getByText('Loading…')).toHaveCount(0)
+}
+
 test.describe('persistence across reload', () => {
   test('an edit on a building-scope survey tab survives a reload', async ({ page }) => {
     await page.goto('/b/b001/survey/room')
     await setRole(page, 'Field Engineer')
-    await page.click('text=Building-wide')
-    await page.click('text=Storage Area')
+    await openStorageArea(page)
     const input = page.locator('input[type="text"]').first()
     await input.fill('Loading dock C')
     await expect(input).toHaveValue('Loading dock C')
@@ -26,8 +34,7 @@ test.describe('persistence across reload', () => {
     // Wait longer than the autosave interval before reloading, as a real user would.
     await page.waitForTimeout(1000)
     await page.reload()
-    await page.click('text=Building-wide')
-    await page.click('text=Storage Area')
+    await openStorageArea(page)
     await expect(page.locator('input[type="text"]').first()).toHaveValue('Loading dock C')
   })
 
@@ -53,8 +60,7 @@ test.describe('persistence across reload', () => {
     page.on('dialog', (dialog) => dialog.accept())
     await page.goto('/b/b001/survey/room')
     await setRole(page, 'Field Engineer')
-    await page.click('text=Building-wide')
-    await page.click('text=Storage Area')
+    await openStorageArea(page)
     const input = page.locator('input[type="text"]').first()
     const seedValue = await input.inputValue()
     await input.fill('Edit to discard')
@@ -71,8 +77,7 @@ test.describe('building-scope role gating', () => {
   test('a Viewer cannot type into a building-scope survey tab or submit it', async ({ page }) => {
     await page.goto('/b/b001/survey/room')
     await setRole(page, 'Viewer')
-    await page.click('text=Building-wide')
-    await page.click('text=Storage Area')
+    await openStorageArea(page)
     const input = page.locator('input[type="text"]').first()
     await expect(input).toBeDisabled()
     await expect(page.getByRole('button', { name: /Submit for verification/ })).toHaveCount(0)
@@ -94,8 +99,7 @@ test.describe('building-scope role gating', () => {
   test('a Field Engineer sees submit on a building-scope tab, but not Verify', async ({ page }) => {
     await page.goto('/b/b001/survey/room')
     await setRole(page, 'Field Engineer')
-    await page.click('text=Building-wide')
-    await page.click('text=Storage Area')
+    await openStorageArea(page)
     await expect(page.getByRole('button', { name: /Submit for verification/ })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Verify', exact: true })).toHaveCount(0)
   })
