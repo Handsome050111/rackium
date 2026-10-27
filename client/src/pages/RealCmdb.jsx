@@ -11,6 +11,7 @@ import ChangeLog from '../components/realCmdb/ChangeLog.jsx'
 import LifecycleDashboard from '../components/realCmdb/LifecycleDashboard.jsx'
 import { cmdbApi, cmdbRows, filterRecords } from '../api/deploymentApi.js'
 import { exportCmdbXlsx } from '../lib/cmdbExport.js'
+import { withLegacyName } from '@rackium/shared/deviceName.js'
 import DocumentExports from '../components/documents/DocumentExports.jsx'
 import LabelPrintDialog from '../components/documents/LabelPrintDialog.jsx'
 import { useProjectRoles } from '../lib/useProjectRoles.js'
@@ -236,7 +237,7 @@ export default function RealCmdb() {
                     <tbody>
                       {shown.map((r) => (
                         <tr key={r.id} onClick={() => go({ record: r.id })} className={`cursor-pointer border-b border-border/60 last:border-0 hover:bg-surface-muted ${selectedId === r.id ? 'bg-brand/5' : ''}`}>
-                          <td className="whitespace-nowrap px-3 py-1.5 font-medium text-text">{r.hostname ?? r.label}</td>
+                          <td className="whitespace-nowrap px-3 py-1.5 font-medium text-text">{withLegacyName(r.hostname ?? r.name ?? r.label, r.legacyHostname)}</td>
                           <td className="whitespace-nowrap px-3 py-1.5 text-text-secondary">{r.roleLabel ?? r.category}</td>
                           <td className="whitespace-nowrap px-3 py-1.5 text-text-secondary">{r.model}</td>
                           <td className="whitespace-nowrap px-3 py-1.5 text-text-secondary">{r.roomCode}</td>

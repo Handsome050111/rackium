@@ -3,6 +3,7 @@ import { apiRequest } from './httpClient.js'
 import { MEDIA_LABEL, endLabel, buildPortGroups } from '@rackium/shared/lldModel.js'
 import { portKey, portOptions, suggestPort, routeSides, routeTrace, hopText } from '@rackium/shared/lldDesign.js'
 import { SEGMENT_KIND_LABEL } from '@rackium/shared/cableSegments.js'
+import { withLegacyName } from '@rackium/shared/deviceName.js'
 
 const real = API_MODE === 'real'
 const base = (orgId, projectId) => `/orgs/${orgId}/projects/${projectId}/lld`
@@ -95,7 +96,8 @@ export function toLldContext(view, validation = null) {
     role: d.isPanel ? 'patchpanel' : d.role,
     label: d.label,
     // A surveyed item goes by its display name (its existing label when recorded).
-    hostname: d.inDesign ? d.hostname ?? d.label : d.label,
+    // A device renamed through a change request reads "old → new" (DATA-MODEL §5.19).
+    hostname: d.inDesign ? (d.hostname ? withLegacyName(d.hostname, d.legacyHostname) : d.label) : d.label,
     model: d.model,
     status: d.inDesign ? 'planned' : 'existing',
     ru: d.ru,

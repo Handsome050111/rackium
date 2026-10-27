@@ -69,6 +69,13 @@ describe('dev:local demo data', () => {
     expect(installed).toBeGreaterThan(0)
     expect(installed).toBeLessThan(dep.devices.length)
     expect(dep.devices.some((d) => d.status === 'accepted')).toBe(false)
+    // M7b-2: an installed switch renamed through an approved change request,
+    // "old → new", and the Field Engineer's reprint task.
+    const renamed = dep.devices.filter((d) => d.legacyHostname)
+    expect(renamed).toHaveLength(1)
+    expect(renamed[0].label).toBe(`${renamed[0].legacyHostname} → ${renamed[0].hostname}`)
+    const feTasks = (await signedIn.fe.get(`${base}/tasks?assignedTo=me`).expect(200)).body.tasks
+    expect(feTasks.filter((x) => x.kind === 'reprint_labels').map((x) => x.renames.map((r) => r.to))).toEqual([[renamed[0].hostname]])
     // Handed over and accepted by the client.
     expect(await get(`/handover/buildings/${at('handover')}`)).toMatchObject({ state: 'accepted', phaseStatus: 'approved', baseline: { label: 'v1.0' } })
     // The project list shows the six buildings.

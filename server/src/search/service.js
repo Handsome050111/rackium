@@ -1,5 +1,6 @@
 import mongoose from 'mongoose'
 import { parseQuery, bestMatch, orderResults, escapeRegex, samePort, MATCH_LABEL, SEARCH_LIMIT, SEARCH_TYPE_KEYS } from '@rackium/shared/search.js'
+import { withLegacyName } from '@rackium/shared/deviceName.js'
 import { Project } from '../models/project.js'
 import { Country } from '../models/country.js'
 import { Sal } from '../models/sal.js'
@@ -106,7 +107,7 @@ async function candidatesOf(req, project, query, scope, can) {
     lookup(Floor, ['token', 'name'], q),
     lookup(Room, ['code', 'name'], q),
     lookup(Rack, ['code'], q),
-    lookup(Device, ['hostname', 'label', 'existingLabel', 'installation.serial'], q, layerFilter),
+    lookup(Device, ['hostname', 'label', 'existingLabel', 'legacyHostname', 'installation.serial'], q, layerFilter),
     macFilter ? Device.find({ ...layerFilter, 'installation.mac': macFilter }).limit(PER_QUERY).lean() : [],
     lookup(DeploymentRecord, ['installation.serial', 'assetTag'], q, notRetired),
     macFilter ? DeploymentRecord.find({ ...notRetired, 'installation.mac': macFilter }).limit(PER_QUERY).lean() : [],
@@ -175,7 +176,9 @@ async function candidatesOf(req, project, query, scope, can) {
     if (!prev || match.rank < prev.match.rank) devices.set(String(d._id), { d, match })
   }
   for (const d of devicesByName) {
-    const m = bestMatch({ hostname: d.hostname, existingLabel: d.existingLabel, label: d.label, serial: d.installation?.serial }, q)
+    // A renamed device is found by its old name too (DATA-MODEL §5.19), reported
+    // as such before the stored label, which may still hold the same name.
+    const m = bestMatch({ hostname: d.hostname, existingLabel: d.existingLabel, legacyHostname: d.legacyHostname, label: d.label, serial: d.installation?.serial }, q)
     if (m) addDevice(d, { ...m, value: m.field === 'serial' ? d.installation.serial : d[m.field], source: 'device' })
   }
   for (const d of devicesByMac) addDevice(d, { rank: query.mac.full ? 0 : 1, field: 'mac', value: d.installation.mac, source: 'device' })
@@ -194,7 +197,7 @@ async function candidatesOf(req, project, query, scope, can) {
   // One result per device; an HLD device and its LLD copy with the same name: the LLD one.
   const seen = new Set()
   for (const { d, match } of [...devices.values()].sort((a, b) => a.match.rank - b.match.rank || layerRank(a.d.layer) - layerRank(b.d.layer))) {
-    const title = d.hostname ?? d.existingLabel ?? d.label ?? 'Device'
+    const title = withLegacyName(d.hostname ?? d.existingLabel ?? d.label ?? 'Device', d.legacyHostname)
     const dupKey = `${d.buildingId}|${title.toLowerCase()}|${match.field}`
     if (seen.has(dupKey)) continue
     seen.add(dupKey)

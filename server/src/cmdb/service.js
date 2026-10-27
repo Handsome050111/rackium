@@ -59,6 +59,9 @@ export function createCmdbService({ deployment }) {
       id: d.id,
       hostname: d.hostname,
       label: d.label,
+      name: d.name,
+      // The name before a change request renamed it (DATA-MODEL §5.19).
+      legacyHostname: d.legacyHostname ?? null,
       role: d.role,
       roleLabel: d.roleLabel,
       category: d.category,

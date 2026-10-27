@@ -59,6 +59,8 @@ export default function RecordDetail({ record, canEdit, onSave, onOpenPorts }) {
 
       <div>
         <Field label="Hostname" value={record.hostname} provenance={p.hostname} />
+        {/* Renamed through a change request: the name on site until relabelled (DATA-MODEL §5.19). */}
+        {record.legacyHostname && <Field label="Legacy hostname" value={record.legacyHostname} />}
         <Field label="Model" value={record.model} provenance={p.model} />
         <Field label="Status" value={record.statusLabel} provenance={p.status} tone={record.status === 'maintenance' ? 'text-status-amber' : 'text-status-green'} />
         <Field label="Serial" value={record.serial} provenance={p.serial} />

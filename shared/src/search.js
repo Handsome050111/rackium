@@ -27,6 +27,7 @@ export const MATCH_LABEL = {
   hostname: 'Hostname',
   label: 'Name',
   existingLabel: 'Existing label / name',
+  legacyHostname: 'Old hostname',
   serial: 'Serial',
   mac: 'MAC',
   assetTag: 'Asset ID',

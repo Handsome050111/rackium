@@ -81,7 +81,10 @@ body { margin: 0; font-family: Arial, Helvetica, sans-serif; }
 .qr svg { width: 100%; height: 100%; }
 .txt { min-width: 0; display: flex; flex-direction: column; justify-content: center; }
 .id { font-weight: 700; font-size: ${size.height < 30 ? 8 : 11}pt; }
-.end, .far { font-size: ${size.height < 30 ? 5.5 : 7}pt; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Up to four lines before cutting (the QR code leaves ~16–24 mm of text): a
+   renamed device prints whole as "old → new" (DATA-MODEL §5.19), and a long
+   name keeps its port. */
+.end, .far { font-size: ${size.height < 30 ? 5 : 7}pt; line-height: 1.05; overflow: hidden; word-break: break-all; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; }
 </style></head><body>${Array.from({ length: pagesCount }, (_, p) => `<div class="page">${placed.filter((x) => x.page === p).map(label).join('')}</div>`).join('')}</body></html>`
   return print(html, { width: `${size.page.width}mm`, height: `${size.page.height}mm`, printBackground: true, margin: { top: '0', bottom: '0', left: '0', right: '0' } })
 }

@@ -16,3 +16,12 @@ export function cleanExistingLabel(value) {
 export function deviceDisplayName(device, fallback = 'Device') {
   return cleanExistingLabel(device?.existingLabel) ?? (device?.hostname || device?.label || device?.model || fallback)
 }
+
+// A renamed device keeps its old name (DATA-MODEL §5.19, addendum v2.3 Q5):
+// shown as "old → new" wherever it appears, because on site it is found by
+// the old name. The plain name when there is no old one, or it is the same.
+export const LEGACY_ARROW = ' → '
+export function withLegacyName(name, legacyHostname) {
+  const legacy = String(legacyHostname ?? '').trim()
+  return legacy && legacy !== name ? `${legacy}${LEGACY_ARROW}${name}` : name
+}

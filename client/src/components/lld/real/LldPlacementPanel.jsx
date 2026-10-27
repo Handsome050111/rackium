@@ -35,7 +35,8 @@ export default function LldPlacementPanel({ devices, racks, passiveModels, edita
     setRackId(d?.rackId ?? racks[0]?.id ?? '')
     setRu(d?.ru ?? '')
     setFace(d?.face ?? 'front')
-    setLabelDraft(d?.label ?? '')
+    // The current name: a renamed panel's label reads "old → new" (DATA-MODEL §5.19).
+    setLabelDraft(d?.name ?? d?.label ?? '')
   }
 
   return (
@@ -80,7 +81,7 @@ export default function LldPlacementPanel({ devices, racks, passiveModels, edita
             <span className="text-text-secondary">Panel label</span>
             <input aria-label="Panel label" value={labelDraft} onChange={(e) => setLabelDraft(e.target.value)} maxLength={63} className={`${inputClass} w-56 max-w-full`} />
           </label>
-          <button type="button" disabled={!labelValid || labelDraft.trim() === device.label} onClick={() => onRelabel(device.id, labelDraft.trim())} className="h-9 rounded-lg border border-border px-3 text-xs font-medium text-text hover:border-brand disabled:text-text-secondary">
+          <button type="button" disabled={!labelValid || labelDraft.trim() === (device.name ?? device.label)} onClick={() => onRelabel(device.id, labelDraft.trim())} className="h-9 rounded-lg border border-border px-3 text-xs font-medium text-text hover:border-brand disabled:text-text-secondary">
             Rename
           </button>
           {labelDraft.trim() && !labelValid && <span className="text-[11px] text-status-red">Letters, digits and hyphens only (up to 63)</span>}

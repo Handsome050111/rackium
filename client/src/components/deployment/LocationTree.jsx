@@ -19,7 +19,9 @@ function Row({ node, selectedDeviceId, onSelectDevice }) {
   const content = (
     <>
       <Icon size={16} strokeWidth={2} className={`shrink-0 ${className}`} aria-hidden="true" />
-      <span className="min-w-0 flex-1 truncate text-left text-sm font-medium text-text">{node.label}</span>
+      {/* A device's full name wraps: the engineer finds it by name on site, and a
+          renamed one reads "old → new" (DATA-MODEL §5.19). */}
+      <span className={`min-w-0 flex-1 text-left text-sm font-medium text-text ${isDevice ? 'break-all' : 'truncate'}`}>{node.label}</span>
       {isDevice ? (
         <span className="shrink-0 text-[11px] text-text-secondary">
           {label}

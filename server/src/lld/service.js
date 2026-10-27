@@ -11,7 +11,7 @@ import { buildHostname } from '@rackium/shared/naming.js'
 import { summariseFindings } from '@rackium/shared/hldRules.js'
 import { portKey, portsOf, isPatchPanel, validateLld, diffDesigns, reconcileWithHld, routeSides, routeBookings, hopProblems, pairBookings, pairConflicts, nextPanelLabel } from '@rackium/shared/lldDesign.js'
 import { canApproveSubmission, rolesAllowed, ACTIONS } from '@rackium/shared/policy.js'
-import { deviceDisplayName, cleanExistingLabel } from '@rackium/shared/deviceName.js'
+import { deviceDisplayName, cleanExistingLabel, withLegacyName } from '@rackium/shared/deviceName.js'
 import { Device } from '../models/device.js'
 import { Connection } from '../models/connection.js'
 import { PortOccupancy } from '../models/portOccupancy.js'
@@ -111,7 +111,11 @@ function deviceView(d, cat, racks, rooms = []) {
     hostname: d.hostname ?? null,
     // Shown everywhere a device is listed; the stored label (what was
     // placed, e.g. "24-port patch panel") still sets kind and port count.
-    label: deviceDisplayName(d, info?.label ?? 'Device'),
+    // A device renamed through an approved change request reads "old → new"
+    // (DATA-MODEL §5.19); `name` is the current name alone (edit boxes).
+    label: withLegacyName(deviceDisplayName(d, info?.label ?? 'Device'), d.legacyHostname),
+    name: deviceDisplayName(d, info?.label ?? 'Device'),
+    legacyHostname: d.legacyHostname ?? null,
     existingLabel: cleanExistingLabel(d.existingLabel),
     catalogueKey: d.catalogueKey ?? null,
     model: d.model ?? null,
@@ -232,7 +236,7 @@ function snapshotOf(data) {
     devices: views.filter((d) => own.has(d.id)),
     connections,
     raw: {
-      devices: data.devices.map((d) => ({ _id: String(d._id), role: d.role ?? null, hostname: d.hostname ?? null, label: d.label ?? null, model: d.model ?? null, catalogueKey: d.catalogueKey ?? null, category: d.category ?? null, roomId: id(d.roomId), rackId: id(d.rackId), ru: d.ru ?? null, heightU: d.heightU ?? null, face: d.face ?? null, fullDepth: Boolean(d.fullDepth), mounting: d.mounting ?? null, psuConfigured: d.psuConfigured ?? null, hldRef: id(d.hldRef), originId: id(d.originId), salId: id(d.salId) })),
+      devices: data.devices.map((d) => ({ _id: String(d._id), role: d.role ?? null, hostname: d.hostname ?? null, legacyHostname: d.legacyHostname ?? null, label: d.label ?? null, model: d.model ?? null, catalogueKey: d.catalogueKey ?? null, category: d.category ?? null, roomId: id(d.roomId), rackId: id(d.rackId), ru: d.ru ?? null, heightU: d.heightU ?? null, face: d.face ?? null, fullDepth: Boolean(d.fullDepth), mounting: d.mounting ?? null, psuConfigured: d.psuConfigured ?? null, hldRef: id(d.hldRef), originId: id(d.originId), salId: id(d.salId) })),
       connections: data.connections.map((c) => ({
         _id: String(c._id),
         hldRef: id(c.hldRef),
@@ -526,6 +530,7 @@ async function copyIntoLayer({ devices, connections }, { layer, building, keepId
           originId: deviceOrigin ? oid(deviceOrigin) : null,
           role: d.role ?? null,
           hostname: d.hostname ?? null,
+          legacyHostname: d.legacyHostname ?? null,
           label: d.label ?? null,
           model: d.model ?? null,
           catalogueKey: d.catalogueKey ?? null,
@@ -736,6 +741,28 @@ export function createLldService({ storage }) {
     await audit(req, building, actor, 'lld.branch.promoted', { objectType: 'DesignBranch', objectId: branch._id, comment: branch.name, session })
   }
 
+  // A change request's rename became real (DATA-MODEL §5.19): each device of
+  // the frozen LLD whose name it changed keeps its old name in legacyHostname
+  // — set once, never overwritten. Returns every rename, old → new.
+  async function keepLegacyNames(req, building, before, actor, session) {
+    const after = new Map((await Device.find({ buildingId: building.id, layer: MAIN }).session(session).lean()).map((d) => [String(d._id), d]))
+    const renamed = []
+    const changes = []
+    for (const old of before) {
+      const now = after.get(String(old._id))
+      if (!now) continue
+      const from = deviceDisplayName(old, 'Device')
+      const to = deviceDisplayName(now, 'Device')
+      if (from === to) continue
+      renamed.push({ deviceId: String(old._id), from, to })
+      if (now.legacyHostname) continue
+      await Device.updateOne({ _id: now._id, legacyHostname: null }, { $set: { legacyHostname: from } }, { session })
+      changes.push({ objectType: 'Device', objectId: String(now._id), field: 'legacyHostname', before: null, after: from })
+    }
+    if (changes.length) await audit(req, building, actor, 'device.legacy_hostname.set', { objectType: 'Building', objectId: building.id, comment: `${changes.length} renamed device(s) keep their old name`, changes, session })
+    return renamed
+  }
+
   async function discardIn(req, building, branch, actor, session) {
     const layer = layerOf(String(branch._id))
     if (branch.includesHld) await discardHldBranch({ building, branchId: String(branch._id), session })
@@ -827,8 +854,10 @@ export function createLldService({ storage }) {
         await HldDesign.updateOne({ _id: hldDoc._id }, { $set: { latestApprovedVersionId: hldVersion.versionId, state: 'approved' }, $inc: { revision: 1 } }, { session })
       }
       // Names of the frozen design's devices, for retiring the ones the change removes.
-      const labels = new Map((await Device.find({ buildingId: building.id, layer: MAIN }, { hostname: 1, label: 1 }).session(session).lean()).map((d) => [String(d._id), d.hostname ?? d.label ?? 'device']))
+      const before = await Device.find({ buildingId: building.id, layer: MAIN }).session(session).lean()
+      const labels = new Map(before.map((d) => [String(d._id), d.hostname ?? d.label ?? 'device']))
       await promoteInto(req, building, branch, actor, session)
+      const renamed = await keepLegacyNames(req, building, before, actor, session)
       await retireRemovedRecords({ organisationId: req.org.id, projectId: req.project.id, buildingId: building.id, reason: label, labels, session })
       const data = await loadLayer(building.id, MAIN, req.project.id, session)
       const lld = await LldDesign.findOne({ buildingId: building.id }).session(session).lean()
@@ -836,7 +865,7 @@ export function createLldService({ storage }) {
       const { versionId, number } = await writeVersion({ building, data, actor, label, branchId: null, basedOnVersionId: basedOn.basedOnHldVersionId ?? lld.basedOnHldVersionId, session })
       await DesignVersion.updateOne({ _id: versionId }, { $set: { frozen: true, frozenAt: new Date() } }, { session })
       await LldDesign.updateOne({ _id: lld._id }, { $set: { latestApprovedVersionId: versionId, state: 'approved', ...basedOn }, $inc: { revision: 1 } }, { session })
-      return { versionId: String(versionId), number, hldVersionId: hldVersion ? String(hldVersion.versionId) : null, hldNumber: hldVersion?.number ?? null }
+      return { versionId: String(versionId), number, hldVersionId: hldVersion ? String(hldVersion.versionId) : null, hldNumber: hldVersion?.number ?? null, renamed }
     },
 
     async discardChangeRequestBranch(req, { building, branchId }, actor, session) {

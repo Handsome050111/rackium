@@ -36,6 +36,10 @@ const deviceSchema = new mongoose.Schema({
   // Shown instead of `label` (which keeps what was placed: kind, port count).
   existingLabel: { type: String, trim: true, default: null },
   hostname: { type: String, trim: true, default: null },
+  // The name before the device's first rename that became real (an approved
+  // change request, DATA-MODEL §5.19): its hostname, or its label for gear
+  // named by its label. Shown as "old → new". Immutable once set (below).
+  legacyHostname: { type: String, trim: true, default: null },
   // From the CMO import (v2.2 §3.5a): the vendor column, and the floor the
   // row named (validated against the building's floors).
   vendor: { type: String, trim: true, default: null },
@@ -73,6 +77,17 @@ deviceSchema.pre('validate', function plannedNeedsBuilding() {
   if (this.origin === 'planned' && !this.buildingId) this.invalidate('buildingId', 'A planned device belongs to a building')
 })
 
+// legacyHostname is written once: only an update filtered on
+// `legacyHostname: null` may set it, and nothing may change or clear it after.
+const touchesLegacy = (update) => update && ['legacyHostname', '$set.legacyHostname', '$unset.legacyHostname', '$rename.legacyHostname'].some((path) => path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), update) !== undefined)
+function guardLegacyHostname() {
+  if (touchesLegacy(this.getUpdate()) && this.getFilter().legacyHostname !== null) throw new Error('legacyHostname is immutable once set (DATA-MODEL §5.19)')
+}
+for (const op of ['updateOne', 'updateMany', 'findOneAndUpdate', 'replaceOne', 'findOneAndReplace']) deviceSchema.pre(op, guardLegacyHostname)
+deviceSchema.pre('save', function legacyHostnameOnSave() {
+  if (!this.isNew && this.isModified('legacyHostname')) throw new Error('legacyHostname is immutable once set (DATA-MODEL §5.19)')
+})
+
 deviceSchema.__modelName = 'Device'
 tenantScope(deviceSchema, { scope: 'project' })
 
@@ -92,6 +107,7 @@ const ci = { collation: { locale: 'en', strength: 2 } }
 deviceSchema.index({ projectId: 1, hostname: 1 }, ci)
 deviceSchema.index({ projectId: 1, label: 1 }, ci)
 deviceSchema.index({ projectId: 1, existingLabel: 1 }, ci)
+deviceSchema.index({ projectId: 1, legacyHostname: 1 }, ci)
 deviceSchema.index({ projectId: 1, 'installation.serial': 1 }, ci)
 
 export const Device = mongoose.models.Device || mongoose.model('Device', deviceSchema)

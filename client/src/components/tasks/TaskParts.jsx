@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, Clock, Trash2 } from 'lucide-react'
+import { AlertTriangle, Clock, QrCode, Trash2 } from 'lucide-react'
 import { TASK_STATUSES, TASK_STATUS_LABELS, PHASE_LABELS } from '@rackium/shared/notifications.js'
 import { tasksApi } from '../../api/workApi.js'
 
@@ -130,6 +130,27 @@ export function DeadlineBadge({ task }) {
 
 // Task rows (cards on a phone). `canMove(task)`: the assignee or a PM may set
 // the status; the server refuses anything else and says why.
+// A reprint-label task (M7b-2, DATA-MODEL §5.19): the renames, old → new, and
+// the label dialog with the task's cables chosen.
+function ReprintDetails({ task, buildingLink }) {
+  return (
+    <div className="mt-1 space-y-1" data-testid="reprint-details">
+      <ul className="space-y-0.5">
+        {task.renames.map((r) => (
+          <li key={r.deviceId} className="break-words font-mono text-[11px] text-text">
+            {r.from} → {r.to}
+          </li>
+        ))}
+      </ul>
+      {buildingLink && task.connectionIds.length > 0 && (
+        <Link to={`${buildingLink}/deployment?labels=${task.connectionIds.join(',')}`} className="inline-flex h-touch items-center gap-1.5 rounded-lg border border-border px-3 text-xs font-medium text-brand hover:border-brand sm:h-8">
+          <QrCode size={13} strokeWidth={2} /> Print labels ({task.connectionIds.length} connection{task.connectionIds.length === 1 ? '' : 's'})
+        </Link>
+      )}
+    </div>
+  )
+}
+
 export function TaskList({ tasks, userId, isPm = false, highlightId = null, showProject = false, onStatus, onDelete, empty = 'No tasks yet.', linkFor = null }) {
   if (!tasks.length) return <p className="rounded-xl border border-border bg-surface px-3 py-6 text-center text-xs text-text-secondary">{empty}</p>
   return (
@@ -155,6 +176,7 @@ export function TaskList({ tasks, userId, isPm = false, highlightId = null, show
               <div className="text-text-secondary">
                 {t.assignedToName} · assigned by {t.assignedByName}
               </div>
+              {t.kind === 'reprint_labels' && <ReprintDetails task={t} buildingLink={linkFor ? linkFor(t) : null} />}
             </div>
             <div>
               <DeadlineBadge task={t} />

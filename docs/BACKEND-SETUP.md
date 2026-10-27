@@ -37,7 +37,9 @@ It starts, in one terminal:
   user for every role, and the project *Campus Network Refresh* with six
   buildings — B001 survey in progress, B002 HLD waiting for review, B003 LLD
   waiting for review, B004 BOM approved and half ordered, B005 deployment
-  under way, B006 handed over and accepted by the client. All addresses are
+  under way (with an installed switch renamed by an approved change request:
+  "old → new", and a reprint-label task for Fiona Field), B006 handed over
+  and accepted by the client. All addresses are
   `@example.com`; nothing comes from client files. Loading takes a few
   minutes (every building goes through the real workflow, PDFs included);
 - the **server** (`server/src/index.js`, with its scheduled jobs) on
@@ -199,8 +201,9 @@ npm run build
 ```
 
 `test:server` runs the document-rendering tests (`api.m6b.test.js`,
-`api.m7a3-pdf.test.js` and `dev.demoData.test.js` — the `dev:local` demo
-data, whose handover renders PDFs — which start headless Chromium) in a second Vitest
+`api.m7a3-pdf.test.js`, `dev.demoData.test.js` — the `dev:local` demo
+data, whose handover renders PDFs — and `api.m7b2.test.js`, which prints
+label sheets; all start headless Chromium) in a second Vitest
 process after all other files, so
 PDF rendering can never slow the other API tests into their timeouts. Test
 files within each process run one at a time; each file has its own in-memory
