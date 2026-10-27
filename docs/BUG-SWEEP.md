@@ -184,6 +184,8 @@ recorded.
 | 2026-10-07 | `fix/hld-drag-test` | `sweep-round3.spec.js` › persistence across reload › "Reset demo data" discards the edit and restores the seed value (`desktop`) | flaky; a second full run was clean |
 | 2026-10-08 | `feature/topology-icons` | same test (`tablet-portrait`) | flaky; passed on retry — root cause found and fixed, below |
 | 2026-10-08 | `feature/m3a-catalogue-cmo` | `journey.spec.js` › the project appears in the list, and its building opens the real dashboard (`real`) | flaky; locator race, fixed. `getByText('LANspire')` also matched the sidebar's project link once the sidebar had loaded (strict-mode violation). Now scoped to `main`. The real project then passed 60/60 with `--repeat-each=4`, no retries |
+| 2026-10-27 | `feature/dev-local` (PR #19 CI) | `e2e-real/survey.spec.js` › set up (`real`) | failed on both tries; locator race, fixed. `createProjectWithHierarchy` clicked "New project", which matches two links once the empty project list has rendered (the sidebar's + and the page's button); either opens the wizard, so it takes the first |
+| 2026-10-27 | `feature/dev-local` (PR #19 CI) | `sweep-round3.spec.js` › persistence across reload › an edit on a building-scope survey tab survives a reload (`desktop`) | flaky; passed on retry. The first text input was read before the Storage Area form had loaded (the previous tab's, then replaced). Every Storage Area test there now waits for the tab's URL and its form; 132/132 with `--repeat-each=3`, no retries (with the survey spec) |
 
 **"Reset demo data" — fixed (real bug, not a test problem).**
 `resetDemoData()` (`client/src/lib/persistentStore.js`) cleared the

@@ -12,7 +12,9 @@
     "test:server": "npm test --workspace @rackium/server",
     "clean:test-db": "npm run clean:test-db --workspace @rackium/server",
     "lint": "npm run lint --workspace client",
-    "build": "npm run build --workspace client"
+    "build": "npm run build --workspace client",
+    "dev:local": "node server/dev/local.mjs",
+    "dev:local:stop": "node server/dev/stop.mjs"
   },
   "engines": {
     "node": ">=20"
