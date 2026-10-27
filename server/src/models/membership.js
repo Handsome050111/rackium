@@ -17,7 +17,7 @@ const membershipSchema = new mongoose.Schema({
   level: { type: String, enum: ['organisation', 'project'], required: true },
   // Organisation level: 'org_admin', or 'member' (no admin rights; holds
   // organisation-level permissions). Project level: the five project roles.
-  role: { type: String, enum: ['org_admin', 'member', 'pm', 'architect', 'reviewer', 'field_engineer', 'viewer'], required: true },
+  role: { type: String, enum: ['org_admin', 'member', 'pm', 'architect', 'reviewer', 'external_reviewer', 'field_engineer', 'viewer'], required: true },
   // Organisation level only. Org Admin can always create projects regardless
   // (shared/policy.js canCreateProjects); this flag is for everyone else.
   canCreateProjects: { type: Boolean, default: false },

@@ -180,10 +180,10 @@ describe('Deviations, exceptions and acceptance (brief §5.7)', () => {
     expect(ea.segments.map((s) => s.cableId)).toEqual(['C-EA-1', 'C-EA-1b'])
     // Every cable must be confirmed with its ID and length.
     const first = { index: 0, cableId: 'C-EA-1', installedM: 1, confirmed: true }
-    expect((await p.fe.put(`${p.dep}/connections/${ea.id}/installation`).send({ segments: [first], confirm: true }).expect(400)).body.error.message).toMatch(/cable 2/)
-    await p.architect.put(`${p.dep}/connections/${ea.id}/installation`).send({ segments: [first] }).expect(403)
+    expect((await p.fe.put(`${p.dep}/connections/${ea.id}/installation`).send({ segments: [first], confirm: true, version: ea.version }).expect(400)).body.error.message).toMatch(/cable 2/)
+    await p.architect.put(`${p.dep}/connections/${ea.id}/installation`).send({ segments: [first], version: ea.version }).expect(403)
     // Cable 2 has no designed length (the AP is not in a rack): any length is fine; cable 1 is 1 m designed.
-    const done = expectStatus(await p.fe.put(`${p.dep}/connections/${ea.id}/installation`).send({ segments: [{ ...first, installedM: 2 }, { index: 1, cableId: 'C-EA-1b', installedM: 12, confirmed: true }], confirm: true }), 200).body
+    const done = expectStatus(await p.fe.put(`${p.dep}/connections/${ea.id}/installation`).send({ segments: [{ ...first, installedM: 2 }, { index: 1, cableId: 'C-EA-1b', installedM: 12, confirmed: true }], confirm: true, version: ea.version }), 200).body
     expect(done).toMatchObject({ installed: true, connection: { status: 'installed', segments: [{ installed: { cableId: 'C-EA-1', installedM: 2, confirmed: true } }, { installed: { cableId: 'C-EA-1b', installedM: 12 } }] } })
     expect(done.connection.deviations.map((x) => [x.field, x.designedValue, x.installedValue])).toEqual([['length:0', '1 m', '2 m']])
     // Wrong port and cable ID on the trunk too.
@@ -202,7 +202,7 @@ describe('Deviations, exceptions and acceptance (brief §5.7)', () => {
     expectStatus(await p.reviewer.post(`${p.dep}/exceptions/${exc.id}/review`).send({ decision: 'accepted' }), 200)
     expectStatus(await p.reviewer.post(`${p.dep}/connections/${ea.id}/accept`), 200)
     // Re-patching an accepted connection is a CMDB change, not a deployment edit.
-    expect((await p.fe.put(`${p.dep}/connections/${ea.id}/installation`).send({ segments: [first] }).expect(409)).body.error.code).toBe('accepted')
+    expect((await p.fe.put(`${p.dep}/connections/${ea.id}/installation`).send({ segments: [first], version: done.connection.version }).expect(409)).body.error.code).toBe('accepted')
 
     // Device steps: Configured, then Tested only once every connection is tested.
     expect((await step(p.fe, p, edge, 'tested').expect(409)).body.error.message).toMatch(/next is Configured/)
@@ -232,7 +232,7 @@ describe('Deviations, exceptions and acceptance (brief §5.7)', () => {
     // and summarises DGUV: the Edge inspected, the Border installed but not inspected (APs and panels have no mains).
     const dash = (await p.viewer.get(`${p.base}/dashboard/buildings/${p.b001}`).expect(200)).body
     expect(dash.kpis).toMatchObject({ connections: 3, connectionStatus: { designed: 3, installed: 2, tested: 2, accepted: 1 } })
-    expect(dash.dguv).toEqual({ total: 2, valid: 1, expiring_soon: 0, expiring: 0, overdue: 0, notInspected: 1 })
+    expect(dash.dguv).toEqual({ total: 2, valid: 1, expiring_soon: 0, expiring: 0, overdue: 0, notInspected: 1, exempt: 0 })
   }, 180000)
 })
 

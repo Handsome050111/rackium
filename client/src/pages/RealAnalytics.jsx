@@ -90,8 +90,37 @@ export default function RealAnalytics() {
             <p className="mt-2 text-xs text-text-secondary">{Object.entries(m.blockerFrequency.byPhase).map(([k, v]) => `${phaseName(k)} ${v}`).join(' · ') || 'None raised'}</p>
           </Metric>
           <Metric id="blockerResolution" headline={days(m.blockerResolution.avgDays)} sub={`${m.blockerResolution.count} resolved · ${m.blockerResolution.open} still open`} trend={m.blockerResolution.trend} unit=" d" title="Average days to resolve, by month resolved" excluded={m.blockerResolution.excluded} />
-          <Metric id="bomVariance" headline={pct(m.bomVariance.avgVariancePct)} sub={`Latest approved procurement BOM against the first · ${m.bomVariance.changed} of ${m.bomVariance.count} building(s) changed`} trend={m.bomVariance.trend} unit="%" title="BOM variance by month of the latest version" excluded={m.bomVariance.excluded}>
-            {m.bomVariance.buildings.length > 0 && <p className="mt-2 text-xs text-text-secondary">{m.bomVariance.buildings.map((b) => `${b.code}: ${b.variancePct}% (${b.versions} version(s))`).join(' · ')}</p>}
+          <Metric id="bomAccuracy" headline={pct(m.bomAccuracy.avgAccuracyPct)} sub={`Approved procurement BOM against what was installed · ${m.bomAccuracy.count} finished building(s), ${m.bomAccuracy.inProgress} still installing`} trend={m.bomAccuracy.trend} unit="%" title="BOM accuracy by month the deployment finished" excluded={m.bomAccuracy.excluded}>
+            {m.bomAccuracy.buildings.length > 0 && (
+              <table className={small} data-testid="bom-accuracy">
+                <thead className="text-text-secondary">
+                  <tr>
+                    <th className="py-1 font-medium">Building</th>
+                    <th className="py-1 text-right font-medium">Devices</th>
+                    <th className="py-1 text-right font-medium">Optics</th>
+                    <th className="py-1 text-right font-medium">Cables</th>
+                    <th className="py-1 text-right font-medium">Accuracy</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {m.bomAccuracy.buildings.map((b) => (
+                    <tr key={b.buildingId} className="border-t border-border/60">
+                      <td className="py-1">{b.code}</td>
+                      {['devices', 'optics', 'cables'].map((k) => (
+                        <td key={k} className="py-1 text-right tabular-nums">
+                          {b[k].installed}/{b[k].approved}
+                        </td>
+                      ))}
+                      <td className="py-1 text-right tabular-nums">{pct(b.accuracyPct)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            <p className="mt-2 text-xs text-text-secondary">Installed / approved. PSUs, cords, cage nuts and accessories are not recorded as installed and are not compared.</p>
+          </Metric>
+          <Metric id="bomRevisions" headline={m.bomRevisions.avgRevisions ?? '—'} sub={`Re-approvals after the first procurement BOM, per building · ${m.bomRevisions.changed} of ${m.bomRevisions.count} building(s) revised`} trend={m.bomRevisions.trend} title="BOM revisions by month of the latest version" excluded={m.bomRevisions.excluded}>
+            {m.bomRevisions.buildings.length > 0 && <p className="mt-2 text-xs text-text-secondary">{m.bomRevisions.buildings.map((b) => `${b.code}: ${b.revisions} revision(s), final ${b.changePct}% from the first`).join(' · ')}</p>}
           </Metric>
           <Metric id="surveyCompletion" headline={pct(m.surveyCompletion.completionPct)} sub={`${m.surveyCompletion.verified} of ${m.surveyCompletion.expected} survey tab(s) verified`} trend={m.surveyCompletion.trend} title="Survey tabs verified per month" excluded={m.surveyCompletion.excluded}>
             {m.surveyCompletion.byTechnician && (

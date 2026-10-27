@@ -9,8 +9,15 @@ const EMAILS_FILE = path.join(here, '../../server/e2e/.runtime-emails.json')
 export const PASSWORD = 'correct horse battery staple'
 export const fixture = (name) => path.join(here, 'fixtures', name)
 
+// A read can still land mid-write (writeFile truncates first): a partial
+// file reads as no emails yet, and lastEmailTo tries again.
 function readEmails() {
-  return JSON.parse(fs.readFileSync(EMAILS_FILE, 'utf8'))
+  try {
+    return JSON.parse(fs.readFileSync(EMAILS_FILE, 'utf8'))
+  } catch (err) {
+    if (err instanceof SyntaxError) return []
+    throw err
+  }
 }
 
 // The route awaits mailer.send() before responding, so the file is already

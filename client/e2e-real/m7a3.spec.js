@@ -105,7 +105,7 @@ test('workload matrix: open and overdue tasks per person and building — every 
 
 test('analytics: six metrics with trend lines; the keyboard moves the crosshair; survey completion by technician for the Org Admin', async () => {
   await owner.goto(`${home()}/analytics`)
-  for (const id of ['phaseDuration', 'blockerFrequency', 'blockerResolution', 'bomVariance', 'surveyCompletion', 'approvalTurnaround']) await expect(owner.getByTestId(`metric-${id}`)).toBeVisible()
+  for (const id of ['phaseDuration', 'blockerFrequency', 'blockerResolution', 'bomAccuracy', 'bomRevisions', 'surveyCompletion', 'approvalTurnaround']) await expect(owner.getByTestId(`metric-${id}`)).toBeVisible()
   await expect(owner.getByTestId('by-technician')).toContainText('Fiona Field')
   // The approvals of the setup were decided this month: a trend point.
   const trend = owner.getByTestId('trend-approvalTurnaround').locator('svg')

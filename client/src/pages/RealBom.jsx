@@ -87,7 +87,7 @@ export default function RealBom() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <StatusChip status={view.status} subLabel={view.subLabel} />
-          <button type="button" onClick={() => downloadSheet(procurementSheet(view.lines, { showPrices: view.showPrices }), 'BOM', `${view.building.code}-bom-procurement.xlsx`)} className="flex h-touch items-center gap-1.5 rounded-lg border border-border px-3 text-xs font-medium text-text hover:border-brand sm:h-9">
+          <button type="button" onClick={() => downloadSheet(procurementSheet(view.lines, { showPrices: view.showPrices, procurementDetails: view.procurementDetails !== false }), 'BOM', `${view.building.code}-bom-procurement.xlsx`)} className="flex h-touch items-center gap-1.5 rounded-lg border border-border px-3 text-xs font-medium text-text hover:border-brand sm:h-9">
             <Download size={14} strokeWidth={2} />
             Export BOM
           </button>
@@ -153,12 +153,13 @@ export default function RealBom() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      <div className={`grid grid-cols-2 gap-3 sm:grid-cols-3 ${view.unpricedCount == null ? 'lg:grid-cols-5' : 'lg:grid-cols-6'}`}>
         <Kpi icon={Server} value={serialised} label="serialised devices" />
         <Kpi icon={Link2} value={optics} label="optics (link ends)" />
         <Kpi icon={Link2} value={cables} label="cables" />
         <Kpi icon={Boxes} value={view.lines.length} label="BOM lines" />
-        <Kpi icon={AlertTriangle} value={view.unpricedCount} label="not priced" tone={view.unpricedCount ? 'text-status-amber' : 'text-status-green'} />
+        {/* Without price access the BOM is quantities and specifications only (unpricedCount null). */}
+        {view.unpricedCount != null && <Kpi icon={AlertTriangle} value={view.unpricedCount} label="not priced" tone={view.unpricedCount ? 'text-status-amber' : 'text-status-green'} />}
         <Kpi icon={CheckCircle2} value={view.reconciliation.reconciled ? 'Yes' : 'No'} label="reconciles with design" tone={view.reconciliation.reconciled ? 'text-status-green' : 'text-status-amber'} />
       </div>
 

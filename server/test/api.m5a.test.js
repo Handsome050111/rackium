@@ -66,6 +66,11 @@ describe('Draft BOM from the approved HLD + LLD (brief §5.6)', () => {
       expect(hidden.showPrices).toBe(false)
       expect(hidden.pricing).toBeNull()
       expect(hidden.lines.some((l) => 'unitPriceMinor' in l || 'lineTotalMinor' in l)).toBe(false)
+      // Nor whether a line has a price (M7b-1): no flag, note, currency, count or "Not priced" status.
+      expect(hidden.lines.some((l) => ['priced', 'priceNote', 'currency'].some((k) => k in l) || l.status === 'Not priced')).toBe(false)
+      expect(hidden).toMatchObject({ currency: null, unpricedCount: null })
+      expect(hidden.calc.some((c) => /priced/i.test(c))).toBe(false)
+      expect(hidden.lines.find((l) => l.key === 'cable:os2:50').status).toBe('Calculated')
     }
     // …until the Org Admin lets Architects see prices.
     await p.admin.agent.patch(`/api/v1/orgs/${p.admin.orgId}/settings`).send({ architectsSeePrices: true }).expect(200)

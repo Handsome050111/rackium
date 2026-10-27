@@ -30,6 +30,8 @@ const EMPTY = {
   psuCount: '',
   needsUplinkModule: false,
   requiresDualPsu: false,
+  // '' = decided by the model's power; 'true' / 'false' = set for this model.
+  dguvRequired: '',
   groups: [],
   opticMedia: 'om4',
   opticSpeed: '10G',
@@ -95,6 +97,7 @@ function toPayload(form) {
     psuCount: num(form.psuCount),
     needsUplinkModule: form.needsUplinkModule,
     requiresDualPsu: form.requiresDualPsu,
+    dguvRequired: form.dguvRequired === '' ? null : form.dguvRequired === 'true',
     portMap: form.groups.length
       ? { groups: form.groups.map((g) => ({ role: g.role, type: g.type, speed: g.speed || null, poe: g.poe, count: num(g.count), start: num(g.start) ?? 1, pattern: g.pattern })) }
       : null,
@@ -266,6 +269,13 @@ export default function CatalogueItemForm() {
         </Field>
         <Check label="Needs uplink module" checked={form.needsUplinkModule} onChange={(v) => set({ needsUplinkModule: v })} />
         <Check label="Requires dual PSU" checked={form.requiresDualPsu} onChange={(v) => set({ requiresDualPsu: v })} />
+        <Field label="DGUV V3 inspection">
+          <select value={form.dguvRequired} onChange={(e) => set({ dguvRequired: e.target.value })} className={inputClass}>
+            <option value="">By power (inlet or PSUs)</option>
+            <option value="true">Required</option>
+            <option value="false">Not required</option>
+          </select>
+        </Field>
       </section>
 
       <section className="space-y-3 rounded-xl border border-border bg-surface p-4">

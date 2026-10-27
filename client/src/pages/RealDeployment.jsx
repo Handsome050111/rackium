@@ -92,7 +92,7 @@ export default function RealDeployment() {
     )
   }
 
-  const permissions = { install: !readOnly && view.permissions.install, recordDguv: !readOnly && view.permissions.recordDguv, accept: !readOnly && view.permissions.accept, reviewExceptions: !readOnly && view.permissions.reviewExceptions }
+  const permissions = { install: !readOnly && view.permissions.install, recordDguv: !readOnly && view.permissions.recordDguv, overrideDguv: !readOnly && view.permissions.overrideDguv, accept: !readOnly && view.permissions.accept, reviewExceptions: !readOnly && view.permissions.reviewExceptions }
   const selected = view.devices.find((d) => d.id === selectedId) ?? null
   const racks = view.racks.map((r) => ({ ...r, label: `${r.code} · ${view.rooms.find((x) => x.id === r.roomId)?.code ?? ''}` }))
   const openExceptions = view.exceptions.filter((e) => e.status === 'open').length

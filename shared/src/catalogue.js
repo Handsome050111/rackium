@@ -164,6 +164,10 @@ const itemShape = {
   needsUplinkModule: z.boolean().default(false),
   // The model must run with two PSUs (VAL-005 is Critical when fewer are configured).
   requiresDualPsu: z.boolean().default(false),
+  // DGUV V3 default for devices of this model (addendum v2.3 Q13, v2.2
+  // §20.9 dguv_required): true or false; null = decided by the model's
+  // power (a power inlet or PSUs). A device may override it with a reason.
+  dguvRequired: z.boolean().nullable().default(null),
   portMap: portMapSchema.nullable().default(null),
   mediaSpeed: mediaSpeedSchema.nullable().default(null),
   compatibleSfps: partKeyList,
@@ -280,7 +284,7 @@ export function filterCatalogue(items, { q, group, category, vendor, minPorts, p
 // group here; richer port maps are edited in the form.
 export const CATALOGUE_CSV_COLUMNS = [
   'kind', 'category', 'vendor', 'model', 'description',
-  'heightU', 'fullDepth', 'mounting', 'rackMounted', 'weightKg', 'powerDrawW', 'powerInletType', 'poeBudgetW', 'psuCount', 'needsUplinkModule', 'requiresDualPsu',
+  'heightU', 'fullDepth', 'mounting', 'rackMounted', 'weightKg', 'powerDrawW', 'powerInletType', 'poeBudgetW', 'psuCount', 'needsUplinkModule', 'requiresDualPsu', 'dguvRequired',
   'accessPortCount', 'accessPortType', 'accessPortSpeed', 'accessPortPoe', 'accessPortPattern', 'accessPortStart',
   'uplinkPortCount', 'uplinkPortType', 'uplinkPortSpeed', 'uplinkPortPattern', 'uplinkPortStart',
   'opticMedia', 'opticSpeed', 'opticReachM',
@@ -357,6 +361,8 @@ export function catalogueRowToItem(row) {
     psuCount: num('psuCount', { integer: true }),
     needsUplinkModule: bool('needsUplinkModule'),
     requiresDualPsu: bool('requiresDualPsu'),
+    // Blank: decided by the model's power.
+    dguvRequired: cell(row, 'dguvRequired') === '' ? null : bool('dguvRequired'),
     portMap: groups.length ? { groups } : null,
     mediaSpeed: opticMedia ? { media: opticMedia, speed: text('opticSpeed') ?? '', reachM: num('opticReachM') ?? 0 } : null,
     compatibleSfps: list('compatibleSfps'),

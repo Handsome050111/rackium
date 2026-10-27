@@ -59,9 +59,9 @@ describe('policy (v2.3 §4.3)', () => {
     expect(() => can(['pm'], 'made_up_action')).toThrow(/Unknown policy action/)
   })
 
-  it('organisation level is Org Admin only; project level has the five project roles', () => {
+  it('organisation level is Org Admin only; project level has the six project roles (External Reviewer: addendum v2.3 Q11)', () => {
     expect(rolesForLevel('organisation')).toEqual(['org_admin'])
-    expect(rolesForLevel('project')).toEqual(['pm', 'architect', 'reviewer', 'field_engineer', 'viewer'])
+    expect(rolesForLevel('project')).toEqual(['pm', 'architect', 'reviewer', 'external_reviewer', 'field_engineer', 'viewer'])
   })
 
   it("nobody approves their own submission; a reviewer may approve another person's", () => {

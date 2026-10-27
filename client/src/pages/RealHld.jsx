@@ -82,7 +82,7 @@ export default function RealHld() {
   const canEdit = !readOnly && has('architect') && !isPhone
   const latest = view?.approvals?.[0] ?? null
   const ownSubmission = latest?.status === 'pending' && latest.submittedById === user?.id
-  const canReview = !readOnly && (has('pm') || has('reviewer')) && !ownSubmission
+  const canReview = !readOnly && (has('pm') || has('reviewer') || has('external_reviewer')) && !ownSubmission
   const locked = view?.design.state === 'awaiting_approval'
   // The frozen main HLD is read-only; its changes are drafted on a change request's branch.
   const frozenMain = Boolean(view?.frozen) && !branchId
@@ -491,7 +491,7 @@ export default function RealHld() {
             Changes requested by {latest.decision.decidedBy}: {latest.decision.comments}
           </p>
         )}
-        {ownSubmission && (has('pm') || has('reviewer')) && <p className="text-xs text-text-secondary">You submitted this HLD — another PM or Reviewer decides on it.</p>}
+        {ownSubmission && (has('pm') || has('reviewer') || has('external_reviewer')) && <p className="text-xs text-text-secondary">You submitted this HLD — another PM or Reviewer decides on it.</p>}
 
         {canEdit && <HldToolbar mode={draft ? (selectedConnectionId ? 'change-medium' : 'create-uplink') : mode} onSelectTool={selectTool} onUndo={undo} canUndo={history.index >= 0} onRedo={redo} canRedo={history.index < history.actions.length - 1} onDelete={deleteSelected} canDelete={Boolean(selectedConnectionId || selectedDeviceId)} disabled={!editable} />}
         {canEdit && mode === 'move' && !draft && <p className="text-xs text-text-secondary">Move: drag devices inside their room. Positions are saved separately from the design.</p>}

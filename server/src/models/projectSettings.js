@@ -21,10 +21,11 @@ const projectSettingsSchema = new mongoose.Schema({
   // The client's logo on generated documents (M6b): stored bytes, no public URL.
   clientLogo: { type: new mongoose.Schema({ storageKey: String, mimeType: String, updatedAt: Date }, { _id: false }), default: null },
   // Schedule (M7a-1): risk thresholds, phases allowed to run in parallel with
-  // the previous one, and when live phase history tracking started.
+  // the previous one, and when live phase history tracking started. M7b-1:
+  // the project's SLA escalation contact (addendum v2.3 Q12).
   schedule: {
     type: new mongoose.Schema(
-      { riskElapsedPct: { type: Number, default: 80 }, riskProgressPct: { type: Number, default: 50 }, parallelPhases: { type: [String], default: [] }, historySince: { type: Date, default: null } },
+      { riskElapsedPct: { type: Number, default: 80 }, riskProgressPct: { type: Number, default: 50 }, parallelPhases: { type: [String], default: [] }, historySince: { type: Date, default: null }, escalationContactId: { type: mongoose.Schema.Types.ObjectId, default: null } },
       { _id: false }
     ),
     default: () => ({}),

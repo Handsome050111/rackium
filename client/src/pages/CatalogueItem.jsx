@@ -173,6 +173,7 @@ export default function CatalogueItem() {
               ['Modules', item.compatibleModules.join(', ') || null],
               ['Needs uplink module', yesNo(item.needsUplinkModule)],
               ['Requires dual PSU', yesNo(item.requiresDualPsu)],
+              ['DGUV V3 inspection', item.dguvRequired == null ? 'By power (inlet or PSUs)' : item.dguvRequired ? 'Required' : 'Not required'],
             ]}
           />
         </Section>

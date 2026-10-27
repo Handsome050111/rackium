@@ -2,15 +2,23 @@ import { RESOURCE_TASKS } from '@rackium/shared/billOfResources.js'
 import { ProjectSettings } from '../models/projectSettings.js'
 import { recordAudit, userActor } from '../audit/audit.js'
 import { badRequest } from '../http/errors.js'
-import { projectSettings } from './common.js'
+import { canSeePrices } from '@rackium/shared/policy.js'
+import { callerAccess } from '../access/scope.js'
+import { projectSettings, organisationCommercial } from './common.js'
 
 // The PM's commercial and resource standards for a project (DATA-MODEL §3.9
 // subset, M5a): margin %, Bill of Resources minutes per task, and the
 // customer power-cord standard that overrides every cord (brief §6.7).
 export function createCommercialSettingsService() {
   return {
-    async get() {
+    // The margin is for those who may see prices (D20): everyone else —
+    // Architects without the setting, Field Engineers, Viewers, External
+    // Reviewers — gets the settings without it.
+    async get(req) {
       const settings = await projectSettings()
+      const { roles } = await callerAccess(req)
+      const { architectsSeePrices } = await organisationCommercial()
+      if (!canSeePrices(roles, { architectsSeePrices })) delete settings.marginPercent
       return { settings: { ...settings, tasks: RESOURCE_TASKS } }
     },
 

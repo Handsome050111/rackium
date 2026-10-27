@@ -1,7 +1,7 @@
 import mongoose from 'mongoose'
 import { PHASE_KEYS } from '@rackium/shared/phaseCalculations.js'
 import { summarise } from '@rackium/shared/dguvRollup.js'
-import { phaseDurations, blockerFrequency, blockerResolution, bomVariance, surveyCompletion, approvalTurnaround } from '@rackium/shared/reports.js'
+import { phaseDurations, blockerFrequency, blockerResolution, bomAccuracy, bomRevisions, surveyCompletion, approvalTurnaround } from '@rackium/shared/reports.js'
 import { expectedSurveyTabs } from '@rackium/shared/surveyForm.js'
 import { Project } from '../models/project.js'
 import { PhaseHistory } from '../models/phaseHistory.js'
@@ -11,6 +11,10 @@ import { Approval } from '../models/approval.js'
 import { DesignVersion } from '../models/designVersion.js'
 import { SurveyTabRecord } from '../models/surveyTabRecord.js'
 import { Room } from '../models/room.js'
+import { DeploymentRecord } from '../models/deploymentRecord.js'
+import { ConnectionRecord } from '../models/connectionRecord.js'
+import { Connection } from '../models/connection.js'
+import { deploymentStatusesByBuilding } from '../deployment/service.js'
 import { User } from '../models/user.js'
 import { membershipsForUser } from '../auth/service.js'
 import { rolesIn } from '../organisations/service.js'
@@ -30,6 +34,54 @@ function byPhase(facts) {
 const buildingRow = (b) => ({ id: b.id, code: b.code, name: b.name, salCode: b.salCode, countryCode: b.countryCode, currentPhase: b.currentPhase, progress: b.progress, overdue: b.overdue, atRisk: b.atRisk, openBlockers: b.openBlockers, validation: b.validation, dguv: { compliantPct: b.dguv.compliantPct, total: b.dguv.counts.total, worst: b.dguv.worst } })
 // A person's figures — only for those who may see them (Org Admin, PM).
 const personRow = (p) => ({ userId: p.userId, name: p.name, role: p.role, assigned: p.assigned, primaryFor: p.primaryFor, openTasks: p.openTasks, overdueTasks: p.overdueTasks, completed30: p.completed30 })
+
+const INSTALLED_DEVICE = ['installed', 'configured', 'tested', 'accepted', 'in_service', 'maintenance']
+const INSTALLED_LINK = ['installed', 'tested', 'accepted', 'faulty']
+const lower = (v) => String(v ?? '').toLowerCase()
+
+// The approved procurement BOM and the as-built of each building, for BOM
+// accuracy (addendum v2.3 Q15): serialised devices installed, optics on
+// installed links (as recorded on site, else as designed) and installed
+// cables by medium. A building is finished when its deployment is complete;
+// it is dated by its deployment completion (phase history), else by the last
+// acceptance on site.
+async function asInstalled(buildingIds, bomRows, history, tz) {
+  const ids = buildingIds.map((b) => new mongoose.Types.ObjectId(b))
+  const [statuses, records, links] = await Promise.all([
+    deploymentStatusesByBuilding(),
+    DeploymentRecord.find({ buildingId: { $in: ids }, status: { $in: INSTALLED_DEVICE } }, { buildingId: 1, deviceId: 1, acceptedAt: 1 }).lean(),
+    ConnectionRecord.find({ buildingId: { $in: ids }, status: { $in: INSTALLED_LINK } }, { buildingId: 1, connectionId: 1, installed: 1 }).lean(),
+  ])
+  const designed = new Map((await Connection.find({ _id: { $in: links.map((l) => l.connectionId) } }, { media: 1, sourceSfpCode: 1, destSfpCode: 1 }).lean()).map((c) => [String(c._id), c]))
+  return buildingIds.map((buildingId) => {
+    const latest = bomRows.filter((v) => v.buildingId === buildingId).sort((a, b) => b.number - a.number)[0]
+    if (!latest?.lines) return { buildingId, approved: null }
+    const approved = { devices: 0, optics: {}, cables: {} }
+    const deviceKeys = new Set()
+    let notComparable = 0
+    for (const l of latest.lines) {
+      const [kind, code] = l.key.split(':')
+      if (kind === 'device') {
+        approved.devices += 1
+        deviceKeys.add(l.key)
+      } else if (kind === 'optic') approved.optics[code] = (approved.optics[code] ?? 0) + l.qty
+      else if (kind === 'cable') approved.cables[code] = (approved.cables[code] ?? 0) + l.qty
+      else notComparable += 1
+    }
+    const installed = { devices: records.filter((r) => String(r.buildingId) === buildingId && deviceKeys.has(`device:${r.deviceId}`)).length, optics: {}, cables: {} }
+    for (const link of links.filter((l) => String(l.buildingId) === buildingId)) {
+      const design = designed.get(String(link.connectionId)) ?? {}
+      for (const code of [link.installed?.sourceSfpCode ?? design.sourceSfpCode, link.installed?.destSfpCode ?? design.destSfpCode].filter(Boolean)) installed.optics[lower(code)] = (installed.optics[lower(code)] ?? 0) + 1
+      const media = link.installed?.media ?? design.media
+      const cables = (link.installed?.segments ?? []).filter((s) => s.cableId).length
+      if (media && cables) installed.cables[media] = (installed.cables[media] ?? 0) + cables
+    }
+    const completed = [...history].reverse().find((h) => String(h.buildingId) === buildingId && h.phaseKey === 'deployment')
+    const lastAccepted = records.filter((r) => String(r.buildingId) === buildingId && r.acceptedAt).map((r) => r.acceptedAt).sort((a, b) => b - a)[0]
+    const on = completed?.event === 'completed' && completed.dateKnown ? completed.on : localDay(lastAccepted, tz)
+    return { buildingId, finished: statuses.deployment.get(buildingId) === 'completed', on, approved, installed, notComparable }
+  })
+}
 
 // Dashboards, workload and analytics (brief v2.2 §21.5, §21.6, §21.9; M7a-3).
 // Every figure is over the buildings the caller can open; figures about
@@ -222,7 +274,8 @@ export function createInsightsService({ lld, storage }) {
         const snapshot = await readSnapshot(storage, v.snapshotFileId).catch(() => null)
         bomRows.push({ buildingId: String(v.buildingId), number: v.number, on: localDay(v.createdAt, tz), lines: Array.isArray(snapshot?.lines) ? snapshot.lines.map((l) => ({ key: l.key, qty: l.qty })) : null })
       }
-      const variance = bomVariance({ versions: bomRows })
+      const revisions = bomRevisions({ versions: bomRows })
+      const accuracy = bomAccuracy({ buildings: await asInstalled([...ids], bomRows, history, tz) })
       const codeOf = new Map(facts.buildings.map((b) => [b.id, b.code]))
       // The tabs each building needs (its rooms), and what was done of them.
       let expected = 0
@@ -249,7 +302,8 @@ export function createInsightsService({ lld, storage }) {
           phaseDuration,
           blockerFrequency: blockerFrequency({ blockers: scopedBlockers }),
           blockerResolution: blockerResolution({ blockers: scopedBlockers }),
-          bomVariance: { ...variance, buildings: variance.buildings.map((x) => ({ ...x, code: codeOf.get(x.buildingId) ?? null })) },
+          bomAccuracy: { ...accuracy, buildings: accuracy.buildings.map((x) => ({ ...x, code: codeOf.get(x.buildingId) ?? null })) },
+          bomRevisions: { ...revisions, buildings: revisions.buildings.map((x) => ({ ...x, code: codeOf.get(x.buildingId) ?? null })) },
           surveyCompletion: { ...surveyTotals, ...(byTechnician ? { byTechnician } : {}) },
           approvalTurnaround: approvalTurnaround({ approvals: approvals.filter((a) => inScope(a.buildingId)).map((a) => ({ gate: a.gate, status: a.status, submittedAt: a.submittedAt ?? null, decidedAt: a.decision?.decidedAt ?? null })), timeZone: tz }),
         },

@@ -1,7 +1,7 @@
 import { bomImpact, withMargin } from '@rackium/shared/bomCalc.js'
 import { assertNotHandedOver } from '../handover/guard.js'
 import { procurementProblem, PROCUREMENT_STATUSES, PROCUREMENT_LABELS, nextStatuses } from '@rackium/shared/procurement.js'
-import { canSeePrices } from '@rackium/shared/policy.js'
+import { canSeePrices, canSeeProcurementDetails } from '@rackium/shared/policy.js'
 import { BomDesign } from '../models/bomDesign.js'
 import { ProcurementLine } from '../models/procurementLine.js'
 import { SolutionPackage } from '../models/solutionPackage.js'
@@ -16,7 +16,10 @@ import { AppError, badRequest, conflict, notFound } from '../http/errors.js'
 import { callerAccess, requireBuilding } from '../access/scope.js'
 import { computeBom, writeSnapshotVersion, readSnapshot, namesOf } from './common.js'
 
-const PRICE_FIELDS = ['unitPriceMinor', 'lineTotalMinor']
+// Prices, and whether a line has one: without price access the BOM is
+// quantities and specifications only (D20; addendum v2.3 Q11).
+const PRICE_FIELDS = ['unitPriceMinor', 'lineTotalMinor', 'priced', 'priceNote', 'currency']
+const unpricedStatus = (l) => (l.status === 'Not priced' ? (l.lineType === 'serialised' ? 'Suggested' : 'Calculated') : l.status)
 const day = (v) => (v ? new Date(`${v}T00:00:00.000Z`) : null)
 const dayOf = (d) => (d ? new Date(d).toISOString().slice(0, 10) : null)
 
@@ -48,22 +51,24 @@ export function createBomService({ storage, lld }) {
       const names = await namesOf([...rows.map((r) => r.updatedBy), bomDesign?.approvedBy])
       const { roles } = await callerAccess(req)
       const showPrices = canSeePrices(roles, { architectsSeePrices: org.architectsSeePrices })
+      // Supplier, PO and notes are internal: an External Reviewer sees
+      // quantities and specifications only (addendum v2.3 Q11).
+      const internal = canSeeProcurementDetails(roles)
       const procurementOf = (key, vendor) => {
         const r = rowByKey.get(key)
         return {
           status: r?.status ?? 'not_ordered',
-          vendor: r?.vendor ?? vendor ?? null,
-          poNumber: r?.poNumber ?? null,
+          ...(internal ? { vendor: r?.vendor ?? vendor ?? null, poNumber: r?.poNumber ?? null } : {}),
           expectedDelivery: dayOf(r?.expectedDelivery),
           actualDelivery: dayOf(r?.actualDelivery),
-          notes: r?.notes ?? null,
+          ...(internal ? { notes: r?.notes ?? null } : {}),
           version: r?.version ?? 0,
           updatedBy: r ? names.get(String(r.updatedBy)) ?? null : null,
           updatedAt: r?.updatedAt ?? null,
           next: nextStatuses(r?.status ?? 'not_ordered'),
         }
       }
-      const strip = (l) => (showPrices ? l : Object.fromEntries(Object.entries(l).filter(([k]) => !PRICE_FIELDS.includes(k))))
+      const strip = (l) => (showPrices ? l : { ...Object.fromEntries(Object.entries(l).filter(([k]) => !PRICE_FIELDS.includes(k))), status: unpricedStatus(l) })
       const lines = bom.lines.map((l) => strip({ ...l, procurement: procurementOf(l.key, l.vendor), changedSinceApproval: changed.has(l.key) }))
       const lineKeys = new Set(bom.lines.map((l) => l.key))
       // Procurement facts for lines a later change removed from the BOM.
@@ -76,11 +81,12 @@ export function createBomService({ storage, lld }) {
         subLabel: spApproved ? (bomApproved && impact?.total ? 'Changed since approval' : null) : 'Draft',
         lines,
         orphans,
-        calc: bom.calc,
+        calc: showPrices ? bom.calc : bom.calc.filter((c) => !c.startsWith('Not priced')),
         reconciliation: bom.reconciliation,
-        currency: bom.currency,
-        unpricedCount: bom.unpricedCount,
+        currency: showPrices ? bom.currency : null,
+        unpricedCount: showPrices ? bom.unpricedCount : null,
         showPrices,
+        procurementDetails: internal,
         pricing: showPrices ? { costMinor: bom.costMinor, marginPercent: settings.marginPercent, sellMinor: withMargin(bom.costMinor, settings.marginPercent) } : null,
         procurement: {
           unlocked: spApproved && bomApproved,

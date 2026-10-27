@@ -35,4 +35,4 @@ export function computeDguvStatus({ lastInspectionDate, mainsPowered }, today = 
   return { dueDate, daysRemaining, status }
 }
 
-export const DGUV_LABEL = { valid: 'Valid', expiring_soon: 'Expiring soon', expiring: 'Expiring', overdue: 'Overdue' }
+export const DGUV_LABEL = { valid: 'Valid', expiring_soon: 'Expiring soon', expiring: 'Expiring', overdue: 'Overdue', exempt: 'Exempt' }

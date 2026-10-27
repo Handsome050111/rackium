@@ -327,8 +327,11 @@ describe('Analytics: six metrics with trend lines; unknown dates left out and co
     expect(a.phaseDuration.trend.map((x) => x.period)).toEqual(['2026-06', '2026-07'])
     expect(a.blockerFrequency).toMatchObject({ total: 2, byPhase: { survey: 1, cmo: 1 } })
     expect(a.blockerResolution).toMatchObject({ avgDays: 4, count: 1, open: 1 })
-    expect(a.bomVariance).toMatchObject({ avgVariancePct: 60, changed: 1, excluded: 0, buildings: [{ code: 'B001', versions: 2, variancePct: 60 }] })
-    expect(a.bomVariance.trend).toEqual([{ period: '2026-09', value: 60, count: 1 }])
+    // BOM revision count (addendum v2.3 Q15): one re-approval, the final 60% from the first.
+    expect(a.bomRevisions).toMatchObject({ avgRevisions: 1, totalRevisions: 1, avgChangePct: 60, changed: 1, excluded: 0, buildings: [{ code: 'B001', versions: 2, revisions: 1, changePct: 60 }] })
+    expect(a.bomRevisions.trend).toEqual([{ period: '2026-09', value: 1, count: 1 }])
+    // BOM accuracy: an approved BOM but the deployment not finished.
+    expect(a.bomAccuracy).toMatchObject({ count: 0, inProgress: 1 })
     // The HLD approval of the fixture plus the MUC one; the one without a submission time is excluded.
     expect(a.approvalTurnaround).toMatchObject({ count: 2, excluded: 1 })
     expect(a.approvalTurnaround.trend.map((x) => x.period)).toContain('2026-09')
@@ -340,7 +343,7 @@ describe('Analytics: six metrics with trend lines; unknown dates left out and co
     const m = (await get(p.pmMuc, `${p.base}/analytics`)).metrics
     expect(m.phaseDuration).toMatchObject({ count: 0, excluded: 1 })
     expect(m.blockerFrequency).toMatchObject({ total: 1, byPhase: { cmo: 1 } })
-    expect(m.bomVariance).toMatchObject({ count: 0, buildings: [] })
+    expect(m.bomRevisions).toMatchObject({ count: 0, buildings: [] })
     expect(m.approvalTurnaround).toMatchObject({ count: 1, excluded: 0, avgDays: 2 })
     expect(m.surveyCompletion).toMatchObject({ verified: 0 })
     // The B001 Field Engineer: B001's.

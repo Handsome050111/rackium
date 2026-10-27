@@ -135,7 +135,7 @@ test('DGUV compliance: the rollup drills down to the rack, a status filters the 
   await owner.getByRole('link', { name: 'CSV' }).click()
   const file = await download
   const text = fs.readFileSync(await file.path(), 'utf8').trim().split('\r\n')
-  expect(text[0]).toBe('Building,Floor,Room,Rack,Device,Status,Last inspection,Due date,Days remaining,Inspector')
+  expect(text[0]).toBe('Building,Floor,Room,Rack,Device,Status,Last inspection,Due date,Days remaining,Inspector,Exempt reason')
   expect(text).toHaveLength(2)
   expect(text[1]).toContain('Overdue')
   // From the building dashboard too.

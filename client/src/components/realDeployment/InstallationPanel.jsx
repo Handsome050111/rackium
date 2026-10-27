@@ -25,6 +25,34 @@ function Section({ title, icon: Icon, children }) {
 // phone first: placement, serial/MAC, PDU outlet, GPS, evidence photos, DGUV
 // inspection, patching per connection and cable, deviations and the steps to
 // Accepted. `act(fn, notice)` runs an API call and reloads the screen.
+// The PM overrides the device's DGUV obligation from its model's default
+// (addendum v2.3 Q13): exempt it, or require it anyway — always with a
+// reason — or put it back to the default.
+function DguvOverride({ device, onSave }) {
+  const [reason, setReason] = useState('')
+  const override = device.dguv?.override ?? null
+  const byType = device.dguv?.byType ?? false
+  if (override) {
+    return (
+      <button type="button" className="h-touch rounded-lg border border-border px-3 text-sm font-medium text-text" onClick={() => onSave({ required: null }, "DGUV back to the model's default")}>
+        {override.required ? 'Stop requiring inspection' : 'Clear the exemption'} (back to the model’s default)
+      </button>
+    )
+  }
+  const required = !byType
+  return (
+    <div className="flex flex-wrap items-end gap-2" data-testid="dguv-override">
+      <label className="min-w-0 flex-1 text-xs text-text-secondary">
+        {required ? 'Reason to require inspection' : 'Reason for exemption'}
+        <input className={input} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
+      </label>
+      <button type="button" disabled={!reason.trim()} className="h-touch rounded-lg border border-border px-3 text-sm font-medium text-text disabled:opacity-50" onClick={() => onSave({ required, reason: reason.trim() }, required ? 'DGUV inspection required' : 'Device exempt from DGUV inspection')}>
+        {required ? 'Require inspection' : 'Exempt from inspection'}
+      </button>
+    </div>
+  )
+}
+
 export default function InstallationPanel({ device, connections, racks, orgId, projectId, today, permissions, act, onLogException }) {
   const [draft, setDraft] = useState(() => installationDraft(device))
   const [gps, setGps] = useState(device.installation.gps)
@@ -198,17 +226,24 @@ export default function InstallationPanel({ device, connections, racks, orgId, p
         )}
       </Section>
 
-      {device.mainsPowered && (
+      {(device.dguv || (permissions.overrideDguv && !device.passive)) && (
         <Section title="DGUV V3 inspection" icon={ShieldCheck}>
-          {device.dguv && (
+          {device.dguv?.exempt && (
+            <div className="text-sm font-semibold text-text-secondary" data-testid="dguv-status">
+              Exempt{' '}
+              <span className="font-normal">— {device.dguv.override?.reason}{device.dguv.override?.setBy ? ` (${device.dguv.override.setBy})` : ''}</span>
+            </div>
+          )}
+          {device.dguv && !device.dguv.exempt && (
             <div className={`text-sm font-semibold ${DGUV_TONE[device.dguv.status] ?? 'text-text'}`} data-testid="dguv-status">
-              {DGUV_STATUS_LABEL[device.dguv.status]}
-              <span className="ml-1 font-normal text-text-secondary">
+              {DGUV_STATUS_LABEL[device.dguv.status]}{' '}
+              <span className="font-normal text-text-secondary">
                 {device.dguv.lastInspectionDate ? `inspected ${device.dguv.lastInspectionDate} by ${device.dguv.inspector} · due ${device.dguv.dueDate}` : 'no inspection recorded'}
               </span>
             </div>
           )}
-          {permissions.recordDguv && ['installed', 'configured', 'tested'].includes(device.status) && (
+          {permissions.overrideDguv && <DguvOverride device={device} onSave={(body, message) => act(() => deploymentApi.overrideDguv(orgId, projectId, device.id, body), message)} />}
+          {permissions.recordDguv && device.dguv?.required && ['installed', 'configured', 'tested'].includes(device.status) && (
             <>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <label className="text-xs text-text-secondary">
@@ -244,11 +279,11 @@ export default function InstallationPanel({ device, connections, racks, orgId, p
           <h3 className="px-1 text-sm font-semibold text-text">Uplinks and patching ({connections.length})</h3>
           {connections.map((c) => (
             <ConnectionPatching
-              key={`${c.id}:${c.status}:${c.segments.map((s) => s.installed?.cableId ?? '').join()}`}
+              key={`${c.id}:${c.status}:${c.version ?? 0}:${c.segments.map((s) => s.installed?.cableId ?? '').join()}`}
               conn={c}
               canInstall={permissions.install && !gated}
               canAccept={permissions.accept}
-              onSave={(body) => act(() => deploymentApi.saveConnection(orgId, projectId, c.id, body), body.confirm ? 'Patching confirmed' : 'Patching saved')}
+              onSave={(body) => act(() => deploymentApi.saveConnection(orgId, projectId, c.id, { ...body, version: c.version ?? 0 }), body.confirm ? 'Patching confirmed' : 'Patching saved')}
               onTest={(result) => act(() => deploymentApi.testConnection(orgId, projectId, c.id, { result }), result === 'pass' ? 'Link test passed' : 'Link test failed')}
               onAccept={() => act(() => deploymentApi.acceptConnection(orgId, projectId, c.id), 'Connection accepted')}
               onLogException={(x) => onLogException({ deviceId: device.id, connectionId: c.id, deviation: x })}

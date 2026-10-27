@@ -226,8 +226,8 @@ export async function generate({ job, req, building, services, storage, branding
       const rooms = new Map((await Room.find({ buildingId: building.id }, { code: 1 }).lean()).map((r) => [String(r._id), r.code]))
       const devs = await Device.find({ _id: { $in: list.map((d) => d.device._id) } }, { roomId: 1 }).lean()
       const roomOf = new Map(devs.map((d) => [String(d._id), rooms.get(String(d.roomId))]))
-      const out = A.dguvReport(ctx, { settings: dguv, devices: list.map((d) => ({ label: d.label, room: roomOf.get(String(d.device._id)), lastInspectionDate: d.rec.dguv?.lastInspectionDate ?? null, inspector: d.rec.dguv?.inspector ?? null, dueDate: d.status?.dueDate ?? null, status: d.inspected ? d.status.status : null })) })
-      return job.format === 'xlsx' ? { buffer: await renderXlsx([out.sheet]) } : pdf(out.doc)
+      const out = A.dguvReport(ctx, { settings: dguv, devices: list.map((d) => ({ label: d.label, room: roomOf.get(String(d.device._id)), lastInspectionDate: d.rec.dguv?.lastInspectionDate ?? null, inspector: d.rec.dguv?.inspector ?? null, dueDate: d.status?.dueDate ?? null, status: d.exempt ? 'exempt' : d.inspected ? d.status.status : null, exemptReason: d.exemptReason ?? null })) })
+      return job.format === 'xlsx' ? { buffer: await renderXlsx([out.sheet, out.exemptSheet]) } : pdf(out.doc)
     }
     case 'topology-diagram': {
       const v = await services.hld.view(req, building.id)

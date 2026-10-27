@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
-import { ShieldCheck, CheckCircle2, Clock, AlertTriangle, XOctagon, CircleDashed, Download, ChevronRight } from 'lucide-react'
+import { ShieldCheck, CheckCircle2, Clock, AlertTriangle, XOctagon, CircleDashed, MinusCircle, Download, ChevronRight } from 'lucide-react'
 import { DGUV_STATES, DGUV_STATE_LABEL, DGUV_LEVEL_LABEL } from '@rackium/shared/dguvRollup.js'
 import { dguvApi } from '../api/m7a2Api.js'
 
@@ -11,6 +11,8 @@ const STATE = {
   expiring: { Icon: AlertTriangle, text: 'text-status-amber', bar: 'bg-status-amber' },
   overdue: { Icon: XOctagon, text: 'text-status-red', bar: 'bg-status-red' },
   not_inspected: { Icon: CircleDashed, text: 'text-status-red', bar: 'bg-status-red/50' },
+  // Exempt with a reason (addendum v2.3 Q13): not inspected, not overdue, not in the compliant share.
+  exempt: { Icon: MinusCircle, text: 'text-text-secondary', bar: 'bg-status-grey/60' },
 }
 const ORDER = [...DGUV_STATES].reverse() // valid … overdue, left to right
 
@@ -123,7 +125,7 @@ export default function RealDguv() {
                 {DGUV_LEVEL_LABEL[view.node.level]}: {view.node.name}
               </h2>
               <p className="text-sm text-text">
-                <strong className="tabular-nums">{view.node.compliantPct ?? '—'}{view.node.compliantPct != null ? '%' : ''}</strong> <span className="text-text-secondary">compliant · {view.node.counts.total} device(s)</span>
+                <strong className="tabular-nums">{view.node.compliantPct ?? '—'}{view.node.compliantPct != null ? '%' : ''}</strong> <span className="text-text-secondary">compliant · {view.node.counts.total - (view.node.counts.exempt ?? 0)} device(s) to inspect{view.node.counts.exempt ? `, ${view.node.counts.exempt} exempt` : ''}</span>
               </p>
             </div>
             <Distribution counts={view.node.counts} />
@@ -212,6 +214,7 @@ export default function RealDguv() {
                       <td className="px-2 py-2 text-xs text-text-secondary">{[d.buildingCode, d.floor, d.room, d.rack].filter(Boolean).join(' · ')}</td>
                       <td className="px-2 py-2">
                         <StateBadge state={d.state} />
+                        {d.exemptReason && <span className="block text-xs text-text-secondary">{d.exemptReason}</span>}
                       </td>
                       <td className="px-2 py-2 tabular-nums">{d.lastInspectionDate ?? '—'}</td>
                       <td className="px-2 py-2 tabular-nums">

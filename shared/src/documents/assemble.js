@@ -324,17 +324,22 @@ export function cmdbExtract(ctx, data) {
 // data: { devices: [{ label, room, rack, lastInspectionDate, inspector, dueDate, status }] , settings }
 export function dguvReport(ctx, data) {
   const doc = base(ctx, 'DGUV V3 Inspection Report')
+  // Exempt devices (addendum v2.3 Q13) are listed apart, each with its reason.
+  const inScope = data.devices.filter((d) => d.status !== 'exempt')
+  const exempt = data.devices.filter((d) => d.status === 'exempt')
   const block = table(
     [{ key: 'device', label: 'Device' }, { key: 'location', label: 'Location' }, { key: 'last', label: 'Last inspection' }, { key: 'inspector', label: 'Inspector' }, { key: 'due', label: 'Due' }, { key: 'status', label: 'Status' }],
-    data.devices.map((d) => ({ device: d.label, location: [d.room, d.rack].filter(Boolean).join(' · '), last: d.lastInspectionDate ?? 'Not inspected', inspector: d.inspector, due: d.dueDate, status: d.status ? DGUV_STATUS_LABEL[d.status] : 'Not inspected' })),
-    { empty: 'No installed mains-powered devices.' }
+    inScope.map((d) => ({ device: d.label, location: [d.room, d.rack].filter(Boolean).join(' · '), last: d.lastInspectionDate ?? 'Not inspected', inspector: d.inspector, due: d.dueDate, status: d.status ? DGUV_STATUS_LABEL[d.status] : 'Not inspected' })),
+    { empty: 'No installed devices to inspect.' }
   )
-  const count = (s) => data.devices.filter((d) => (d.status ?? 'not_inspected') === s).length
+  const exemptBlock = table([{ key: 'device', label: 'Device' }, { key: 'location', label: 'Location' }, { key: 'reason', label: 'Reason' }], exempt.map((d) => ({ device: d.label, location: [d.room, d.rack].filter(Boolean).join(' · '), reason: d.exemptReason })), { empty: 'No exempt devices.' })
+  const count = (s) => inScope.filter((d) => (d.status ?? 'not_inspected') === s).length
   doc.sections = [
-    section('summary', 'Summary', [kv([['Mains-powered devices', data.devices.length], ['Valid', count('valid')], ['Expiring soon', count('expiring_soon')], ['Expiring', count('expiring')], ['Overdue', count('overdue')], ['Not inspected', count('not_inspected')], ['Interval', `${data.settings.intervalMonths} months (warning ${data.settings.expiringSoonDays} / ${data.settings.expiringDays} days)`]])]),
+    section('summary', 'Summary', [kv([['Devices to inspect', inScope.length], ['Valid', count('valid')], ['Expiring soon', count('expiring_soon')], ['Expiring', count('expiring')], ['Overdue', count('overdue')], ['Not inspected', count('not_inspected')], ['Exempt (not inspected, with a reason)', exempt.length], ['Interval', `${data.settings.intervalMonths} months (warning ${data.settings.expiringSoonDays} / ${data.settings.expiringDays} days)`]])]),
     section('devices', 'Devices', [block]),
+    section('exempt', 'Exempt devices', [exemptBlock]),
   ]
-  return { doc, sheet: sheetOf('DGUV', block) }
+  return { doc, sheet: sheetOf('DGUV', block), exemptSheet: sheetOf('Exempt', exemptBlock) }
 }
 
 // --- Audit log ------------------------------------------------------------------------------
@@ -355,7 +360,7 @@ export function executiveSummary(ctx, data) {
   const doc = base(ctx, 'Executive Summary')
   doc.sections = [
     section('status', 'Project status', [table([{ key: 'phase', label: 'Phase' }, { key: 'status', label: 'Status' }], data.phases.map((ph) => ({ phase: PHASE[ph.phaseKey] ?? ph.phaseKey, status: PHASE_STATUS[ph.status] ?? ph.status })))]),
-    section('figures', 'Key figures', [kv([['Devices', data.kpis?.devices], ['Connections designed', data.kpis?.connectionStatus?.designed ?? data.kpis?.connections], ['Connections installed', data.kpis?.connectionStatus?.installed], ['Connections accepted', data.kpis?.connectionStatus?.accepted], ['Devices accepted', data.pipeline?.devices.accepted], ['Open exceptions', (data.exceptions ?? []).filter((e) => e.status === 'open').length], ['DGUV not inspected', data.dguv?.notInspected ?? 0], ['DGUV overdue', data.dguv?.overdue ?? 0], ['Completion', `${data.kpis?.completionPercent ?? 0}%`]])]),
+    section('figures', 'Key figures', [kv([['Devices', data.kpis?.devices], ['Connections designed', data.kpis?.connectionStatus?.designed ?? data.kpis?.connections], ['Connections installed', data.kpis?.connectionStatus?.installed], ['Connections accepted', data.kpis?.connectionStatus?.accepted], ['Devices accepted', data.pipeline?.devices.accepted], ['Open exceptions', (data.exceptions ?? []).filter((e) => e.status === 'open').length], ['DGUV not inspected', data.dguv?.notInspected ?? 0], ['DGUV exempt (with a reason)', data.dguv?.exempt ?? 0], ['DGUV overdue', data.dguv?.overdue ?? 0], ['Completion', `${data.kpis?.completionPercent ?? 0}%`]])]),
     section('documents', 'Handover documents', [table([{ key: 'name', label: 'Document' }, { key: 'format', label: 'Format' }], data.documents ?? [])]),
     section('baseline', 'Baseline', [data.baseline ? kv([['Baseline', data.baseline.label], ['Accepted', day(data.baseline.acceptedAt)]]) : p('The baseline is written when the client accepts the handover.')]),
   ]

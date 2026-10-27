@@ -92,7 +92,7 @@ export function createCmdbService({ deployment }) {
         eolDate: item?.eolDate ?? null,
         ...{ state: lifecycleSummary({ warrantyEnd: lifecycle.warrantyEnd, refreshDate: lifecycle.refreshDate, eosDate: item?.eosDate, eolDate: item?.eolDate }, today) },
       },
-      dguv: d.dguv ? { ...d.dguv, lastInspectionDate: rec.dguv?.lastInspectionDate ?? null, inspector: rec.dguv?.inspector ?? null } : null,
+      dguv: d.obligation?.exempt ? { status: 'exempt', label: 'Exempt', exemptReason: rec.dguvOverride?.reason ?? null } : d.dguv ? { ...d.dguv, lastInspectionDate: rec.dguv?.lastInspectionDate ?? null, inspector: rec.dguv?.inspector ?? null } : null,
       ports: (d.view.ports ?? []).map((pt) => ({ id: pt.id, type: pt.type, role: pt.role })),
       provenance: {
         hostname: design,

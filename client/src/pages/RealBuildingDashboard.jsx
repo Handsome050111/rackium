@@ -136,7 +136,7 @@ export default function RealBuildingDashboard() {
         })}
       </div>
 
-      {data.dguv?.total > 0 && (
+      {(data.dguv?.total > 0 || data.dguv?.exempt > 0) && (
         // DGUV V3 of the installed mains-powered devices (M6a review).
         <div className="rounded-xl border border-border bg-surface p-4" data-testid="dguv-summary">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -152,6 +152,7 @@ export default function RealBuildingDashboard() {
               ['expiring', 'Expiring', 'text-status-amber'],
               ['overdue', 'Overdue', 'text-status-red'],
               ['notInspected', 'Not inspected', 'text-status-red'],
+              ['exempt', 'Exempt', 'text-text'],
             ].map(([key, label, tone]) => (
               <span key={key} className={data.dguv[key] ? tone : 'text-text-secondary'}>
                 <strong>{data.dguv[key]}</strong> {label}

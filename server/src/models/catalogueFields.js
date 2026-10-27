@@ -37,6 +37,7 @@ export function catalogueFields() {
     psuCount: { type: Number, default: null },
     needsUplinkModule: { type: Boolean, default: false },
     requiresDualPsu: { type: Boolean, default: false },
+    dguvRequired: { type: Boolean, default: null },
     portMap: { type: new mongoose.Schema({ groups: { type: [portGroupSchema], default: [] } }, { _id: false }), default: null },
     mediaSpeed: {
       type: new mongoose.Schema({ media: { type: String, enum: OPTIC_MEDIA }, speed: String, reachM: Number }, { _id: false }),

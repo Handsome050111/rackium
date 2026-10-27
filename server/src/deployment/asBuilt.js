@@ -1,5 +1,5 @@
 import mongoose from 'mongoose'
-import { dguvStatus, isMainsPowered } from '@rackium/shared/deployment.js'
+import { dguvStatus, dguvObligation } from '@rackium/shared/deployment.js'
 import { localDate } from '@rackium/shared/timeZone.js'
 import { Device } from '../models/device.js'
 import { Connection } from '../models/connection.js'
@@ -106,20 +106,33 @@ export async function dguvDevices({ organisationId, projectId, buildingId = null
   const out = []
   for (const rec of records) {
     const device = devices.get(String(rec.deviceId))
-    if (!device || !isMainsPowered(catalogue.get(lower(device.catalogueKey)))) continue
+    if (!device) continue
+    // In DGUV scope: the model requires it (or is mains-powered), or the
+    // device was made to require it. An exempted device stays listed, as
+    // exempt with its reason, and is never overdue or reminded.
+    const obligation = dguvObligation(catalogue.get(lower(device.catalogueKey)), rec.dguvOverride)
+    if (!obligation.required && !obligation.exempt) continue
+    const label = device.hostname ?? device.label ?? 'device'
+    if (obligation.exempt) {
+      out.push({ rec, device, label, inspected: Boolean(rec.dguv?.lastInspectionDate), exempt: true, exemptReason: obligation.reason, status: null })
+      continue
+    }
     const inspected = Boolean(rec.dguv?.lastInspectionDate)
-    out.push({ rec, device, label: device.hostname ?? device.label ?? 'device', inspected, status: inspected ? dguvStatus({ lastInspectionDate: rec.dguv.lastInspectionDate, mainsPowered: true }, today, dguv) : null })
+    out.push({ rec, device, label, inspected, exempt: false, status: inspected ? dguvStatus({ lastInspectionDate: rec.dguv.lastInspectionDate, mainsPowered: true }, today, dguv) : null })
   }
   return out
 }
 
-// The dashboard's DGUV summary for one building.
+// The dashboard's DGUV summary for one building (`total` counts the devices
+// to inspect; exempt ones are counted on their own).
 export async function dguvSummary(args) {
   const list = await dguvDevices(args)
-  const summary = { total: list.length, valid: 0, expiring_soon: 0, expiring: 0, overdue: 0, notInspected: 0 }
+  const summary = { total: 0, valid: 0, expiring_soon: 0, expiring: 0, overdue: 0, notInspected: 0, exempt: 0 }
   for (const d of list) {
-    if (!d.inspected) summary.notInspected += 1
+    if (d.exempt) summary.exempt += 1
+    else if (!d.inspected) summary.notInspected += 1
     else summary[d.status.status] += 1
+    if (!d.exempt) summary.total += 1
   }
   return summary
 }

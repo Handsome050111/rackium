@@ -944,6 +944,75 @@ cross-project figures only from projects where the caller is Org Admin or PM.
 Decisions to confirm with the client (DATA-MODEL §11): the sixth analytics
 metric (blocker resolution time) and the BOM accuracy variance definition.
 
+## Part 15: M7b-1 — the client's answers (addendum v2.3)
+
+The addendum (`docs/RACKIUM-BRIEF-v2.3-ADDENDUM.md`, converted from the PDF)
+answered the open questions; this part builds the answers that change
+existing features (DATA-MODEL §5.18): the External Reviewer, DGUV exemption,
+BOM accuracy against the as-installed with the revision count apart, the SLA
+escalation contact, and the save-time port conflict check. Its conflicts with
+our v2.3 decisions and its later items are recorded in DATA-MODEL §11.
+
+Found and fixed, each with a test (`api.m7b1.test.js`):
+
+- **The margin went to every project member.** `GET /commercial-settings`
+  returned the margin % to Architects (without the setting), Field Engineers
+  and Viewers. Stripped for anyone who may not see prices. Test: "no price,
+  cost, margin…" (the scan over every screen, for an Architect, a Field
+  Engineer and a Viewer too).
+- **A change request's cost went to every member and to the client.** Its
+  BOM impact carried the cost before and after, returned to every member and
+  on the client's public share-link view (the screens did not show it; the
+  API sent it). Stripped for non-price roles and always on the public view.
+  Same test; fails when the stripping is removed.
+- **Two engineers patching the same link overwrote each other.** The
+  deployment patching save had no version check (the design screens did).
+  Now refused, naming the port and who changed it; two saves at once: one
+  wins. Test: "Deployment: two Field Engineers…" (fails without the check).
+- **Whether a BOM line had a price went to roles that may not see prices.**
+  The BOM view stripped the amounts but kept each line's `priced` flag, its
+  price note ("Priced in USD, not EUR"), the "Not priced" status, the
+  currency, the unpriced-line count (a "not priced" tile on the External
+  Reviewer's screen) and the "Not priced: n line(s)" calculation line. All
+  stripped now; the line shows its plain status. Found on the External
+  Reviewer's screenshot. Tests: `api.m5a.test.js` "…without prices" (Architect,
+  Field Engineer, Viewer) and `e2e-real/m7b1.spec.js` (External Reviewer).
+- **The PM never saw the DGUV exemption form** (caught by
+  `e2e-real/m7b1.spec.js` before commit): the deployment page builds the
+  panel's permissions itself and left out the new `overrideDguv`.
+- **The DGUV status read "Validinspected …" / "Exempt— …"** in the
+  deployment panel: the gap after the status was only a CSS margin, so the
+  text (and a screen reader) ran the words together. A real space now. Tests:
+  `e2e-real/m6a.spec.js` ("Valid inspected") and `e2e-real/m7b1.spec.js`.
+- **Test harness: a spec could read the e2e emails file half-written**
+  (`SyntaxError: Unexpected end of JSON input` in `m7a2.spec.js`'s set-up,
+  older than this PR): two emails sent at once overlapped their writes, and a
+  read during a write failed. The test server now writes one at a time and
+  `lastEmailTo` retries on a partial file. Covered by the full real-mode run.
+- **Test: `m6a.spec.js` "dashboard: connections counted…" was flaky** (passed
+  on retry): its `heading.or(getByText('B001').first())` matched both the
+  heading and the sidebar link once both rendered (strict mode). It waits for
+  the heading alone now.
+- **The first version of this PR's port-in-use check ignored saved but
+  unconfirmed patching** (caught by its own test before commit): a link whose
+  patching was saved as a draft did not hold its port. Counted now. Same test.
+
+Checked by removing the rule and seeing its test fail: the patching version
+check, the change-request cost stripping, the supplier/PO stripping for the
+External Reviewer, the exempt device skipped by the DGUV reminders.
+
+Decided while building (★ in DATA-MODEL §5.18): "approve where Reviewers
+can" is design approval — the External Reviewer does not accept
+installations; the catalogue `vendor` is the manufacturer (a
+specification) and stays visible; procurement status and delivery dates stay
+visible to the External Reviewer, supplier, PO number and notes do not.
+
+Found, not changed: the Solution Package readiness area "BOM pricing — every
+BOM line priced" still counts unpriced lines for every member who can open
+the package. It is a completeness gate with no amounts, and hiding it would
+change the package's readiness for those roles; left for the PR that reworks
+the Solution Package view (addendum backlog, DATA-MODEL §11).
+
 ## Backlog for the final cleanup
 
 Known, harmless today, left for one cleanup pass before release:
@@ -951,9 +1020,9 @@ Known, harmless today, left for one cleanup pass before release:
 - **Four `react(set-state-in-effect)` lint warnings added in M7a-1**
   (`client/src/components/schedule/SchedulePanels.jsx`), the same pattern as
   the existing pages' warnings: the Targets panel resets its date drafts
-  (line 39) and its assignee choices (line 42) when the schedule reloads; the
-  SLA panel clears the burn-down before loading another (line 301); the
-  Settings panel resets its form when the saved settings change (line 393).
+  (line 40) and its assignee choices (line 43) when the schedule reloads; the
+  SLA panel clears the burn-down before loading another (line 302); the
+  Settings panel resets its form when the saved settings change (line 394).
   Each re-syncs a local draft with fresh server data; the cleanup is to key
   the panel (or the form) on the data so React remounts it instead.
   Behaviour is covered by `e2e-real/m7a1.spec.js`, so the change can be

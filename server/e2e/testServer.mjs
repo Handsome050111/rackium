@@ -24,10 +24,14 @@ const CLIENT_ORIGIN = process.env.E2E_CLIENT_ORIGIN || 'http://localhost:5174'
 
 fs.writeFileSync(EMAILS_FILE, '[]')
 const sent = []
+// One write at a time: two emails sent at once (two workers inviting) used
+// to overlap their writes and leave a spec reading half a file.
+let writing = Promise.resolve()
 const mailer = {
   async send(message) {
     sent.push({ ...message, at: new Date().toISOString() })
-    await fs.promises.writeFile(EMAILS_FILE, JSON.stringify(sent, null, 2))
+    writing = writing.then(() => fs.promises.writeFile(EMAILS_FILE, JSON.stringify(sent, null, 2)))
+    await writing
   },
 }
 

@@ -67,6 +67,8 @@ async function scopedItems(req, now) {
       salId: building?.salId ?? null,
       countryId: building?.countryId ?? null,
       inspected: x.inspected,
+      exempt: Boolean(x.exempt),
+      exemptReason: x.exemptReason ?? null,
       status: x.status?.status ?? null,
       dueDate: x.status?.dueDate ?? null,
       daysRemaining: x.status?.daysRemaining ?? null,
@@ -106,6 +108,7 @@ const deviceRow = (i) => ({
   dueDate: i.dueDate,
   daysRemaining: i.daysRemaining,
   inspector: i.inspector,
+  exemptReason: i.exemptReason,
 })
 
 export function createDguvService() {
@@ -145,8 +148,8 @@ export function createDguvService() {
 
     async csv(req, { level = 'project', id = null, status = null }, { now = new Date() } = {}) {
       const { devices } = await this.devices(req, { level, id, status }, { now })
-      const header = ['Building', 'Floor', 'Room', 'Rack', 'Device', 'Status', 'Last inspection', 'Due date', 'Days remaining', 'Inspector']
-      return toCsv([header, ...devices.map((d) => [d.buildingCode, d.floor, d.room, d.rack, d.label, d.stateLabel, d.lastInspectionDate, d.dueDate, d.daysRemaining, d.inspector])])
+      const header = ['Building', 'Floor', 'Room', 'Rack', 'Device', 'Status', 'Last inspection', 'Due date', 'Days remaining', 'Inspector', 'Exempt reason']
+      return toCsv([header, ...devices.map((d) => [d.buildingCode, d.floor, d.room, d.rack, d.label, d.stateLabel, d.lastInspectionDate, d.dueDate, d.daysRemaining, d.inspector, d.exemptReason])])
     },
   }
 }

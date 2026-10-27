@@ -213,7 +213,7 @@ test('phone: the AP link patched cable by cable with Installed lengths, confirme
   await expect(screen.getByTestId(`connection-${eaId}`)).toContainText('Link test passed')
   // The trunk to the Border as designed, through the API.
   const be = (await dep(fe)).connections.find((c) => c.id === beId)
-  await send(fe, 'put', `/deployment/connections/${beId}/installation`, { segments: be.segments.map((s) => ({ index: s.index, cableId: s.cableId, installedM: s.effectiveM, confirmed: true })), confirm: true }, 200)
+  await send(fe, 'put', `/deployment/connections/${beId}/installation`, { segments: be.segments.map((s) => ({ index: s.index, cableId: s.cableId, installedM: s.effectiveM, confirmed: true })), confirm: true, version: be.version ?? 0 }, 200)
   await send(fe, 'post', `/deployment/connections/${beId}/test`, { result: 'pass' }, 200)
   await fe.reload()
   await screen.getByRole('button', { name: 'Mark configured' }).click()
@@ -223,7 +223,7 @@ test('phone: the AP link patched cable by cable with Installed lengths, confirme
   // DGUV V3 on the phone: date and inspector.
   await screen.getByLabel('Inspector').fill('Elektro Meyer GmbH')
   await screen.getByRole('button', { name: 'Record inspection' }).click()
-  await expect(screen.getByTestId('dguv-status')).toContainText('Valid')
+  await expect(screen.getByTestId('dguv-status')).toContainText('Valid inspected')
   await expect(screen.getByTestId('dguv-status')).toContainText('Elektro Meyer GmbH')
   const overflow = await fe.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
   expect(overflow).toBe(0)
@@ -325,7 +325,8 @@ test('lifecycle: warranty dates imported from a CSV by serial; operational edit 
 
 test('dashboard: connections counted from their records; DGUV summary with the device not inspected', async () => {
   await owner.goto(base())
-  await expect(owner.getByRole('heading', { name: 'Building B001' }).or(owner.getByText('B001').first())).toBeVisible()
+  // The heading alone: an .or() with the sidebar's B001 link matched both once rendered (strict mode, flaky).
+  await expect(owner.getByRole('heading', { name: 'Building B001' })).toBeVisible()
   const connections = owner.getByText('Connections', { exact: true }).locator('..')
   await expect(connections).toContainText('3')
   await expect(connections).toContainText('2 installed · 1 accepted')

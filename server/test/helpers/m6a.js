@@ -60,7 +60,9 @@ export async function install(p, device, overrides = {}) {
 // Patches a connection as designed: every cable with its designed ID and length.
 export async function patch(p, conn, { lengths = {}, cableIds = {} } = {}) {
   const segments = conn.segments.map((s) => ({ index: s.index, cableId: cableIds[s.index] ?? s.cableId ?? `CAB-${conn.id.slice(-4)}-${s.index}`, installedM: lengths[s.index] ?? s.effectiveM ?? 3, confirmed: true }))
-  return expectStatus(await p.fe.put(`${p.dep}/connections/${conn.id}/installation`).send({ segments, confirm: true }), 200).body
+  // The link's current version (it may have been saved since `conn` was read).
+  const version = (await depView(p.fe, p)).connections.find((c) => c.id === conn.id)?.version ?? 0
+  return expectStatus(await p.fe.put(`${p.dep}/connections/${conn.id}/installation`).send({ segments, confirm: true, version }), 200).body
 }
 
 export const step = (agent, p, device, status) => agent.post(`${p.dep}/devices/${device.id}/status`).send({ status })

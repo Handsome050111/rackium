@@ -10,17 +10,19 @@ export const DGUV_LEVEL_LABEL = { project: 'Project', country: 'Country', sal: '
 
 // Statuses, worst first. Not inspected counts with overdue for compliance
 // (a device with no inspection has none due), but is listed on its own.
-export const DGUV_STATES = ['overdue', 'not_inspected', 'expiring', 'expiring_soon', 'valid']
-export const DGUV_STATE_LABEL = { overdue: 'Overdue', not_inspected: 'Not inspected', expiring: 'Expiring (≤ 30 days)', expiring_soon: 'Expiring soon (≤ 90 days)', valid: 'Valid' }
-const severity = (s) => DGUV_STATES.length - DGUV_STATES.indexOf(s)
+// Exempt (addendum v2.3 Q13: excused with a reason) comes last: it has no
+// severity and is left out of the compliant share.
+export const DGUV_STATES = ['overdue', 'not_inspected', 'expiring', 'expiring_soon', 'valid', 'exempt']
+export const DGUV_STATE_LABEL = { overdue: 'Overdue', not_inspected: 'Not inspected', expiring: 'Expiring (≤ 30 days)', expiring_soon: 'Expiring soon (≤ 90 days)', valid: 'Valid', exempt: 'Exempt' }
+const severity = (s) => (s === 'exempt' ? 0 : DGUV_STATES.length - DGUV_STATES.indexOf(s))
 
 // The field of an item that identifies its place at a level.
 const LEVEL_FIELD = { country: 'countryId', sal: 'salId', building: 'buildingId', floor: 'floorId', room: 'roomId', rack: 'rackId', device: 'deviceId' }
 
-export const stateOf = (item) => (item.inspected ? item.status : 'not_inspected')
+export const stateOf = (item) => (item.exempt ? 'exempt' : item.inspected ? item.status : 'not_inspected')
 
 export function emptyCounts() {
-  return { total: 0, valid: 0, expiring_soon: 0, expiring: 0, overdue: 0, not_inspected: 0 }
+  return { total: 0, valid: 0, expiring_soon: 0, expiring: 0, overdue: 0, not_inspected: 0, exempt: 0 }
 }
 
 // Counts, the worst state and the compliant share (inspected and not overdue).
@@ -31,10 +33,11 @@ export function summarise(items) {
     const s = stateOf(item)
     counts.total += 1
     counts[s] += 1
-    if (!worst || severity(s) > severity(worst)) worst = s
+    if (s !== 'exempt' && (!worst || severity(s) > severity(worst))) worst = s
   }
   const compliant = counts.valid + counts.expiring_soon + counts.expiring
-  return { counts, worst, compliantPct: counts.total ? Math.round((compliant / counts.total) * 100) : null }
+  const inScope = counts.total - counts.exempt
+  return { counts, worst: worst ?? (counts.exempt ? 'exempt' : null), compliantPct: inScope ? Math.round((compliant / inScope) * 100) : null }
 }
 
 // The items under one node: `level` and its id (the project: everything).

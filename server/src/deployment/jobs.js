@@ -23,7 +23,9 @@ export async function dguvReminders({ now = new Date() } = {}) {
       await runWithScope({ organisationId: org._id, projectId: project._id }, async () => {
         const list = await dguvDevices({ organisationId: org._id, projectId: project._id, now })
         const codes = new Map((await Building.find({ _id: { $in: list.map((d) => d.rec.buildingId) } }, { code: 1 }).lean()).map((b) => [String(b._id), b.code]))
-        for (const { rec, label, inspected, status } of list) {
+        for (const { rec, label, inspected, status, exempt } of list) {
+          // Exempt from inspection (with its reason): never reminded.
+          if (exempt) continue
           const key = inspected ? (status.status === 'valid' ? null : `${status.status}:${status.dueDate}`) : 'not_inspected'
           if (!key || (rec.dguv?.remindersSent ?? []).includes(key)) continue
           const claimed = await DeploymentRecord.findOneAndUpdate({ _id: rec._id, 'dguv.remindersSent': { $ne: key } }, { $addToSet: { 'dguv.remindersSent': key } })

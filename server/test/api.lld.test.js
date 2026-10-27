@@ -369,7 +369,8 @@ describe('Cable IDs: unique per project, case-insensitive, never reused', () => 
     const ports = ['Te1/1/10', 'Te1/1/11', 'Te1/1/12', 'Te1/1/13', 'Te1/1/14']
     const results = await Promise.all(ports.map((portId) => p.architect.patch(`${p.lld}/connections/${be.id}`).send({ cableId: `W-${portId}`, source: { deviceId: be.source.deviceId, portId }, baseRevision: rev })))
     expect(results.filter((r) => r.status === 200)).toHaveLength(1)
-    expect(results.filter((r) => r.status === 409).every((r) => r.body.error.code === 'stale_revision')).toBe(true)
+    // The losers edited a link the winner changed: refused, naming the port (M7b-1 save-time check).
+    expect(results.filter((r) => r.status === 409).every((r) => ['stale_revision', 'port_changed'].includes(r.body.error.code))).toBe(true)
     expect(await occupancy({ layer: 'lld', connectionId: new mongoose.Types.ObjectId(be.id) })).toHaveLength(1)
     expect((await registry({ layer: 'lld', connectionId: new mongoose.Types.ObjectId(be.id), status: 'reserved' })).map((r) => r.cableId)).toHaveLength(1)
 
@@ -644,6 +645,8 @@ describe('LLD workflow (generic Approval record)', () => {
     const rev = await d.rev()
     await p.architect.patch(`${p.lld}/connections/${bf.id}`).send({ cableId: 'FIRST', baseRevision: rev }).expect(200)
     const stale = await p.architect.patch(`${p.lld}/connections/${bf.id}`).send({ cableId: 'SECOND', baseRevision: rev }).expect(409)
-    expect(stale.body.error).toMatchObject({ code: 'stale_revision', details: { revision: rev + 1, lastEditedBy: 'architect' } })
+    // The same link was changed since: the refusal names it (its port, or the link when its end has no port, as here) and who (M7b-1), with the revision details.
+    expect(stale.body.error).toMatchObject({ code: 'port_changed', details: { revision: rev + 1, lastEditedBy: 'architect', changedBy: 'architect' } })
+    expect(stale.body.error.message).toMatch(/^The link from .+ was changed by architect since you loaded it — reload/)
   })
 })

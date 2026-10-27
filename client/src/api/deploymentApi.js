@@ -12,6 +12,7 @@ export const deploymentApi = {
   view: (o, p, buildingId) => (real ? apiRequest(`${base(o, p)}/deployment/buildings/${buildingId}`) : none(null)),
   saveInstallation: (o, p, deviceId, body) => (real ? apiRequest(`${base(o, p)}/deployment/devices/${deviceId}/installation`, { method: 'PUT', body }) : none(null)),
   recordDguv: (o, p, deviceId, body) => (real ? apiRequest(`${base(o, p)}/deployment/devices/${deviceId}/dguv`, { method: 'PUT', body }) : none(null)),
+  overrideDguv: (o, p, deviceId, body) => (real ? apiRequest(`${base(o, p)}/deployment/devices/${deviceId}/dguv-override`, { method: 'PUT', body }) : none(null)),
   setStatus: (o, p, deviceId, body) => (real ? apiRequest(`${base(o, p)}/deployment/devices/${deviceId}/status`, { method: 'POST', body }) : none(null)),
   saveConnection: (o, p, connectionId, body) => (real ? apiRequest(`${base(o, p)}/deployment/connections/${connectionId}/installation`, { method: 'PUT', body }) : none(null)),
   testConnection: (o, p, connectionId, body) => (real ? apiRequest(`${base(o, p)}/deployment/connections/${connectionId}/test`, { method: 'POST', body }) : none(null)),

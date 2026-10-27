@@ -5,7 +5,7 @@ import { tenantScope } from '../tenancy/tenantScope.js'
 const invitationSchema = new mongoose.Schema({
   email: { type: String, required: true, trim: true, lowercase: true },
   level: { type: String, enum: ['organisation', 'project'], required: true },
-  role: { type: String, enum: ['org_admin', 'pm', 'architect', 'reviewer', 'field_engineer', 'viewer'], required: true },
+  role: { type: String, enum: ['org_admin', 'pm', 'architect', 'reviewer', 'external_reviewer', 'field_engineer', 'viewer'], required: true },
   scopes: { type: [{ type: { type: String, enum: ['country', 'sal', 'building'] }, refId: mongoose.Schema.Types.ObjectId }], default: [] },
   invitedBy: { type: mongoose.Schema.Types.ObjectId, required: true },
   tokenHash: { type: String, required: true, unique: true },

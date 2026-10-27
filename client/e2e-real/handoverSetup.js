@@ -92,7 +92,7 @@ export async function deployedProject({ owner, browser, runId, prefix }) {
   let dep = await send(fe, 'get', `/deployment/buildings/${b001}`, undefined, 200)
   for (const d of dep.devices) await send(fe, 'put', `/deployment/devices/${d.id}/installation`, { ...(d.serialised ? { serial: `SN-${d.role}-${runId}` } : {}), ...(d.rackId ? { rackId: d.rackId, ru: d.ru, face: d.face } : {}), markInstalled: true }, 200)
   for (const c of dep.connections) {
-    await send(fe, 'put', `/deployment/connections/${c.id}/installation`, { segments: c.segments.map((s) => ({ index: s.index, cableId: s.cableId, installedM: s.effectiveM ?? 3, confirmed: true })), confirm: true }, 200)
+    await send(fe, 'put', `/deployment/connections/${c.id}/installation`, { segments: c.segments.map((s) => ({ index: s.index, cableId: s.cableId, installedM: s.effectiveM ?? 3, confirmed: true })), confirm: true, version: c.version ?? 0 }, 200)
     await send(fe, 'post', `/deployment/connections/${c.id}/test`, { result: 'pass' }, 200)
   }
   dep = await send(fe, 'get', `/deployment/buildings/${b001}`, undefined, 200)
