@@ -1,4 +1,5 @@
 import mongoose from 'mongoose'
+import { namePortConflict } from '../design/portConflict.js'
 import crypto from 'node:crypto'
 import { DEFAULT_STOCK_LENGTHS } from '@rackium/shared/cableLength.js'
 import { connectionSegments, lengthBetween } from '@rackium/shared/cableSegments.js'
@@ -9,7 +10,7 @@ import { roleInfo, resolveRoleCodes } from '@rackium/shared/hldRoles.js'
 import { buildHostname } from '@rackium/shared/naming.js'
 import { summariseFindings } from '@rackium/shared/hldRules.js'
 import { portKey, portsOf, isPatchPanel, validateLld, diffDesigns, reconcileWithHld, routeSides, routeBookings, hopProblems, pairBookings, pairConflicts, nextPanelLabel } from '@rackium/shared/lldDesign.js'
-import { canApproveSubmission } from '@rackium/shared/policy.js'
+import { canApproveSubmission, rolesAllowed, ACTIONS } from '@rackium/shared/policy.js'
 import { deviceDisplayName, cleanExistingLabel } from '@rackium/shared/deviceName.js'
 import { Device } from '../models/device.js'
 import { Connection } from '../models/connection.js'
@@ -46,6 +47,8 @@ const oid = (v) => new mongoose.Types.ObjectId(String(v))
 const lower = (v) => String(v).trim().toLowerCase()
 const MAIN = 'lld'
 const layerOf = (branchId) => (branchId ? `lld:${branchId}` : MAIN)
+// The ports a connection save asks for: its ends and its hops' panel ports.
+const endsOf = (b) => [b.source, b.dest, ...(b.hops ?? []).flatMap((h) => [{ deviceId: h.patchPanelId, portId: h.inPort }, { deviceId: h.patchPanelId, portId: h.outPort }])].filter(Boolean)
 const branchOfLayer = (layer) => (layer?.startsWith('lld:') ? layer.slice(4) : null)
 const isLldLayer = (layer) => layer === MAIN || Boolean(layer?.startsWith('lld:'))
 
@@ -647,7 +650,7 @@ export function createLldService({ storage }) {
     return withTransaction(async (session) => {
       const claimed = await claim({ buildingId: building.id, branchId: branch ? String(branch._id) : null }, baseRevision, actor, session)
       const data = await loadLayer(building.id, layer, req.project.id, session)
-      const out = await fn({ building, data, layer, session })
+      const out = await fn({ building, data, layer, session, revision: claimed.revision })
       return { ...out, revision: claimed.revision }
     })
   }
@@ -1063,22 +1066,25 @@ export function createLldService({ storage }) {
     },
 
     async createConnection(req, body, actor) {
-      return write(req, body, body.baseRevision, actor, async ({ building, data, layer, session }) => {
-        const doc = new Connection({ buildingId: building.id, layer, source: body.source, dest: body.dest, media: body.media, speed: body.speed, createdBy: actor.userId, updatedBy: actor.userId })
+      return write(req, body, body.baseRevision, actor, async ({ building, data, layer, session, revision }) => {
+        const doc = new Connection({ buildingId: building.id, layer, source: body.source, dest: body.dest, media: body.media, speed: body.speed, createdBy: actor.userId, updatedBy: actor.userId, edited: { layer, revision } })
         await writeConnection(doc, body, { layer, data, isNew: true }, session)
         await audit(req, building, actor, 'lld.connection.created', { objectType: 'Connection', objectId: doc._id, comment: `${doc.media.toUpperCase()}${doc.cableId ? ` · ${doc.cableId}` : ''}`, session })
         data.connections.push(doc.toObject())
         return { connection: inputs(data).connections.find((c) => c.id === String(doc._id)) }
+      }).catch(async (err) => {
+        throw await namePortConflict(err, { layer: layerOf(body.branchId ?? null), baseRevision: body.baseRevision, ends: endsOf(body) })
       })
     },
 
     // Rackium Editor: ports, hops, cable IDs, media, Engineer Selected length.
     async updateConnection(req, connectionId, body, actor) {
       const existing = await connectionInLayer(req, connectionId)
-      return write(req, { buildingId: existing.buildingId, branchId: branchOfLayer(existing.layer) }, body.baseRevision, actor, async ({ building, data, layer, session }) => {
+      return write(req, { buildingId: existing.buildingId, branchId: branchOfLayer(existing.layer) }, body.baseRevision, actor, async ({ building, data, layer, session, revision }) => {
         const doc = await Connection.findById(connectionId).session(session)
         const before = connectionView(doc.toObject(), {})
         doc.updatedBy = actor.userId
+        doc.edited = { layer, revision }
         await writeConnection(doc, body, { layer, data, isNew: false }, session)
         const after = connectionView(doc.toObject(), {})
         // Hop lengths are logged as cable lengths, not as a route change.
@@ -1094,6 +1100,8 @@ export function createLldService({ storage }) {
         await audit(req, building, actor, 'lld.connection.updated', { objectType: 'Connection', objectId: doc._id, changes, session })
         data.connections = data.connections.map((c) => (String(c._id) === connectionId ? doc.toObject() : c))
         return { connection: inputs(data).connections.find((c) => c.id === connectionId) }
+      }).catch(async (err) => {
+        throw await namePortConflict(err, { layer: existing.layer, baseRevision: body.baseRevision, connectionId, ends: endsOf(body) })
       })
     },
 
@@ -1104,6 +1112,8 @@ export function createLldService({ storage }) {
         await Connection.deleteOne({ _id: existing._id }, { session })
         await audit(req, building, actor, 'lld.connection.deleted', { objectType: 'Connection', objectId: existing._id, comment: existing.cableId ?? null, session })
         return { deleted: connectionId }
+      }).catch(async (err) => {
+        throw await namePortConflict(err, { layer: existing.layer, baseRevision, connectionId })
       })
     },
 
@@ -1241,7 +1251,7 @@ export function createLldService({ storage }) {
         await audit(req, building, actor, 'lld.submitted', { objectType: 'DesignVersion', objectId: versionId, comment: `LLD v${number} submitted (${summary.warning} warning(s))`, session })
         return { revision: claimed.revision, versionNumber: number, approvalId: String(approval._id) }
       })
-      await notifyQuietly({ type: 'lld_submitted', buildingId: building.id, title: `LLD v${submitted.versionNumber} of ${building.code} submitted for approval`, relatedObjectType: 'lld', relatedObjectId: submitted.approvalId, link: paths.building(req.org.id, req.project.id, building.id, 'lld'), actorId: actor.userId, to: { roles: ['pm', 'reviewer'] } })
+      await notifyQuietly({ type: 'lld_submitted', buildingId: building.id, title: `LLD v${submitted.versionNumber} of ${building.code} submitted for approval`, relatedObjectType: 'lld', relatedObjectId: submitted.approvalId, link: paths.building(req.org.id, req.project.id, building.id, 'lld'), actorId: actor.userId, to: { roles: rolesAllowed(ACTIONS.APPROVE_HLD_LLD_SP_INTERNAL).filter((r) => r !== 'org_admin') } })
       return submitted
     },
 

@@ -121,13 +121,13 @@ export function surveyProgress(ctx, data) {
 export function complianceReport(ctx, data) {
   const doc = base(ctx, 'Compliance Report')
   const block = table(
-    [{ key: 'code', label: 'Building' }, { key: 'devices', label: 'DGUV devices' }, { key: 'compliant', label: 'DGUV compliant' }, { key: 'overdue', label: DGUV_STATE_LABEL.overdue }, { key: 'notInspected', label: DGUV_STATE_LABEL.not_inspected }, { key: 'expiring', label: 'Expiring (≤ 90 days)' }, { key: 'critical', label: 'Critical design findings' }, { key: 'warning', label: 'Design warnings' }],
+    [{ key: 'code', label: 'Building' }, { key: 'devices', label: 'DGUV devices' }, { key: 'compliant', label: 'DGUV compliant' }, { key: 'overdue', label: DGUV_STATE_LABEL.overdue }, { key: 'notInspected', label: DGUV_STATE_LABEL.not_inspected }, { key: 'expiring', label: 'Expiring (≤ 90 days)' }, { key: 'exempt', label: DGUV_STATE_LABEL.exempt }, { key: 'critical', label: 'Critical design findings' }, { key: 'warning', label: 'Design warnings' }],
     data.buildings.map((x) => ({ ...x, compliant: pct(x.compliantPct) })),
     { empty: 'No buildings.' }
   )
   const c = data.dguv.counts
   doc.sections = [
-    section('summary', 'Summary', [coverage(data), kv([['DGUV devices', c.total], ['DGUV compliant', pct(data.dguv.compliantPct)], [DGUV_STATE_LABEL.overdue, c.overdue], [DGUV_STATE_LABEL.not_inspected, c.not_inspected], ['Expiring (≤ 90 days)', c.expiring + c.expiring_soon], ['Open Critical design findings', data.buildings.reduce((n, x) => n + x.critical, 0)], ['Design warnings', data.buildings.reduce((n, x) => n + x.warning, 0)]])]),
+    section('summary', 'Summary', [coverage(data), kv([['DGUV devices to inspect', c.total - (c.exempt ?? 0)], ['DGUV compliant', pct(data.dguv.compliantPct)], [DGUV_STATE_LABEL.overdue, c.overdue], [DGUV_STATE_LABEL.not_inspected, c.not_inspected], ['Expiring (≤ 90 days)', c.expiring + c.expiring_soon], ['Exempt (with a reason; not in the compliant share)', c.exempt ?? 0], ['Open Critical design findings', data.buildings.reduce((n, x) => n + x.critical, 0)], ['Design warnings', data.buildings.reduce((n, x) => n + x.warning, 0)]])]),
     section('buildings', 'Buildings', [block]),
   ]
   return { doc, sheets: [sheetOf('Compliance', block)] }

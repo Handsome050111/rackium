@@ -19,6 +19,7 @@ import { AppError } from '../http/errors.js'
 import { buildingWithScopeIds } from '../access/scope.js'
 import { readSnapshot } from './common.js'
 import { withLink, assertUsable, checkPassword } from './shareLinks.js'
+import { impactWithoutCost } from './changeRequests.js'
 
 const KIND_LABEL = { solution_package: 'Solution Package', change_request: 'Change request', handover: 'Handover package', document_download: 'Documents' }
 
@@ -43,7 +44,7 @@ export function createPublicApprovalService({ storage, lld, getHandover = () => 
       return { ...base, label: link.label ?? null, documents: docs.map((d) => ({ id: String(d._id), name: typeOf(d.typeKey)?.name ?? d.typeKey, format: d.format, version: d.version, fileName: d.fileName, sizeBytes: d.sizeBytes })) }
     }
     const cr = await ChangeRequest.findById(link.changeRequestId).lean()
-    return { ...base, changeRequest: { number: cr.number, title: cr.title, description: cr.description, reason: cr.reason, affectedItems: cr.affectedItems, impact: cr.impact } }
+    return { ...base, changeRequest: { number: cr.number, title: cr.title, description: cr.description, reason: cr.reason, affectedItems: cr.affectedItems, impact: impactWithoutCost(cr.impact) } }
   }
 
   async function storeSignature(link, scope, dataUrl) {

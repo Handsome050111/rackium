@@ -1,4 +1,5 @@
 import mongoose from 'mongoose'
+import { rolesAllowed, ACTIONS } from '@rackium/shared/policy.js'
 import {
   STATUS_LABELS,
   deploymentLabel,
@@ -15,6 +16,7 @@ import {
   LIVE_EXCEPTION,
   dguvStatus,
   isMainsPowered,
+  dguvObligation,
   pipelineStats,
   roomChecklists,
   isDelivered,
@@ -34,7 +36,7 @@ import { ConnectionRecord } from '../models/connectionRecord.js'
 import { DeploymentException } from '../models/deploymentException.js'
 import { User } from '../models/user.js'
 import { recordAudit, userActor } from '../audit/audit.js'
-import { badRequest, conflict, forbidden, notFound } from '../http/errors.js'
+import { AppError, badRequest, conflict, forbidden, notFound } from '../http/errors.js'
 import { callerAccess, requireBuilding } from '../access/scope.js'
 import { withTransaction } from '../db/transaction.js'
 import { notifyQuietly, paths } from '../notifications/notify.js'
@@ -98,6 +100,8 @@ export function createDeploymentService({ lld }) {
       const status = rec && rec.status !== 'draft' ? rec.status : delivered ? 'delivered' : ['ordered', 'shipped'].includes(lineStatus) ? 'ordered' : 'planned'
       const category = item?.category ?? v.category ?? null
       const mainsPowered = isMainsPowered(item)
+      // DGUV applies by the model's default unless the device was overridden (addendum v2.3 Q13).
+      const obligation = dguvObligation(item, rec?.dguvOverride)
       const inst = rec?.installation ?? {}
       const installedRack = inst.rackId ? rackOf.get(String(inst.rackId)) : null
       const deviations = rec
@@ -118,6 +122,8 @@ export function createDeploymentService({ lld }) {
         passive: v.isPanel || PASSIVE.includes(category),
         serialised: SERIALISED_CATEGORIES.includes(category),
         mainsPowered,
+        dguvRequired: obligation.required,
+        obligation,
         roomId: v.roomId,
         roomCode: roomOf.get(String(v.roomId))?.code ?? null,
         rackId: v.rackId,
@@ -152,7 +158,7 @@ export function createDeploymentService({ lld }) {
       d.openDeviations = own.length + viaConns.length
       const connIds = new Set(connsOfDevice(d.id).map((c) => c.id))
       d.openExceptions = exceptions.filter((e) => e.status === 'open' && (String(e.deviceId) === d.id || (e.connectionId && connIds.has(String(e.connectionId))))).length
-      d.dguv = dguvStatus({ lastInspectionDate: d.rec?.dguv?.lastInspectionDate ?? null, mainsPowered: d.mainsPowered }, today, time.dguv)
+      d.dguv = dguvStatus({ lastInspectionDate: d.rec?.dguv?.lastInspectionDate ?? null, mainsPowered: d.dguvRequired }, today, time.dguv)
     }
     return { started: true, frozen, data, devices, deviceById, connections, connsOfDevice, exceptions, nameOf, viewOf, rackOf, roomOf, today, time }
   }
@@ -177,6 +183,33 @@ export function createDeploymentService({ lld }) {
     if (!c) throw notFound('Connection not found')
     return { building, ctx, c }
   }
+  // The save-time conflict check (addendum v2.3 Q2): "this port was changed
+  // by [user], reload" — the link's own ports named.
+  const portOf = (ctx, end, installedPort) => `${installedPort ?? end.portId ?? 'its port'} on ${ctx.nameOf(end.deviceId)}`
+  function portChanged(ctx, c, rec) {
+    const inst = rec.installed ?? {}
+    const who = rec.changedByName ?? rec.installedByName ?? 'someone'
+    return new AppError(409, 'port_changed', `Port ${portOf(ctx, c.view.source, inst.sourcePort)} (to ${portOf(ctx, c.view.dest, inst.destPort)}) was changed by ${who} since you loaded it — reload, then make your change again.`, { version: rec.version ?? 0, changedBy: who, changedAt: rec.changedAt ?? rec.installedAt ?? null })
+  }
+  // A port named for an end of this link must not be one another link of
+  // the building is patched to (as recorded on site, else as designed).
+  async function assertPortsFree(ctx, c, body) {
+    const ends = [['sourcePort', c.view.source], ['destPort', c.view.dest]].filter(([f]) => body[f])
+    for (const [f, end] of ends) {
+      const port = String(body[f]).toLowerCase()
+      for (const other of ctx.connections) {
+        // Any link with patching recorded (confirmed or still a draft), never a retired one.
+        if (other.id === c.id || !other.rec || other.rec.status === 'retired') continue
+        const inst = other.rec.installed ?? {}
+        for (const [of, oend] of [['sourcePort', other.view.source], ['destPort', other.view.dest]]) {
+          if (oend.deviceId !== end.deviceId || String(inst[of] ?? oend.portId ?? '').toLowerCase() !== port) continue
+          const who = other.rec.changedByName ?? other.rec.installedByName ?? 'someone'
+          throw new AppError(409, 'port_in_use', `Port ${body[f]} on ${ctx.nameOf(end.deviceId)} is already patched to ${portOf(ctx, of === 'sourcePort' ? other.view.dest : other.view.source, of === 'sourcePort' ? inst.destPort : inst.sourcePort)} by ${who} — reload, then choose another port.`, { connectionId: other.id, changedBy: who })
+        }
+      }
+    }
+  }
+
   // Deployment records are read-only after the handover is accepted (M6b).
   async function writable(building) {
     await assertNotHandedOver(building.id)
@@ -216,7 +249,7 @@ export function createDeploymentService({ lld }) {
     const inst = rec?.installation ?? {}
     const installedRack = inst.rackId ? ctx.rackOf.get(String(inst.rackId)) : null
     const conns = ctx.connsOfDevice(d.id)
-    const blockers = acceptanceBlockers({ serialised: d.serialised, serial: inst.serial, mainsPowered: d.mainsPowered, dguvRecorded: Boolean(rec?.dguv?.lastInspectionDate), openDeviations: d.openDeviations, openExceptions: d.openExceptions })
+    const blockers = acceptanceBlockers({ serialised: d.serialised, serial: inst.serial, mainsPowered: d.dguvRequired, dguvRecorded: Boolean(rec?.dguv?.lastInspectionDate), openDeviations: d.openDeviations, openExceptions: d.openExceptions })
     return {
       id: d.id,
       hostname: d.hostname,
@@ -229,6 +262,7 @@ export function createDeploymentService({ lld }) {
       passive: d.passive,
       serialised: d.serialised,
       mainsPowered: d.mainsPowered,
+      dguvRequired: d.dguvRequired,
       roomId: d.roomId,
       roomCode: d.roomCode,
       rackId: d.rackId,
@@ -254,8 +288,12 @@ export function createDeploymentService({ lld }) {
         installedAt: inst.installedAt ?? null,
         updatedAt: inst.updatedAt ?? null,
       },
-      dguv: d.mainsPowered
+      dguv: d.dguvRequired || d.obligation.exempt
         ? {
+            required: d.dguvRequired,
+            byType: d.obligation.byType,
+            exempt: d.obligation.exempt,
+            override: rec?.dguvOverride ? { required: rec.dguvOverride.required, reason: rec.dguvOverride.reason, setBy: rec.dguvOverride.setByName ?? null, setAt: rec.dguvOverride.setAt ?? null } : null,
             lastInspectionDate: rec?.dguv?.lastInspectionDate ?? null,
             inspector: rec?.dguv?.inspector ?? null,
             certificateFileId: id(rec?.dguv?.certificateFileId),
@@ -300,6 +338,10 @@ export function createDeploymentService({ lld }) {
       deviations: c.deviations.map((x) => ({ ...x, handled: !unhandledDeviations([x], ctx.exceptions, { deviceId: null, connectionId: c.id }).length })),
       acceptedAt: c.rec?.acceptedAt ?? null,
       acceptedBy: names.get(String(c.rec?.acceptedBy)) ?? null,
+      // Sent back with a patching save (the save-time conflict check).
+      version: c.rec?.version ?? 0,
+      changedBy: c.rec?.changedByName ?? null,
+      changedAt: c.rec?.changedAt ?? null,
     }
   }
 
@@ -371,13 +413,14 @@ export function createDeploymentService({ lld }) {
         tree: buildLocationTree({ building: { id: building.id, name: `${building.code} ${building.name ?? ''}`.trim() }, floors, rooms, racks, devices: devices.map((d) => ({ id: d.id, hostname: d.hostname, label: d.label, roomId: d.roomId, rackId: d.rackId, status: d.status, deliveryReady: d.delivery.delivered })) }),
         pipeline: pipelineStats(devices, connections),
         roomChecklists: roomChecklists({
-          devices: ctx.devices.map((d) => ({ roomCode: d.roomCode, role: d.role, passive: d.passive, mainsPowered: d.mainsPowered, dguvRecorded: Boolean(d.rec?.dguv?.lastInspectionDate), rackId: d.rackId, status: d.status })),
+          devices: ctx.devices.map((d) => ({ roomCode: d.roomCode, role: d.role, passive: d.passive, mainsPowered: d.dguvRequired, dguvRecorded: Boolean(d.rec?.dguv?.lastInspectionDate), rackId: d.rackId, status: d.status })),
           connections: connections.map((c) => ({ roomCode: c.roomCode, media: c.media, status: c.status })),
           racks: racks.map((r) => ({ id: r.id, roomCode: roomCodeOf.get(r.roomId) ?? null })),
         }),
         permissions: {
           install: roles.includes('field_engineer'),
           recordDguv: roles.some((r) => ['field_engineer', 'pm'].includes(r)),
+          overrideDguv: roles.some((r) => rolesAllowed(ACTIONS.MANAGE_DGUV_EXEMPTIONS).includes(r)),
           accept: roles.some((r) => ['pm', 'reviewer'].includes(r)),
           reviewExceptions: roles.some((r) => ['pm', 'reviewer'].includes(r)),
         },
@@ -504,7 +547,8 @@ export function createDeploymentService({ lld }) {
       const { building, ctx, d } = await deviceContext(req, deviceId)
       await writable(building)
       requireFrozen(ctx)
-      if (!d.mainsPowered) throw badRequest(`${d.label} is not mains-powered — DGUV V3 inspections apply to mains-powered devices only`)
+      if (d.obligation.exempt) throw conflict('dguv_exempt', `${d.label} is exempt from DGUV V3 inspection (${d.obligation.reason}) — clear the exemption first`)
+      if (!d.dguvRequired) throw badRequest(`${d.label} needs no DGUV V3 inspection — its model is not mains-powered or not marked for inspection`)
       if (!INSTALLED_PLUS.has(d.status)) throw conflict('not_installed', 'Inspect the device once it is installed')
       if (body.inspectionDate > ctx.today) throw badRequest('The inspection date cannot be in the future')
       if (body.certificateFileId) {
@@ -525,6 +569,36 @@ export function createDeploymentService({ lld }) {
       return { device: await deviceDetail(req, d.id) }
     },
 
+    // A device's DGUV obligation overridden from its model's default (addendum
+    // v2.3 Q13): `required: false` exempts it, `true` brings a device in that
+    // its model leaves out; either needs a reason; null returns it to the
+    // model's default. The PM decides; audited.
+    async setDguvOverride(req, deviceId, body, actor) {
+      const roles = await rolesOf(req)
+      requireRole(roles, rolesAllowed(ACTIONS.MANAGE_DGUV_EXEMPTIONS), 'Only a PM exempts a device from DGUV V3 inspection or requires it')
+      const { building, ctx, d } = await deviceContext(req, deviceId)
+      await writable(building)
+      requireFrozen(ctx)
+      const current = d.rec?.dguvOverride ?? null
+      if (body.required === null && !current) return { device: await deviceDetail(req, d.id) }
+      if (body.required !== null) {
+        if (body.required === d.obligation.byType) throw badRequest(`${d.label} is already ${body.required ? 'inspected' : 'left out of inspection'} by its model's default — nothing to override`)
+        if (!body.reason?.trim()) throw badRequest('Give the reason for the override')
+      }
+      const actorName = (await namesOf([actor.userId])).get(String(actor.userId)) ?? null
+      const describe = (o) => (o ? `${o.required ? 'required' : 'exempt'}: ${o.reason}` : null)
+      const next = body.required === null ? null : { required: body.required, reason: body.reason.trim(), setBy: actor.userId, setByName: actorName, setAt: new Date() }
+      await withTransaction(async (session) => {
+        const rec = await recordFor(d, building, session)
+        rec.set('dguvOverride', next)
+        rec.version += 1
+        rec.updatedAt = new Date()
+        await rec.save({ session })
+        await audit(req, building, actor, 'deployment.dguv.override', { objectType: 'Device', objectId: d.id, comment: next ? `${d.label}: DGUV ${describe(next)}` : `${d.label}: DGUV back to the model's default`, changes: [{ objectType: 'Device', objectId: d.id, field: 'dguvOverride', before: describe(current), after: describe(next) }], session })
+      })
+      return { device: await deviceDetail(req, d.id) }
+    },
+
     // Installed → Configured → Tested (Field Engineer) → Accepted (PM / Reviewer).
     async setDeviceStatus(req, deviceId, body, actor) {
       const roles = await rolesOf(req)
@@ -537,7 +611,7 @@ export function createDeploymentService({ lld }) {
         delivered: d.delivered,
         serialised: d.serialised,
         serial: d.rec?.installation?.serial,
-        mainsPowered: d.mainsPowered,
+        mainsPowered: d.dguvRequired,
         dguvRecorded: Boolean(d.rec?.dguv?.lastInspectionDate),
         openDeviations: d.openDeviations,
         openExceptions: d.openExceptions,
@@ -583,6 +657,11 @@ export function createDeploymentService({ lld }) {
       const out = await withTransaction(async (session) => {
         let rec = await ConnectionRecord.findOne({ connectionId: oid(c.id) }).session(session)
         if (!rec) rec = new ConnectionRecord({ buildingId: building.id, connectionId: oid(c.id), status: 'draft' })
+        // The save-time conflict check (addendum v2.3 Q2): someone saved this
+        // link since it was loaded — refused, naming them. Two saves at once
+        // collide in the transaction; the retry then sees the newer version.
+        if ((rec.version ?? 0) !== body.version) throw portChanged(ctx, c, rec)
+        await assertPortsFree(ctx, c, body, session)
         const before = JSON.stringify(rec.installed ?? {})
         for (const f of ['sourcePort', 'destPort', 'media', 'sourceSfpCode', 'destSfpCode']) if (body[f] !== undefined) rec.set(`installed.${f}`, body[f] || null)
         if (body.segments) {
@@ -611,6 +690,10 @@ export function createDeploymentService({ lld }) {
           rec.installedByName = actorName
           rec.installedAt = new Date()
         }
+        rec.version = (rec.version ?? 0) + 1
+        rec.changedBy = actor.userId
+        rec.changedByName = actorName
+        rec.changedAt = new Date()
         // Re-patching a tested link needs a new test.
         if (changed && ['tested', 'faulty'].includes(rec.status)) {
           rec.status = 'installed'

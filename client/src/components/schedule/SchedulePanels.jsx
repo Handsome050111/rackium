@@ -3,6 +3,7 @@ import { Trash2, Check, Undo2 } from 'lucide-react'
 import { PHASE_LABELS } from '@rackium/shared/notifications.js'
 import { STANDARD_MILESTONES } from '@rackium/shared/schedule.js'
 import { scheduleApi } from '../../api/scheduleApi.js'
+import { reportSchedulesApi } from '../../api/insightsApi.js'
 import { tasksApi } from '../../api/workApi.js'
 import { SlaBadge } from './Badges.jsx'
 import BurndownChart from './BurndownChart.jsx'
@@ -391,8 +392,20 @@ export function SlaPanel({ view, orgId, projectId, canEdit, canEditProject, run 
 export function SettingsPanel({ view, orgId, projectId, run }) {
   const [form, setForm] = useState(() => ({ ...view.settings }))
   useEffect(() => setForm({ ...view.settings }), [view.settings])
+  // Who an SLA breach escalates to besides the PMs and Org Admins (addendum v2.3 Q12).
+  const [people, setPeople] = useState([])
+  useEffect(() => {
+    let live = true
+    reportSchedulesApi
+      .recipients(orgId, projectId)
+      .then((r) => live && setPeople(r.recipients))
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [orgId, projectId])
   const toggle = (p) => setForm((f) => ({ ...f, parallelPhases: f.parallelPhases.includes(p) ? f.parallelPhases.filter((x) => x !== p) : [...f.parallelPhases, p] }))
-  const save = () => run(() => scheduleApi.updateSettings(orgId, projectId, { riskElapsedPct: Number(form.riskElapsedPct), riskProgressPct: Number(form.riskProgressPct), parallelPhases: form.parallelPhases }), 'Schedule settings saved')
+  const save = () => run(() => scheduleApi.updateSettings(orgId, projectId, { riskElapsedPct: Number(form.riskElapsedPct), riskProgressPct: Number(form.riskProgressPct), parallelPhases: form.parallelPhases, escalationContactId: form.escalationContactId || null }), 'Schedule settings saved')
   const valid = [form.riskElapsedPct, form.riskProgressPct].every((v) => Number.isInteger(Number(v)) && Number(v) >= 1 && Number(v) <= 100)
   return (
     <Panel title="Schedule settings" testId="schedule-settings">
@@ -413,6 +426,17 @@ export function SettingsPanel({ view, orgId, projectId, run }) {
         <label className="flex flex-col gap-1">
           <span className="text-text-secondary">and progress &lt; (%)</span>
           <input type="number" min={1} max={100} aria-label="Progress threshold" value={form.riskProgressPct} onChange={(e) => setForm((f) => ({ ...f, riskProgressPct: e.target.value }))} className={`${inputClass} w-24`} />
+        </label>
+        <label className="flex min-w-0 flex-col gap-1">
+          <span className="text-text-secondary">SLA breach also escalates to</span>
+          <select aria-label="Escalation contact" value={form.escalationContactId ?? ''} onChange={(e) => setForm((f) => ({ ...f, escalationContactId: e.target.value || null }))} className={`${inputClass} max-w-full`}>
+            <option value="">The Org Admins only</option>
+            {people.map((p) => (
+              <option key={p.userId} value={p.userId}>
+                {p.name} ({p.roleLabels.join(', ')})
+              </option>
+            ))}
+          </select>
         </label>
         <button type="button" className={primary} disabled={!valid} onClick={save}>
           Save settings

@@ -113,7 +113,7 @@ export function createReportData({ lld, deployment }) {
     return {
       ...common(facts),
       dguv: summarise(facts.dguvItems),
-      buildings: facts.buildings.map((b) => ({ code: b.code, devices: b.dguv.counts.total, compliantPct: b.dguv.compliantPct, overdue: b.dguv.counts.overdue, notInspected: b.dguv.counts.not_inspected, expiring: b.dguv.counts.expiring + b.dguv.counts.expiring_soon, critical: b.validation?.critical ?? 0, warning: b.validation?.warning ?? 0 })),
+      buildings: facts.buildings.map((b) => ({ code: b.code, devices: b.dguv.counts.total - b.dguv.counts.exempt, exempt: b.dguv.counts.exempt, compliantPct: b.dguv.compliantPct, overdue: b.dguv.counts.overdue, notInspected: b.dguv.counts.not_inspected, expiring: b.dguv.counts.expiring + b.dguv.counts.expiring_soon, critical: b.validation?.critical ?? 0, warning: b.validation?.warning ?? 0 })),
     }
   }
 

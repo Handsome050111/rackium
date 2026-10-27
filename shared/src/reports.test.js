@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { scheduleDueOn, nextScheduleDate, describeSchedule, phaseDurations, blockerFrequency, blockerResolution, bomVariance, surveyCompletion, approvalTurnaround, monthlyTrend, daysBetween, REPORTS } from './reports.js'
+import { scheduleDueOn, nextScheduleDate, describeSchedule, phaseDurations, blockerFrequency, blockerResolution, bomAccuracy, bomRevisions, surveyCompletion, approvalTurnaround, monthlyTrend, daysBetween, REPORTS } from './reports.js'
 import { DOCUMENT_TYPES, requestProblem, isPersonalDocument } from './documents/types.js'
 import { REPORT_ASSEMBLERS, bomSummary, surveyProgress, reportCsv } from './documents/reports.js'
 import { plainText } from './documents/model.js'
@@ -64,9 +64,9 @@ describe('analytics: six metrics with monthly trends; unknown dates left out and
     expect(t).toMatchObject({ avgDays: 1.8, count: 2, pending: 1, excluded: 1 })
     expect(t.byGate).toEqual([{ gate: 'hld_internal', avgDays: 2, count: 1 }, { gate: 'sp_client', avgDays: 1.5, count: 1 }])
   })
-  it('BOM variance: latest approved procurement BOM against the first; unreadable versions excluded', () => {
+  it('BOM revision count (addendum Q15): re-approvals per building and how far the final moved from the first; unreadable versions excluded', () => {
     const lines = (q) => [{ key: 'device:a', qty: 1 }, { key: 'cable:x', qty: q }]
-    const out = bomVariance({
+    const out = bomRevisions({
       versions: [
         { buildingId: 'b1', number: 1, on: '2026-08-01', lines: lines(9) },
         { buildingId: 'b1', number: 2, on: '2026-09-01', lines: [...lines(14), { key: 'device:b', qty: 1 }] },
@@ -74,8 +74,26 @@ describe('analytics: six metrics with monthly trends; unknown dates left out and
         { buildingId: 'b3', number: 1, on: '2026-08-15', lines: null },
       ],
     })
-    expect(out.buildings).toEqual([{ buildingId: 'b1', versions: 2, variancePct: 60 }, { buildingId: 'b2', versions: 1, variancePct: 0 }])
-    expect(out).toMatchObject({ avgVariancePct: 30, changed: 1, excluded: 1 })
+    expect(out.buildings).toEqual([{ buildingId: 'b1', versions: 2, revisions: 1, changePct: 60 }, { buildingId: 'b2', versions: 1, revisions: 0, changePct: 0 }])
+    expect(out).toMatchObject({ avgRevisions: 0.5, totalRevisions: 1, avgChangePct: 30, changed: 1, excluded: 1 })
+  })
+  it('BOM accuracy (addendum Q15): the approved BOM against the as-installed, devices, optics and cables; unfinished and undated buildings apart', () => {
+    const approved = { devices: 4, optics: { 'sfp-10g-lr': 4 }, cables: { os2: 2, cat6a: 6 } }
+    const out = bomAccuracy({
+      buildings: [
+        // As designed: 100%.
+        { buildingId: 'b1', finished: true, on: '2026-09-10', approved, installed: { devices: 4, optics: { 'sfp-10g-lr': 4 }, cables: { os2: 2, cat6a: 6 } }, notComparable: 5 },
+        // One device short, two optics over, one cable of another medium: |−1| + 2 + 1 + 1 (cat6a 5 not 6) = 5 of 16 → 31.3% off.
+        { buildingId: 'b2', finished: true, on: '2026-10-02', approved, installed: { devices: 3, optics: { 'sfp-10g-lr': 6 }, cables: { os2: 2, cat6a: 5, om4: 1 } }, notComparable: 5 },
+        { buildingId: 'b3', finished: false, on: null, approved, installed: approved, notComparable: 0 },
+        { buildingId: 'b4', finished: true, on: null, approved, installed: approved, notComparable: 0 },
+        { buildingId: 'b5', approved: null },
+      ],
+    })
+    expect(out.buildings.map((b) => [b.buildingId, b.variancePct, b.accuracyPct])).toEqual([['b1', 0, 100], ['b2', 31.3, 68.7]])
+    expect(out.buildings[1]).toMatchObject({ devices: { approved: 4, installed: 3 }, optics: { approved: 4, installed: 6 }, cables: { approved: 8, installed: 8 }, notComparable: 5 })
+    expect(out).toMatchObject({ count: 2, inProgress: 1, excluded: 1, noApprovedBom: 1, avgAccuracyPct: 84.4 })
+    expect(out.trend.map((t) => t.period)).toEqual(['2026-09', '2026-10'])
   })
   it('survey completion overall and per technician; verified tabs without a date excluded from the trend', () => {
     const out = surveyCompletion({

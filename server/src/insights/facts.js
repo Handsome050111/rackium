@@ -65,7 +65,7 @@ export async function projectFacts(req, { now = new Date(), lld, withValidation 
   for (const b of inScope) {
     const bars = (barsOf.get(b.id) ?? []).sort((x, y) => order.get(x.phaseKey) - order.get(y.phaseKey))
     const current = bars.find((x) => !isDone(x.status))
-    const items = dguv.filter((x) => String(x.rec.buildingId) === b.id).map((x) => ({ inspected: x.inspected, status: x.status?.status ?? null }))
+    const items = dguv.filter((x) => String(x.rec.buildingId) === b.id).map((x) => ({ inspected: x.inspected, exempt: Boolean(x.exempt), status: x.status?.status ?? null }))
     const country = b.countryId ? countryOf.get(b.countryId) : null
     const row = {
       id: b.id,
@@ -111,7 +111,7 @@ export async function projectFacts(req, { now = new Date(), lld, withValidation 
     pricesVisible,
     buildings,
     schedule,
-    dguvItems: dguv.filter((x) => scope.coversBuilding(x.rec.buildingId)).map((x) => ({ inspected: x.inspected, status: x.status?.status ?? null })),
+    dguvItems: dguv.filter((x) => scope.coversBuilding(x.rec.buildingId)).map((x) => ({ inspected: x.inspected, exempt: Boolean(x.exempt), status: x.status?.status ?? null })),
   }
 }
 

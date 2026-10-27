@@ -43,6 +43,13 @@ const connectionRecordSchema = new mongoose.Schema({
   acceptedBy: { type: ObjectId, default: null },
   acceptedAt: { type: Date, default: null },
   updatedAt: { type: Date, default: () => new Date() },
+  // The save-time conflict check (addendum v2.3 Q2): a save names the version
+  // it loaded; a newer one means someone else changed this link's ports or
+  // cables since — the save is refused, naming them.
+  version: { type: Number, default: 0 },
+  changedBy: { type: ObjectId, default: null },
+  changedByName: { type: String, default: null },
+  changedAt: { type: Date, default: null },
 })
 
 connectionRecordSchema.__modelName = 'ConnectionRecord'

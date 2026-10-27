@@ -126,7 +126,7 @@ describe('Gantt: risk, dependencies and the critical path (v2.2 §21.2, §21.4, 
     const p = await project()
     expectStatus(await p.pmB001.put(`${p.s}/settings`).send({ parallelPhases: ['hld'] }), 403)
     expectStatus(await p.admin.agent.put(`${p.s}/settings`).send({ parallelPhases: ['bom'] }), 400)
-    expect(expectStatus(await p.admin.agent.put(`${p.s}/settings`).send({ parallelPhases: ['hld'], riskElapsedPct: 60 }), 200).body.settings).toEqual({ riskElapsedPct: 60, riskProgressPct: 50, parallelPhases: ['hld'] })
+    expect(expectStatus(await p.admin.agent.put(`${p.s}/settings`).send({ parallelPhases: ['hld'], riskElapsedPct: 60 }), 200).body.settings).toEqual({ riskElapsedPct: 60, riskProgressPct: 50, parallelPhases: ['hld'], escalationContactId: null })
     const view = await p.view()
     expect(p.bar(view, p.b1, 'hld').predecessors).toEqual([])
     expect(await col('auditentries').countDocuments({ action: 'schedule.settings.updated' })).toBe(1)

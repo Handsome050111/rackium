@@ -230,6 +230,17 @@ export function dguvStatus({ lastInspectionDate = null, mainsPowered }, today, s
 // Mains-powered: the catalogue model has a power inlet or PSUs (a PoE-only AP has none).
 export const isMainsPowered = (item) => Boolean(item && (item.powerInletType || (item.psuCount ?? 0) > 0))
 
+// Whether a device must be DGUV-inspected (addendum v2.3 Q13; v2.2 §20.9):
+// its model's `dguvRequired`, or — unset — whether the model is
+// mains-powered; a per-device override (with its mandatory reason) wins.
+// `exempt`: the type says inspect, the device is exempted.
+export function dguvObligation(item, override = null) {
+  const byType = typeof item?.dguvRequired === 'boolean' ? item.dguvRequired : isMainsPowered(item)
+  const overridden = typeof override?.required === 'boolean'
+  const required = overridden ? override.required : byType
+  return { byType, required, overridden, exempt: byType && !required, reason: overridden ? override.reason ?? null : null }
+}
+
 // --- Pipeline and location tree ------------------------------------------------------
 
 // planned → installed → tested → remaining, over devices and connections.

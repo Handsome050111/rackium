@@ -28,7 +28,7 @@ describe('DGUV rollup (M7a-2)', () => {
 
   it('rolls up device → rack → room → floor → building → SAL → country → project, worst first', () => {
     const project = rollup(items, 'project')
-    expect(project.counts).toEqual({ total: 5, valid: 1, expiring_soon: 1, expiring: 1, overdue: 1, not_inspected: 1 })
+    expect(project.counts).toEqual({ total: 5, valid: 1, expiring_soon: 1, expiring: 1, overdue: 1, not_inspected: 1, exempt: 0 })
     expect(project.worst).toBe('overdue')
     expect(project.compliantPct).toBe(60)
     expect(project.rows.map((r) => [r.level, r.id])).toEqual([['country', 'DE']])
@@ -49,6 +49,6 @@ describe('DGUV rollup (M7a-2)', () => {
     expect(devicesOf(items, 'project').map((d) => d.deviceId)).toEqual(['SW-4', 'SW-5', 'SW-3', 'SW-2', 'SW-1'])
     expect(devicesOf(items, 'building', 'B001', 'expiring').map((d) => d.deviceId)).toEqual(['SW-3'])
     expect(devicesOf(items, 'building', 'B002', 'not_inspected').map((d) => d.deviceId)).toEqual(['SW-5'])
-    expect(summarise([])).toEqual({ counts: { total: 0, valid: 0, expiring_soon: 0, expiring: 0, overdue: 0, not_inspected: 0 }, worst: null, compliantPct: null })
+    expect(summarise([])).toEqual({ counts: { total: 0, valid: 0, expiring_soon: 0, expiring: 0, overdue: 0, not_inspected: 0, exempt: 0 }, worst: null, compliantPct: null })
   })
 })

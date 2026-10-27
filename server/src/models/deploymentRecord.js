@@ -60,6 +60,12 @@ const deploymentRecordSchema = new mongoose.Schema({
     // Reminder levels already sent for the current due date ('expiring_soon:2030-01-01').
     remindersSent: { type: [String], default: [] },
   },
+  // The device's DGUV obligation overridden from its model's default
+  // (addendum v2.3 Q13): `required` false = exempt; a reason is mandatory.
+  dguvOverride: {
+    type: new mongoose.Schema({ required: { type: Boolean, required: true }, reason: { type: String, required: true, maxlength: 500 }, setBy: ObjectId, setByName: String, setAt: Date }, { _id: false }),
+    default: null,
+  },
   lifecycle: {
     warrantyStart: { type: String, default: null },
     warrantyEnd: { type: String, default: null },

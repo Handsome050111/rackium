@@ -1,4 +1,5 @@
 import mongoose from 'mongoose'
+import { namePortConflict } from '../design/portConflict.js'
 import crypto from 'node:crypto'
 import { computeSuggestedLength } from '@rackium/shared/cableLength.js'
 import { findSurveyedDistance } from '@rackium/shared/pathway.js'
@@ -7,7 +8,7 @@ import { computeFreeRU } from '@rackium/shared/rackValidation.js'
 import { HLD_ROLES, roleInfo, nextHostname, defaultModelFor, resolveRoleCodes, PROPOSED_ROLE_CODE_KEYS } from '@rackium/shared/hldRoles.js'
 import { generateFromBlueprint, BLUEPRINT_PRESETS, BLUEPRINT_VARIANTS, blueprintProblem, defaultVariantOf } from '@rackium/shared/hldBlueprints.js'
 import { validateHld, uplinkChecks, summariseFindings } from '@rackium/shared/hldRules.js'
-import { canApproveSubmission } from '@rackium/shared/policy.js'
+import { canApproveSubmission, rolesAllowed, ACTIONS } from '@rackium/shared/policy.js'
 import { deviceDisplayName } from '@rackium/shared/deviceName.js'
 import { DesignBranch } from '../models/designBranch.js'
 import { ChangeRequest } from '../models/changeRequest.js'
@@ -786,19 +787,23 @@ export function createHldService({ storage }) {
     },
 
     async createUplink(req, body, actor) {
-      return write(req, body.buildingId, body.baseRevision, actor, async ({ building, data, session, layer }) => {
+      return write(req, body.buildingId, body.baseRevision, actor, async ({ building, data, session, layer, design }) => {
         const conn = await createConnection({ building, body, data, actor, session, layer })
+        await Connection.updateOne({ _id: conn._id }, { $set: { edited: { layer, revision: design.revision } } }, { session })
         data.connections.push(conn.toObject())
         await recordAudit({ organisationId: req.org.id, projectId: req.project.id, buildingId: building.id, phaseKey: 'hld', actor: userActor(actor.userId, actor.role), action: 'hld.uplink.created', objectType: 'Connection', objectId: conn._id, changeType: 'design_intent', source: 'ui', comment: `${conn.media.toUpperCase()} ${conn.speed}`, session })
         return { uplink: withLengths(data, conn) }
-      }, { branchId: body.branchId ?? null })
+      }, { branchId: body.branchId ?? null }).catch(async (err) => {
+        throw await namePortConflict(err, { layer: hldLayerOf(body.branchId ?? null), baseRevision: body.baseRevision, ends: [body.source, body.dest] })
+      })
     },
 
     // Edit Uplink / Change Medium: endpoints, ports, media, speed, SFPs, cable ID.
     async updateUplink(req, connectionId, body, actor) {
       const existing = await connectionInScope(req, connectionId)
-      return write(req, existing.buildingId, body.baseRevision, actor, async ({ data, session, layer }) => {
+      return write(req, existing.buildingId, body.baseRevision, actor, async ({ data, session, layer, design }) => {
         const conn = await Connection.findById(connectionId).session(session)
+        conn.edited = { layer, revision: design.revision }
         const cat = catalogueIndex(data.catalogue)
         const devices = new Map(data.devices.map((d) => [String(d._id), d]))
         const before = conn.toObject()
@@ -829,7 +834,9 @@ export function createHldService({ storage }) {
         data.connections = data.connections.map((c) => (String(c._id) === String(conn._id) ? conn.toObject() : c))
         await recordAudit({ organisationId: req.org.id, projectId: req.project.id, buildingId: String(conn.buildingId), phaseKey: 'hld', actor: userActor(actor.userId, actor.role), action: 'hld.uplink.updated', objectType: 'Connection', objectId: conn._id, changeType: 'design_intent', source: 'ui', changes, session })
         return { uplink: withLengths(data, conn) }
-      }, { branchId: branchOfHldLayer(existing.layer) })
+      }, { branchId: branchOfHldLayer(existing.layer) }).catch(async (err) => {
+        throw await namePortConflict(err, { layer: existing.layer, baseRevision: body.baseRevision, connectionId, ends: [body.source, body.dest] })
+      })
     },
 
     async deleteUplink(req, connectionId, { baseRevision }, actor) {
@@ -839,7 +846,9 @@ export function createHldService({ storage }) {
         await Connection.deleteOne({ _id: existing._id }, { session })
         await recordAudit({ organisationId: req.org.id, projectId: req.project.id, buildingId: String(existing.buildingId), phaseKey: 'hld', actor: userActor(actor.userId, actor.role), action: 'hld.uplink.deleted', objectType: 'Connection', objectId: existing._id, changeType: 'design_intent', source: 'ui', session })
         return { deleted: String(existing._id) }
-      }, { branchId: branchOfHldLayer(existing.layer) })
+      }, { branchId: branchOfHldLayer(existing.layer) }).catch(async (err) => {
+        throw await namePortConflict(err, { layer: existing.layer, baseRevision, connectionId })
+      })
     },
 
     // Canvas position only — not a design change, so no revision is claimed.
@@ -906,7 +915,7 @@ export function createHldService({ storage }) {
           return { revision: claimed.revision, versionNumber: number, approvalId: String(approval._id) }
       })
       // PMs and Reviewers decide on it.
-      await notifyQuietly({ type: 'hld_submitted', buildingId: building.id, title: `HLD v${submitted.versionNumber} of ${building.code} submitted for approval`, relatedObjectType: 'hld', relatedObjectId: submitted.approvalId, link: paths.building(req.org.id, req.project.id, building.id, 'hld'), actorId: actor.userId, to: { roles: ['pm', 'reviewer'] } })
+      await notifyQuietly({ type: 'hld_submitted', buildingId: building.id, title: `HLD v${submitted.versionNumber} of ${building.code} submitted for approval`, relatedObjectType: 'hld', relatedObjectId: submitted.approvalId, link: paths.building(req.org.id, req.project.id, building.id, 'hld'), actorId: actor.userId, to: { roles: rolesAllowed(ACTIONS.APPROVE_HLD_LLD_SP_INTERNAL).filter((r) => r !== 'org_admin') } })
       return submitted
     },
 

@@ -8,11 +8,22 @@ import { withTransaction } from '../db/transaction.js'
 import { recordAudit, userActor } from '../audit/audit.js'
 import { notifyQuietly, paths } from '../notifications/notify.js'
 import { AppError, conflict, notFound } from '../http/errors.js'
-import { requireBuilding } from '../access/scope.js'
-import { computeBom, namesOf, id } from './common.js'
+import { canSeePrices } from '@rackium/shared/policy.js'
+import { callerAccess, requireBuilding } from '../access/scope.js'
+import { computeBom, namesOf, id, organisationCommercial } from './common.js'
 import { createLink, linksOf, prepareSecrets } from './shareLinks.js'
 
 const EDITABLE = ['draft', 'changes_requested']
+
+// A change's BOM impact without its cost before and after — for anyone who
+// may not see prices (D20, addendum v2.3 Q11) and for the client's link.
+export function impactWithoutCost(impact) {
+  if (!impact?.bom) return impact
+  const bom = { ...impact.bom }
+  delete bom.costBeforeMinor
+  delete bom.costAfterMinor
+  return { ...impact, bom }
+}
 
 // Change requests (brief v2.3 §5.5; DATA-MODEL §5.9; M5a). Once the LLD has an
 // approved version (and after the Solution Package approval freezes the
@@ -24,6 +35,12 @@ const EDITABLE = ['draft', 'changes_requested']
 export function createChangeRequestService({ lld }) {
   const audit = (req, building, actor, action, extra) =>
     recordAudit({ organisationId: req.org.id, projectId: req.project.id, buildingId: building.id, phaseKey: 'solution-package', actor: userActor(actor.userId, actor.role), action, changeType: 'design_intent', source: 'ui', ...extra })
+
+  async function priced(req, impact) {
+    const { roles } = await callerAccess(req)
+    const { architectsSeePrices } = await organisationCommercial()
+    return canSeePrices(roles, { architectsSeePrices }) ? impact : impactWithoutCost(impact)
+  }
 
   async function load(req, crId) {
     const cr = mongoose.isValidObjectId(crId) ? await ChangeRequest.findById(crId).lean() : null
@@ -79,7 +96,7 @@ export function createChangeRequestService({ lld }) {
       const links = (await linksOf(building.id, { changeRequestId: cr._id })) ?? []
       return {
         changeRequest: view(cr, names, {
-          impact,
+          impact: await priced(req, impact),
           consistency,
           shareLinks: links,
           approvals: approvals.map((a) => ({ id: String(a._id), status: a.status, submittedAt: a.submittedAt, client: a.client ? { name: a.client.name, role: a.client.role } : null, decision: a.decision ? { value: a.decision.value, decidedAt: a.decision.decidedAt, comments: a.decision.comments } : null })),
@@ -134,7 +151,7 @@ export function createChangeRequestService({ lld }) {
       await audit(req, building, actor, 'change_request.submitted', { objectType: 'ChangeRequest', objectId: cr._id, comment: `CR-${cr.number}: ${impact.design.total} design change(s), ${impact.bom.total} BOM line change(s)` })
       // The PMs send it to the client.
       await notifyQuietly({ type: 'cr_submitted', buildingId: building.id, title: `CR-${cr.number} ${cr.title} submitted (${building.code})`, body: `${impact.design.total} design change(s), ${impact.bom.total} BOM line change(s)`, relatedObjectType: 'change_request', relatedObjectId: cr._id, link: paths.building(req.org.id, req.project.id, building.id, 'solution-package'), actorId: actor.userId, to: { roles: ['pm'] } })
-      return { changeRequest: { id: String(cr._id), status: 'submitted', impact } }
+      return { changeRequest: { id: String(cr._id), status: 'submitted', impact: await priced(req, impact) } }
     },
 
     // PM sends it to the client: a pending change-request approval and a

@@ -52,7 +52,7 @@ export function describeSchedule(s) {
   return s.frequency === 'monthly' ? `Monthly on day ${s.dayOfMonth} at ${s.time}` : `Weekly on ${WEEKDAY_NAMES[s.weekday]} at ${s.time}`
 }
 
-// --- Analytics (v2.2 §21.9): six metrics, each with a monthly trend line --------
+// --- Analytics (v2.2 §21.9; addendum v2.3 Q14–15): seven metrics, each with a monthly trend line ---
 // Rows whose date is unknown (a phase completion backfilled without
 // evidence, a stamp that was never recorded) are left out of every average,
 // and how many were left out is reported with the metric.
@@ -144,11 +144,71 @@ export function blockerResolution({ blockers }) {
   return { avgDays: avg(points.map((x) => x.value)), count: points.length, open: blockers.length - resolved.length, excluded: resolved.length - known.length, trend: monthlyTrend(points) }
 }
 
-// 4. BOM accuracy variance: how far a building's latest approved procurement
-// BOM moved from its first one — the sum of quantity changes per line over
-// the first version's total quantity. `versions`: { buildingId, number, on,
-// lines: [{ key, qty }] | null (snapshot unreadable) }.
-export function bomVariance({ versions }) {
+// 4. BOM accuracy (addendum v2.3 Q15): the approved procurement BOM against
+// what was installed — the variance with money attached. Compared where
+// Rackium records the as-built: serialised devices, optics (per code) and
+// cables (per medium); other lines (PSUs, cords, cage nuts, accessories) are
+// not recorded as installed and are counted as not comparable. Only
+// buildings whose deployment is complete; one with no known completion date
+// is left out and counted. `buildings`: { buildingId, finished, on,
+// approved: { devices, optics: {code: qty}, cables: {media: qty} } | null,
+// installed: same shape, notComparable }.
+export function bomAccuracy({ buildings }) {
+  const rows = []
+  let inProgress = 0
+  let noApprovedBom = 0
+  let excluded = 0
+  for (const b of buildings) {
+    if (!b.approved) {
+      noApprovedBom += 1
+      continue
+    }
+    if (!b.finished) {
+      inProgress += 1
+      continue
+    }
+    if (!b.on) {
+      excluded += 1
+      continue
+    }
+    const pairs = [[b.approved.devices, b.installed.devices]]
+    for (const kind of ['optics', 'cables']) {
+      for (const key of new Set([...Object.keys(b.approved[kind]), ...Object.keys(b.installed[kind])])) pairs.push([b.approved[kind][key] ?? 0, b.installed[kind][key] ?? 0])
+    }
+    const base = pairs.reduce((n, [a]) => n + a, 0)
+    const moved = pairs.reduce((n, [a, i]) => n + Math.abs(i - a), 0)
+    const variancePct = base ? round1((moved / base) * 100) : moved ? 100 : 0
+    const sum = (o) => Object.values(o).reduce((n, v) => n + v, 0)
+    rows.push({
+      buildingId: String(b.buildingId),
+      on: b.on,
+      variancePct,
+      accuracyPct: round1(Math.max(0, 100 - variancePct)),
+      devices: { approved: b.approved.devices, installed: b.installed.devices },
+      optics: { approved: sum(b.approved.optics), installed: sum(b.installed.optics) },
+      cables: { approved: sum(b.approved.cables), installed: sum(b.installed.cables) },
+      notComparable: b.notComparable ?? 0,
+    })
+  }
+  return {
+    avgAccuracyPct: avg(rows.map((r) => r.accuracyPct)),
+    avgVariancePct: avg(rows.map((r) => r.variancePct)),
+    count: rows.length,
+    inProgress,
+    noApprovedBom,
+    excluded,
+    buildings: rows.map(({ on, ...rest }) => rest),
+    trend: monthlyTrend(rows.map((r) => ({ on: r.on, value: r.accuracyPct }))),
+  }
+}
+
+// 5. BOM revision count (addendum v2.3 Q15, reported apart from accuracy):
+// how often a building's procurement BOM was approved again after the first
+// approval, and how far the final version moved from the first — the sum of
+// quantity changes per line over the first version's total quantity.
+// `versions`: { buildingId, number, on, lines: [{ key, qty }] | null
+// (snapshot unreadable) }.
+export function bomRevisions({ versions }) {
   const byBuilding = new Map()
   for (const v of versions) {
     const k = String(v.buildingId)
@@ -171,12 +231,21 @@ export function bomVariance({ versions }) {
     const base = [...a.values()].reduce((s, n) => s + n, 0)
     let moved = 0
     for (const key of new Set([...a.keys(), ...b.keys()])) moved += Math.abs((b.get(key) ?? 0) - (a.get(key) ?? 0))
-    buildings.push({ buildingId, versions: list.length, variancePct: base ? round1((moved / base) * 100) : moved ? 100 : 0, on: latest.on })
+    buildings.push({ buildingId, versions: list.length, revisions: list.length - 1, changePct: base ? round1((moved / base) * 100) : moved ? 100 : 0, on: latest.on })
   }
-  return { avgVariancePct: avg(buildings.map((b) => b.variancePct)), count: buildings.length, changed: buildings.filter((b) => b.versions > 1).length, excluded, buildings: buildings.map(({ on, ...rest }) => rest), trend: monthlyTrend(buildings.map((b) => ({ on: b.on, value: b.variancePct }))) }
+  return {
+    avgRevisions: avg(buildings.map((b) => b.revisions)),
+    totalRevisions: buildings.reduce((n, b) => n + b.revisions, 0),
+    avgChangePct: avg(buildings.map((b) => b.changePct)),
+    count: buildings.length,
+    changed: buildings.filter((b) => b.revisions > 0).length,
+    excluded,
+    buildings: buildings.map(({ on, ...rest }) => rest),
+    trend: monthlyTrend(buildings.map((b) => ({ on: b.on, value: b.revisions }))),
+  }
 }
 
-// 5. Survey completion: verified tabs out of the tabs the buildings need,
+// 6. Survey completion: verified tabs out of the tabs the buildings need,
 // verified per month, and per technician (who submitted the tab).
 // `records`: { status, submittedBy, verifiedOn }; `expected`: tab count.
 export function surveyCompletion({ records, expected }) {
@@ -205,7 +274,7 @@ export function surveyCompletion({ records, expected }) {
   }
 }
 
-// 6. Approval turnaround: days from submission to decision, per gate. The
+// 7. Approval turnaround: days from submission to decision, per gate. The
 // PM's own procurement-BOM approval is a sign-off, not a review: not counted.
 // `approvals`: { gate, status, submittedAt, decidedAt } (instants).
 export const TURNAROUND_GATES = ['hld_internal', 'lld_internal', 'sp_internal', 'sp_client', 'deployment_acceptance', 'handover_client', 'change_request']
@@ -221,12 +290,13 @@ export function approvalTurnaround({ approvals, timeZone = DEFAULT_TIME_ZONE }) 
   return { avgDays: avg(points.map((x) => x.value)), count: points.length, pending: reviewed.length - decided.length, excluded: decided.length - known.length, byGate, trend: monthlyTrend(points) }
 }
 
-export const METRIC_KEYS = ['phaseDuration', 'blockerFrequency', 'blockerResolution', 'bomVariance', 'surveyCompletion', 'approvalTurnaround']
+export const METRIC_KEYS = ['phaseDuration', 'blockerFrequency', 'blockerResolution', 'bomAccuracy', 'bomRevisions', 'surveyCompletion', 'approvalTurnaround']
 export const METRIC_LABELS = {
   phaseDuration: 'Phase duration',
   blockerFrequency: 'Blocker frequency',
   blockerResolution: 'Blocker resolution time',
-  bomVariance: 'BOM accuracy variance',
+  bomAccuracy: 'BOM accuracy (approved vs installed)',
+  bomRevisions: 'BOM revision count',
   surveyCompletion: 'Survey completion',
   approvalTurnaround: 'Approval turnaround',
 }

@@ -31,6 +31,9 @@ export function deploymentRoutes({ config, deployment }) {
   r.put('/devices/:deviceId/dguv', ...base, validate({ params: z.object({ deviceId: hex }), body: C.dguvInspectionBody }), async (req, res) => {
     res.json(await deployment.recordDguv(req, req.input.params.deviceId, req.input.body, actorOf(req)))
   })
+  r.put('/devices/:deviceId/dguv-override', ...base, validate({ params: z.object({ deviceId: hex }), body: C.dguvOverrideBody }), async (req, res) => {
+    res.json(await deployment.setDguvOverride(req, req.input.params.deviceId, req.input.body, actorOf(req)))
+  })
   r.post('/devices/:deviceId/status', ...base, validate({ params: z.object({ deviceId: hex }), body: C.deviceStepBody }), async (req, res) => {
     res.json(await deployment.setDeviceStatus(req, req.input.params.deviceId, req.input.body, actorOf(req)))
   })

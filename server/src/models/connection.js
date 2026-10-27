@@ -67,6 +67,10 @@ const connectionSchema = new mongoose.Schema({
   createdAt: { type: Date, default: () => new Date() },
   updatedBy: { type: ObjectId, default: null },
   updatedAt: { type: Date, default: () => new Date() },
+  // The design revision (of `layer`) that last changed this connection — so
+  // a stale save on its ports can say which port changed and who changed it
+  // (the save-time conflict check, addendum v2.3 Q2).
+  edited: { type: new mongoose.Schema({ layer: String, revision: Number }, { _id: false }), default: null },
 })
 
 connectionSchema.__modelName = 'Connection'

@@ -19,6 +19,7 @@ import { ProcurementLine } from '../models/procurementLine.js'
 import { SurveyTabRecord } from '../models/surveyTabRecord.js'
 import { Room } from '../models/room.js'
 import { Membership } from '../models/membership.js'
+import { User } from '../models/user.js'
 import { AuditEntry } from '../models/auditEntry.js'
 import { cmoStatusByBuilding } from '../cmo/service.js'
 import { surveyStatusByBuilding } from '../survey/formService.js'
@@ -67,6 +68,7 @@ const scheduleSettingsOf = (doc) => ({
   riskElapsedPct: doc?.schedule?.riskElapsedPct ?? SCHEDULE_DEFAULTS.riskElapsedPct,
   riskProgressPct: doc?.schedule?.riskProgressPct ?? SCHEDULE_DEFAULTS.riskProgressPct,
   parallelPhases: doc?.schedule?.parallelPhases ?? [],
+  escalationContactId: id(doc?.schedule?.escalationContactId),
 })
 
 // Every building's status per phase, with a progress measure where the
@@ -279,7 +281,7 @@ export function createScheduleService() {
         today: s.today,
         timeZone: tz,
         phases: s.phaseKeys,
-        settings: s.settings,
+        settings: { ...s.settings, escalationContactName: s.settings.escalationContactId ? (await User.findById(s.settings.escalationContactId, { name: 1, email: 1 }).lean())?.name ?? null : null },
         scopeLimited: s.scopeLimited,
         buildings,
         bars: s.plan.bars,
@@ -322,10 +324,17 @@ export function createScheduleService() {
       await requireUnscoped(req)
       const phases = await activePhaseKeys(req)
       if (body.parallelPhases && body.parallelPhases.some((p) => !phases.includes(p))) throw badRequest('Only active phases can run in parallel')
+      // The escalation contact: an active member of this project or an Org Admin of the organisation.
+      if (body.escalationContactId) {
+        const member = await Membership.findOne({ userId: oid(body.escalationContactId), active: true, $or: [{ level: 'project', projectId: oid(req.project.id) }, { level: 'organisation', role: 'org_admin' }] }).lean()
+        const user = member ? await User.findById(body.escalationContactId, { status: 1 }).lean() : null
+        if (!user || user.status !== 'active') throw badRequest('The escalation contact must be an active member of this project or an Org Admin')
+      }
       const doc = await settingsDoc()
       const before = scheduleSettingsOf(doc)
       const set = {}
       for (const f of ['riskElapsedPct', 'riskProgressPct', 'parallelPhases']) if (body[f] !== undefined) set[`schedule.${f}`] = body[f]
+      if (body.escalationContactId !== undefined) set['schedule.escalationContactId'] = body.escalationContactId ? oid(body.escalationContactId) : null
       await ProjectSettings.updateOne({ _id: doc._id }, { $set: set })
       const after = scheduleSettingsOf(await ProjectSettings.findById(doc._id).lean())
       const changes = Object.keys(after).filter((f) => JSON.stringify(before[f]) !== JSON.stringify(after[f])).map((f) => ({ objectType: 'ProjectSettings', objectId: String(doc._id), field: `schedule.${f}`, before: before[f], after: after[f] }))
@@ -538,7 +547,9 @@ export async function scheduleAlerts({ now = new Date(), forEachProject }) {
       if (x.status === 'breached' && !x.sla.breachedNotifiedAt) {
         const claimed = await Sla.findOneAndUpdate({ _id: x.sla._id, breachedNotifiedAt: null }, { $set: { breachedNotifiedAt: now } })
         if (!claimed) continue
-        await notify({ type: 'sla_breached', projectId, buildingId: x.sla.buildingId, title: `SLA breached: ${x.sla.name}`, body: `It was due on ${x.sla.dueDate}${where ? ` (${where})` : ''}; ${x.remaining} of ${x.total} item(s) are still open.`, link, to: { roles: ['pm'], orgAdmins: true } })
+        // Escalation (addendum v2.3 Q12): the PMs, the Org Admins and the
+        // project's escalation contact (unset: the Org Admins alone).
+        await notify({ type: 'sla_breached', projectId, buildingId: x.sla.buildingId, title: `SLA breached: ${x.sla.name}`, body: `It was due on ${x.sla.dueDate}${where ? ` (${where})` : ''}; ${x.remaining} of ${x.total} item(s) are still open.`, link, to: { roles: ['pm'], orgAdmins: true, userIds: s.settings.escalationContactId ? [s.settings.escalationContactId] : [] } })
         out.slaBreached += 1
       } else if (x.status === 'at_risk' && !x.sla.atRiskNotifiedAt) {
         const claimed = await Sla.findOneAndUpdate({ _id: x.sla._id, atRiskNotifiedAt: null }, { $set: { atRiskNotifiedAt: now } })

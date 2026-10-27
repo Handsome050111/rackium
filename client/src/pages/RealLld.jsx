@@ -88,7 +88,7 @@ export default function RealLld() {
   const editable = canEdit && !locked && !frozen
   const latest = view?.approvals?.[0] ?? null
   const ownSubmission = latest?.status === 'pending' && latest.submittedById === user?.id
-  const canReview = !readOnly && (has('pm') || has('reviewer')) && !ownSubmission
+  const canReview = !readOnly && (has('pm') || has('reviewer') || has('external_reviewer')) && !ownSubmission
   const canRename = !readOnly && (has('architect') || has('pm')) && !isPhone && !view?.renameLocked && !locked
   // Renaming a planned panel: the rename rules (Architect or PM) and the design locks.
   const canRelabel = !readOnly && (has('architect') || has('pm')) && !isPhone && !locked && !frozen
@@ -325,7 +325,7 @@ export default function RealLld() {
               Changes requested by {latest.decision.decidedBy}: {latest.decision.comments}
             </p>
           )}
-          {ownSubmission && (has('pm') || has('reviewer')) && <p className="text-xs text-text-secondary">You submitted this LLD — another PM or Reviewer decides on it.</p>}
+          {ownSubmission && (has('pm') || has('reviewer') || has('external_reviewer')) && <p className="text-xs text-text-secondary">You submitted this LLD — another PM or Reviewer decides on it.</p>}
         </>
       )}
 

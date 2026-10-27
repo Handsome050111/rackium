@@ -776,6 +776,10 @@ export const installationBody = z
     markInstalled: z.boolean().optional(),
   })
   .refine((b) => Object.values(b).some((v) => v !== undefined), { message: 'Nothing to update' })
+// A device's DGUV obligation against its model's default (addendum v2.3 Q13):
+// false = exempt, true = required anyway, null = back to the default. A
+// reason is mandatory for an override (checked with the default, server-side).
+export const dguvOverrideBody = z.object({ required: z.boolean().nullable(), reason: z.string().trim().max(500).optional() }).strict()
 export const dguvInspectionBody = z.object({
   inspectionDate: isoDay,
   inspector: z.string().trim().min(1, 'Who inspected the device?').max(120),
@@ -792,6 +796,9 @@ export const connectionInstallBody = z.object({
   segments: z.array(installedSegment).max(21).optional(),
   // Confirms the patching (every segment confirmed) → Installed.
   confirm: z.boolean().optional(),
+  // The version of the link's record the screen loaded (0 before any save):
+  // the save-time conflict check (addendum v2.3 Q2).
+  version: z.number().int().min(0),
 })
 export const connectionTestBody = z.object({ result: z.enum(['pass', 'fail']), note: z.string().trim().max(1000).optional() })
 export const exceptionCreateBody = z.object({
@@ -882,6 +889,9 @@ export const scheduleSettingsBody = z.object({
   riskElapsedPct: z.number().int().min(1).max(100).optional(),
   riskProgressPct: z.number().int().min(1).max(100).optional(),
   parallelPhases: z.array(schedulePhase).max(PHASE_KEYS.length).optional(),
+  // Who an SLA breach escalates to besides the PMs and the Org Admins
+  // (addendum v2.3 Q12); null = the Org Admins alone.
+  escalationContactId: objectId.nullable().optional(),
 })
 export const milestoneCreateBody = z.object({ buildingId: objectId.nullable().optional(), name: z.string().trim().min(1).max(120), dueDate: localDay.nullable().optional() })
 export const milestoneUpdateBody = z.object({ name: z.string().trim().min(1).max(120).optional(), dueDate: localDay.nullable().optional(), completedOn: localDay.nullable().optional() })
@@ -895,7 +905,7 @@ export const buildingAssigneesBody = z.object({ primaryArchitectId: objectId.nul
 // --- M7a-2: global search, DGUV dashboards, field help (DATA-MODEL §5.16) ---
 export const searchQuery = z.object({ q: z.string().max(200), projectId: objectId.optional() })
 export const DGUV_LEVEL_KEYS = ['project', 'country', 'sal', 'building', 'floor', 'room', 'rack', 'device']
-export const DGUV_STATE_KEYS = ['overdue', 'not_inspected', 'expiring', 'expiring_soon', 'valid']
+export const DGUV_STATE_KEYS = ['overdue', 'not_inspected', 'expiring', 'expiring_soon', 'valid', 'exempt']
 export const dguvQuery = z.object({ level: z.enum(DGUV_LEVEL_KEYS).default('project'), id: objectId.optional(), status: z.enum(DGUV_STATE_KEYS).optional() })
 // Plain text (≤ 1000 characters each, as shared/fieldHelp.js); null clears a part.
 const helpText = z.string().max(1000).nullable().optional()

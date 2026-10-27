@@ -256,7 +256,7 @@ describe('DGUV dashboards (brief v2.2 §20.9.3, §20.9.6)', () => {
     const csv = expectStatus(await p.viewer.get(`${D}/export.csv`).query({ level: 'building', id: p.b001 }), 200)
     expect(csv.headers['content-type']).toMatch(/text\/csv/)
     const lines = csv.text.trim().split('\r\n')
-    expect(lines[0]).toBe('Building,Floor,Room,Rack,Device,Status,Last inspection,Due date,Days remaining,Inspector')
+    expect(lines[0]).toBe('Building,Floor,Room,Rack,Device,Status,Last inspection,Due date,Days remaining,Inspector,Exempt reason')
     expect(lines).toHaveLength(mains.length + 1)
     expect(lines[1]).toContain(`"'=HYPERLINK(""x"")"`)
     // The organisation's thresholds: a 12-month interval makes the valid one expiring soon.

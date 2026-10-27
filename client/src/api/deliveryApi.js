@@ -65,9 +65,11 @@ export function clientBomSheet(lines, { mode, marginPercent, currency }) {
   return [head, ...rows]
 }
 
-// The internal BOM / procurement export: every line with its procurement facts.
-export function procurementSheet(lines, { showPrices }) {
-  const head = ['Category', 'Item', 'Specification', 'Source', 'Reason', 'Qty', 'Unit', ...(showPrices ? ['Unit price', 'Line total'] : []), 'Status', 'Vendor', 'PO number', 'Expected delivery', 'Actual delivery', 'Notes']
+// The internal BOM / procurement export: every line with its procurement
+// facts. Without `procurementDetails` (an External Reviewer) there is no
+// supplier, PO number or notes column — quantities and specifications only.
+export function procurementSheet(lines, { showPrices, procurementDetails = true }) {
+  const head = ['Category', 'Item', 'Specification', 'Source', 'Reason', 'Qty', 'Unit', ...(showPrices ? ['Unit price', 'Line total'] : []), 'Status', ...(procurementDetails ? ['Vendor', 'PO number'] : []), 'Expected delivery', 'Actual delivery', ...(procurementDetails ? ['Notes'] : [])]
   const rows = lines.map((l) => [
     l.category,
     l.item,
@@ -78,11 +80,10 @@ export function procurementSheet(lines, { showPrices }) {
     l.unit,
     ...(showPrices ? [majorUnits(l.unitPriceMinor) ?? 'Not priced', majorUnits(l.lineTotalMinor) ?? ''] : []),
     PROCUREMENT_LABELS[l.procurement?.status ?? 'not_ordered'],
-    l.procurement?.vendor ?? '',
-    l.procurement?.poNumber ?? '',
+    ...(procurementDetails ? [l.procurement?.vendor ?? '', l.procurement?.poNumber ?? ''] : []),
     l.procurement?.expectedDelivery ?? '',
     l.procurement?.actualDelivery ?? '',
-    l.procurement?.notes ?? '',
+    ...(procurementDetails ? [l.procurement?.notes ?? ''] : []),
   ])
   return [head, ...rows]
 }

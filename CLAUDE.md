@@ -1,5 +1,11 @@
 # Rackium — working rules
 
+## Core rule
+Configuration over hardcoding — nothing client-specific in code; client-specific
+values (roles, codes, vocabularies, field names, state labels like CMO/IMO/FMO)
+are configuration data; store Rackium's canonical values and map at
+import/export; external IDs we didn't create are stored and returned unchanged.
+
 ## Definition of done
 Before reporting any step as complete:
 1. Run lint, build, all unit tests, API tests and the full Playwright suite; all must pass.

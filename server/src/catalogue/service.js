@@ -18,7 +18,7 @@ const dateOnly = (d) => (d ? new Date(d).toISOString().slice(0, 10) : null)
 
 const EDITABLE_FIELDS = [
   'kind', 'category', 'vendor', 'model', 'description', 'heightU', 'fullDepth', 'mounting', 'rackMounted', 'weightKg', 'powerDrawW',
-  'powerInletType', 'poeBudgetW', 'psuCount', 'needsUplinkModule', 'requiresDualPsu', 'portMap', 'mediaSpeed', 'compatibleSfps', 'compatiblePsus',
+  'powerInletType', 'poeBudgetW', 'psuCount', 'needsUplinkModule', 'requiresDualPsu', 'dguvRequired', 'portMap', 'mediaSpeed', 'compatibleSfps', 'compatiblePsus',
   'compatibleModules', 'unitPriceMinor', 'currency', 'servonAvailable', 'servonProductCode', 'eosDate', 'eolDate', 'artworkFront', 'artworkRear',
 ]
 
@@ -49,6 +49,7 @@ function toItem(doc, { showPrices }) {
     psuCount: doc.psuCount ?? null,
     needsUplinkModule: Boolean(doc.needsUplinkModule),
     requiresDualPsu: Boolean(doc.requiresDualPsu),
+    dguvRequired: doc.dguvRequired ?? null,
     portMap,
     mediaSpeed: doc.mediaSpeed?.media ? { media: doc.mediaSpeed.media, speed: doc.mediaSpeed.speed, reachM: doc.mediaSpeed.reachM } : null,
     compatibleSfps: doc.compatibleSfps ?? [],

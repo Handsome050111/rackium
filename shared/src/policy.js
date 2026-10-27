@@ -7,7 +7,10 @@ export const ORG_ROLE = 'org_admin'
 // never a policy role. It carries organisation-level permissions such as
 // canCreateProjects (canCreateProjects() below).
 export const ORG_MEMBER_ROLE = 'member'
-export const PROJECT_ROLES = ['pm', 'architect', 'reviewer', 'field_engineer', 'viewer']
+// External Reviewer (addendum v2.3 Q11): the client's own staff — approves,
+// rejects and comments on designs where a Reviewer can, and never sees
+// prices, margins or suppliers.
+export const PROJECT_ROLES = ['pm', 'architect', 'reviewer', 'external_reviewer', 'field_engineer', 'viewer']
 export const ALL_ROLES = [ORG_ROLE, ...PROJECT_ROLES]
 
 export const ROLE_LABELS = {
@@ -15,6 +18,7 @@ export const ROLE_LABELS = {
   pm: 'PM',
   architect: 'Architect',
   reviewer: 'Reviewer',
+  external_reviewer: 'External Reviewer',
   field_engineer: 'Field Engineer',
   viewer: 'Viewer',
 }
@@ -76,6 +80,9 @@ export const ACTIONS = {
   // report) and the scheduled reports are the Org Admin's and the PM's.
   VIEW_PERSON_METRICS: 'view_person_metrics',
   MANAGE_REPORT_SCHEDULES: 'manage_report_schedules',
+  // M7b-1, addendum v2.3 Q13 (v2.2 §20.9): a device's DGUV obligation
+  // overridden from its type's default, with a mandatory reason.
+  MANAGE_DGUV_EXEMPTIONS: 'manage_dguv_exemptions',
 }
 
 // Who may perform each action. An Org Admin's organisation-level role grants
@@ -89,20 +96,20 @@ const MATRIX = {
   [ACTIONS.FILL_SURVEY_UPLOAD_PHOTOS]: ['field_engineer'],
   [ACTIONS.VERIFY_REJECT_SURVEY]: ['architect'],
   [ACTIONS.EDIT_SUBMIT_HLD_LLD]: ['architect'],
-  [ACTIONS.APPROVE_HLD_LLD_SP_INTERNAL]: ['pm', 'reviewer'],
+  [ACTIONS.APPROVE_HLD_LLD_SP_INTERNAL]: ['pm', 'reviewer', 'external_reviewer'],
   [ACTIONS.GENERATE_CLIENT_SHARE_LINK]: ['pm'],
   [ACTIONS.APPROVE_BOM_UPDATE_PROCUREMENT]: ['pm'],
   [ACTIONS.DEPLOYMENT_CHECKLIST_PATCHING_EVIDENCE]: ['field_engineer'],
   [ACTIONS.MARK_INSTALLATION_ACCEPTED]: ['pm', 'reviewer'],
   [ACTIONS.CMDB_OPERATIONAL_EDITS]: ['pm', 'architect'],
   [ACTIONS.SEE_PRICES_MARGINS]: ['org_admin', 'pm', 'reviewer'],
-  [ACTIONS.DOWNLOAD_PORT_CABLE_SCHEDULES]: ['org_admin', 'pm', 'architect', 'reviewer', 'field_engineer', 'viewer'],
+  [ACTIONS.DOWNLOAD_PORT_CABLE_SCHEDULES]: ['org_admin', 'pm', 'architect', 'reviewer', 'external_reviewer', 'field_engineer', 'viewer'],
   // v2.3 role table (client audit 16): Org Admin (organisation), PM, Architect and Reviewer (their project).
   [ACTIONS.VIEW_AUDIT_LOG]: ['org_admin', 'pm', 'architect', 'reviewer'],
   [ACTIONS.MANAGE_PROJECT_SETTINGS]: ['org_admin', 'pm'],
   [ACTIONS.MANAGE_HIERARCHY_TOP]: ['org_admin', 'pm'],
   [ACTIONS.MANAGE_HIERARCHY_DETAIL]: ['org_admin', 'pm', 'architect'],
-  [ACTIONS.RAISE_BLOCKER]: ['pm', 'architect', 'reviewer', 'field_engineer', 'viewer'],
+  [ACTIONS.RAISE_BLOCKER]: ['pm', 'architect', 'reviewer', 'external_reviewer', 'field_engineer', 'viewer'],
   [ACTIONS.VIEW_AS]: ['org_admin'],
   [ACTIONS.MANAGE_TOOLTIPS]: ['org_admin'],
   [ACTIONS.IMPORT_CMO]: ['org_admin', 'pm'],
@@ -118,6 +125,7 @@ const MATRIX = {
   [ACTIONS.MANAGE_TASKS]: ['pm', 'architect'],
   [ACTIONS.VIEW_PERSON_METRICS]: ['org_admin', 'pm'],
   [ACTIONS.MANAGE_REPORT_SCHEDULES]: ['org_admin', 'pm'],
+  [ACTIONS.MANAGE_DGUV_EXEMPTIONS]: ['pm'],
 }
 
 // Roles a user may hold at each level. Invitations and memberships are
@@ -140,6 +148,12 @@ export function can(roles, action) {
   return (roles ?? []).some((role) => allowed.includes(role))
 }
 
+// The roles that may perform an action (e.g. who is told an approval waits).
+export function rolesAllowed(action) {
+  if (!isKnownAction(action)) throw new Error(`Unknown policy action: ${action}`)
+  return [...MATRIX[action]]
+}
+
 export function allowedActions(roles) {
   return Object.keys(MATRIX).filter((action) => can(roles, action))
 }
@@ -159,6 +173,15 @@ export function canCreateProjects(organisationMembership) {
 export function canSeePrices(roles, { architectsSeePrices = false } = {}) {
   if (can(roles, ACTIONS.SEE_PRICES_MARGINS)) return true
   return Boolean(architectsSeePrices) && (roles ?? []).includes('architect')
+}
+
+// Procurement details — supplier, PO number, procurement notes — are internal:
+// an External Reviewer (client staff) sees the BOM as quantities and
+// specifications only (addendum v2.3 Q11). Anyone also holding an internal
+// role keeps them.
+export const EXTERNAL_ROLES = ['external_reviewer']
+export function canSeeProcurementDetails(roles) {
+  return (roles ?? []).some((r) => !EXTERNAL_ROLES.includes(r))
 }
 
 // Brief §4.3: Architect cannot approve their own work. Applies to internal
