@@ -17,6 +17,68 @@ from the root:
 npm install
 ```
 
+## Quick look: `npm run dev:local` (no database or `.env` needed)
+
+To review the app in real mode without setting anything up, run from the repo
+root:
+
+```bash
+npm run dev:local
+```
+
+It starts, in one terminal:
+
+- an **in-memory MongoDB replica set** of its own — never the MongoDB Windows
+  service, Atlas or anything in `server/.env` (every setting the server needs
+  is passed to it explicitly); its files live in `server/dev/.runtime/`
+  (gitignored);
+- **synthetic demo data**, built through the API the way the screens build it
+  (`server/dev/demoData.js`): the organisation *Northwind Networks (demo)*, a
+  user for every role, and the project *Campus Network Refresh* with six
+  buildings — B001 survey in progress, B002 HLD waiting for review, B003 LLD
+  waiting for review, B004 BOM approved and half ordered, B005 deployment
+  under way, B006 handed over and accepted by the client. All addresses are
+  `@example.com`; nothing comes from client files. Loading takes a few
+  minutes (every building goes through the real workflow, PDFs included);
+- the **server** (`server/src/index.js`, with its scheduled jobs) on
+  **4300** and the **client in real mode** (Vite) on **5300**.
+
+When it is ready it prints the URL and the sign-ins:
+
+```text
+  Open        http://localhost:5300
+  Password    rackium-demo-2026   (every user)
+
+  Org Admin          org-admin@example.com        Olivia Admin — created the project, so also its PM
+  PM                 pm@example.com               Paul Manager
+  Architect          architect@example.com        Ada Architect
+  Reviewer           reviewer@example.com         Rita Reviewer
+  External Reviewer  client-reviewer@example.com  Clara Client
+  Field Engineer     field-engineer@example.com   Fiona Field
+  Viewer             viewer@example.com           Victor Viewer
+```
+
+Emails the app sends while you click around (invitations, password resets)
+go to `logs/dev-local-server.log`; the client's output to
+`logs/dev-local-client.log`.
+
+**Stop it** with **Ctrl+C** in its terminal, or from any other terminal:
+
+```bash
+npm run dev:local:stop
+```
+
+Either way the server, the client and the database stop and
+`server/dev/.runtime/` is deleted — the demo data does not outlive the run;
+the next start builds it fresh. If the run was killed instead (terminal
+closed), `npm run dev:local:stop` ends what is left of it, and the next
+`npm run dev:local` clears its old files.
+
+Ports: 4300 (API), 5300 (client), 4301 (stop control, 127.0.0.1 only) — apart
+from `npm run dev` (4000, 5173) and the Playwright servers (5173, 4100, 5174),
+so a running review never blocks a test run. If a port is taken, it says so
+and does not start.
+
 ## 1. Create your own Atlas cluster
 
 Each developer uses their own cluster, so nobody shares data or credentials.
@@ -136,8 +198,9 @@ npm run lint
 npm run build
 ```
 
-`test:server` runs the document-rendering tests (`api.m6b.test.js` and
-`api.m7a3-pdf.test.js`, which start headless Chromium) in a second Vitest
+`test:server` runs the document-rendering tests (`api.m6b.test.js`,
+`api.m7a3-pdf.test.js` and `dev.demoData.test.js` — the `dev:local` demo
+data, whose handover renders PDFs — which start headless Chromium) in a second Vitest
 process after all other files, so
 PDF rendering can never slow the other API tests into their timeouts. Test
 files within each process run one at a time; each file has its own in-memory
