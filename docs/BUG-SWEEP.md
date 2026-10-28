@@ -1096,7 +1096,43 @@ Found and fixed, each with a test:
 The mock HLD screen keeps the five tools disabled ("coming later"); they
 are wired on the real HLD only (`designTools`).
 
-## Backlog for the final cleanup
+## Part 18: M7b-4a — mode states CMO / IMO / FMO, the design side
+
+Built (DATA-MODEL §5.21; addendum v2.3 Q5): `modeState` on devices and
+connections (Rackium's current / interim / future), the state labels as
+organisation and project configuration, Keep / Replace / Remove for each
+CMO device in the HLD (a design record per layer, through change requests),
+Keep applied at LLD approval (new name, old one kept, reprint task), interim
+kit and links, E-MODE-LINK and W-NO-DECISION, the CMO / IMO / FMO toggles
+and the ghost overlay on the HLD and LLD canvases.
+
+Found and fixed (each with a test):
+
+- **A rule message put an article before a configured label** (caught by
+  `shared/src/m7b4a.test.js` before commit): "an FMO link" reads "an To-Be
+  link" with another client's words. Messages now name the labels without an
+  article. Test: "W-NO-DECISION: … messages use the configured labels".
+- **The labels form lost its "Saved." right after saving** (caught by
+  `e2e-real/m7b4a.spec.js`): it was keyed on the saved labels, so saving
+  remounted it and the confirmation vanished. Not keyed now (Project and
+  Organisation settings). Test: "the labels are configuration…".
+
+- **The View As journey test clicked an ambiguous "Save"** (regression in a
+  test, caught by the full Playwright run): Project settings' General tab now
+  also has "Save labels". The selector is exact now, and the test also checks
+  that the labels form offers no save while viewing as.
+
+- **Deployment: a failed action's error vanished at once** (older than
+  M7b; found chasing an intermittent `m6a.spec.js` failure): after an
+  action failed, the screen reloaded and the reload cleared the error, so a
+  refused "Confirm patching" (e.g. cable 2 not confirmed) could show nothing.
+  The error is now set after the reload. Test: `e2e-real/m6a.spec.js` "phone:
+  the AP link patched…" checks the alert is still there once the screen has
+  reloaded (it fails on the old code).
+
+Also: the canvas refits when a mode toggle adds or removes a whole state
+(only then — adding or moving a device keeps the view).
+
 
 Known, harmless today, left for one cleanup pass before release:
 

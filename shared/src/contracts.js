@@ -10,6 +10,7 @@ import { isValidTimeZone } from './timeZone.js'
 import { isLocalDate, STANDARD_MILESTONE_KEYS } from './schedule.js'
 import { catalogueItemSchema, CATEGORY_GROUPS, CATALOGUE_CATEGORIES, OPTIC_MEDIA } from './catalogue.js'
 import { REPORT_KEYS, REPORT_FORMATS, SCHEDULE_FREQUENCIES } from './reports.js'
+import { CMO_DECISIONS, MODE_LABEL_MAX } from './modeState.js'
 
 export const PASSWORD_MIN = 12
 export const PASSWORD_MAX = 128
@@ -408,8 +409,15 @@ export const dguvSettingsSchema = z
   .object({ intervalMonths: z.number().int().min(1).max(120), expiringSoonDays: z.number().int().min(1).max(365), expiringDays: z.number().int().min(1).max(365) })
   .refine((d) => d.expiringDays <= d.expiringSoonDays, { message: '"Expiring" must be at most "Expiring soon"', path: ['expiringDays'] })
 export const digestTimeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use HH:MM (24-hour)')
+// The state labels (M7b-4a, DATA-MODEL §5.21): CMO / IMO / FMO by default; null clears an override.
+const modeLabel = z.string().trim().min(1, 'A label needs 1 to 24 characters').max(MODE_LABEL_MAX, 'A label needs 1 to 24 characters').nullable().optional()
+export const modeLabelsSchema = z.object({ current: modeLabel, interim: modeLabel, future: modeLabel }).strict()
+export const projectModeLabelsBody = z
+  .object({ modeLabels: modeLabelsSchema })
+  .strict()
+  .refine((b) => Object.values(b.modeLabels).some((v) => v !== undefined), { message: 'Nothing to update' })
 export const organisationSettingsBody = z
-  .object({ architectsSeePrices: z.boolean().optional(), namingRoleCodes: namingRoleCodesSchema.optional(), stockLengths: stockLengthsSchema.optional(), cageNutsPerRu: cageNutsPerRuSchema.optional(), timeZone: timeZoneSchema.optional(), digestTime: digestTimeSchema.optional(), dguv: dguvSettingsSchema.optional() })
+  .object({ modeLabels: modeLabelsSchema.optional(), architectsSeePrices: z.boolean().optional(), namingRoleCodes: namingRoleCodesSchema.optional(), stockLengths: stockLengthsSchema.optional(), cageNutsPerRu: cageNutsPerRuSchema.optional(), timeZone: timeZoneSchema.optional(), digestTime: digestTimeSchema.optional(), dguv: dguvSettingsSchema.optional() })
   .refine((b) => Object.values(b).some((v) => v !== undefined), { message: 'Nothing to update' })
 
 // --- M3a: catalogue -------------------------------------------------------
@@ -575,6 +583,8 @@ const uplinkFields = {
   sourceSfpCode: z.string().trim().min(1).max(200).nullable().optional(),
   destSfpCode: z.string().trim().min(1).max(200).nullable().optional(),
   viaPatchPanel: z.boolean().optional(),
+  // Interim (IMO) or future (FMO, the default) — M7b-4a, DATA-MODEL §5.21.
+  modeState: z.enum(['interim', 'future']).optional(),
 }
 // preset = blueprint size; variant = topology variant (default: the size's own).
 export const hldGenerateBody = z
@@ -583,10 +593,11 @@ export const hldGenerateBody = z
     const problem = blueprintProblem(b.preset, b.variant)
     if (problem) ctx.addIssue({ code: 'custom', path: ['variant'], message: problem })
   })
-export const hldDeviceCreateBody = z.object({ buildingId: objectId, role: z.enum(HLD_ROLE_KEYS), roomId: objectId, branchId: objectId.optional(), catalogueKey: z.string().trim().min(1).max(200).optional(), baseRevision })
+const designMode = z.enum(['interim', 'future'])
+export const hldDeviceCreateBody = z.object({ buildingId: objectId, role: z.enum(HLD_ROLE_KEYS), roomId: objectId, branchId: objectId.optional(), catalogueKey: z.string().trim().min(1).max(200).optional(), modeState: designMode.optional(), baseRevision })
 export const hldDeviceUpdateBody = z
-  .object({ catalogueKey: z.string().trim().min(1).max(200).optional(), psuConfigured: z.number().int().min(0).max(8).optional(), baseRevision })
-  .refine((b) => b.catalogueKey !== undefined || b.psuConfigured !== undefined, { message: 'Nothing to update' })
+  .object({ catalogueKey: z.string().trim().min(1).max(200).optional(), psuConfigured: z.number().int().min(0).max(8).optional(), modeState: designMode.optional(), baseRevision })
+  .refine((b) => b.catalogueKey !== undefined || b.psuConfigured !== undefined || b.modeState !== undefined, { message: 'Nothing to update' })
 export const hldUplinkCreateBody = z.object({ buildingId: objectId, branchId: objectId.optional(), ...uplinkFields, cableId: z.string().trim().min(1).max(32).nullable().optional(), baseRevision })
 export const hldUplinkUpdateBody = z.object({
   source: hldEnd.optional(),
@@ -597,6 +608,7 @@ export const hldUplinkUpdateBody = z.object({
   destSfpCode: z.string().trim().min(1).max(200).nullable().optional(),
   viaPatchPanel: z.boolean().optional(),
   cableId: z.string().trim().min(1).max(32).nullable().optional(),
+  modeState: designMode.optional(),
   baseRevision,
 })
 export const hldUplinkCheckBody = z.object({ buildingId: objectId, connectionId: objectId.optional(), branchId: objectId.optional(), ...uplinkFields })
@@ -632,6 +644,20 @@ export const hldSplitBody = z
   .refine((b) => Boolean(b.deviceId) !== Boolean(b.newDevice), { message: 'Name the device to insert, or describe a new one — one of the two' })
 // Merge: the joined link's medium and speed default to the first link's.
 export const hldMergeBody = z.object({ media: z.enum(OPTIC_MEDIA).optional(), speed: z.enum(HLD_SPEEDS).optional(), baseRevision }).strict()
+
+// --- M7b-4a: decisions on existing (CMO) gear (DATA-MODEL §5.21) --------------
+// Keep (a role for its new name), Replace (by a device of the design) or
+// Remove. Existing gear is shared by every design, so a branch is named.
+export const hldCmoDecisionBody = z
+  .object({ decision: z.enum(CMO_DECISIONS), role: z.enum(HLD_ROLE_KEYS).optional(), replacedById: objectId.optional(), branchId: objectId.optional(), baseRevision })
+  .strict()
+  .superRefine((b, ctx) => {
+    if (b.decision === 'keep' && !b.role) ctx.addIssue({ code: 'custom', path: ['role'], message: 'Choose the role the device has in the future design' })
+    if (b.decision === 'replace' && !b.replacedById) ctx.addIssue({ code: 'custom', path: ['replacedById'], message: 'Choose the device that replaces it' })
+    if (b.decision !== 'keep' && b.role) ctx.addIssue({ code: 'custom', path: ['role'], message: 'Only a kept device takes a role' })
+    if (b.decision !== 'replace' && b.replacedById) ctx.addIssue({ code: 'custom', path: ['replacedById'], message: 'Only a replaced device names its replacement' })
+  })
+export const hldCmoDecisionClearQuery = z.object({ baseRevision: z.coerce.number().int().min(0), branchId: objectId.optional() }).strict()
 
 // --- M4b: LLD, Rackium Editor, design versions ----------------------------------
 // `branchId` (optional) addresses an LLD branch; omitted = the main LLD.

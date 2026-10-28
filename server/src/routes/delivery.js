@@ -6,6 +6,7 @@ import { validate } from '../http/validate.js'
 import { requireUser, requireOrg, requireProject, requireAction, applyViewAs, actorOf } from '../http/middleware.js'
 import { authLimiter } from '../http/rateLimits.js'
 import { rolesIn } from '../organisations/service.js'
+import { projectModeLabels, updateProjectModeLabels } from '../hld/cmoDecisions.js'
 
 const hex = z.string().regex(/^[a-f0-9]{24}$/)
 const buildingParam = z.object({ buildingId: hex })
@@ -34,6 +35,14 @@ export function deliveryRoutes({ config, bom, solutionPackage, changeRequests, c
   })
   r.patch('/commercial-settings', ...base, pm(ACTIONS.SET_COMMERCIAL_STANDARDS), validate({ body: C.commercialSettingsBody }), async (req, res) => {
     res.json(await commercial.update(req, req.input.body, actorOf(req)))
+  })
+
+  // The state labels (M7b-4a, DATA-MODEL §5.21): every member reads them; Project settings sets them.
+  r.get('/mode-labels', ...base, async (req, res) => {
+    res.json(await projectModeLabels())
+  })
+  r.patch('/mode-labels', ...base, pm(ACTIONS.MANAGE_PROJECT_SETTINGS), validate({ body: C.projectModeLabelsBody }), async (req, res) => {
+    res.json(await updateProjectModeLabels(req, req.input.body, actorOf(req)))
   })
 
   r.get('/bom/buildings/:buildingId', ...base, validate({ params: buildingParam }), async (req, res) => {

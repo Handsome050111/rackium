@@ -6,6 +6,7 @@ import { applyColumnMapping } from '@rackium/shared/cmoModel.js'
 import CmoImportWizard from '../components/cmo/CmoImportWizard.jsx'
 import UnassignedList from '../components/cmo/UnassignedList.jsx'
 import CmoDeviceTable from '../components/cmo/CmoDeviceTable.jsx'
+import { useModeLabels } from '../lib/useModeLabels.js'
 import StatusChip from '../components/StatusChip.jsx'
 import { parseCmoFile, downloadCmoTemplate } from '../api/cmoDesign.js'
 import { cmoApi } from '../api/cmoApi.js'
@@ -31,6 +32,8 @@ function Kpi({ icon: Icon, value, label, tone = 'text-brand' }) {
 // assigns Unassigned devices per SAL.
 export default function RealCmo() {
   const { orgId, projectId, buildingId } = useParams()
+  // The configured word for the current state (M7b-4a): CMO unless set.
+  const labels = useModeLabels(orgId, projectId)
   const { memberships } = useAuth()
   const { session: viewAsSession } = useViewAs()
   const readOnly = Boolean(viewAsSession)
@@ -115,7 +118,7 @@ export default function RealCmo() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-bold text-text">CMO Inventory Validation</h1>
+            <h1 className="text-2xl font-bold text-text">{labels.current} Inventory Validation</h1>
             <StatusChip status={building.cmoStatus} />
           </div>
           <p className="text-sm text-text-secondary">
@@ -141,7 +144,7 @@ export default function RealCmo() {
               className="flex h-touch items-center gap-1.5 rounded-lg bg-brand px-3 text-xs font-medium text-white hover:bg-brand/90 sm:h-9"
             >
               <Upload size={14} strokeWidth={2} />
-              Import CMO Inventory
+              Import {labels.current} Inventory
             </button>
           )}
         </div>

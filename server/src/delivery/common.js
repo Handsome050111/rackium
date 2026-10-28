@@ -59,6 +59,7 @@ export async function computeBom(lld, req, building, { branchId = null, session 
       cageNutsPerRu: org.cageNutsPerRu,
       power: { customerStandard: settings.powerCordStandard, countryCode, cordLengthM: org.cordLengthM },
       currency: org.currency,
+      modeLabels: design.modeLabels,
     }
   )
   return { bom, design, settings, org }

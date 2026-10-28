@@ -38,7 +38,8 @@ const LEGEND_ITEMS = [
 ]
 
 // `categories`: real mode passes its own (every role enabled, from the backend).
-export default function HldObjectLibrary({ enabled, categories: source = HLD_LIBRARY_CATEGORIES }) {
+// `addMode` / `onAddModeChange` / `modeLabels` (M7b-4a): new devices go into the FMO or are IMO kit.
+export default function HldObjectLibrary({ enabled, categories: source = HLD_LIBRARY_CATEGORIES, addMode = null, onAddModeChange = null, modeLabels = null }) {
   const [query, setQuery] = useState('')
   const categories = source.map((category) => ({
     ...category,
@@ -48,6 +49,18 @@ export default function HldObjectLibrary({ enabled, categories: source = HLD_LIB
   return (
     <div className="w-full shrink-0 space-y-3 rounded-xl border border-border bg-surface p-3 sm:w-64">
       <div className="px-1 text-sm font-semibold text-text">HLD object library</div>
+      {modeLabels && onAddModeChange && (
+        <div className="flex items-center justify-between gap-2 px-1 text-xs">
+          <span className="text-text-secondary">New devices go into</span>
+          <div role="radiogroup" aria-label="New devices go into" className="flex overflow-hidden rounded-lg border border-border">
+            {['future', 'interim'].map((m) => (
+              <button key={m} type="button" role="radio" aria-checked={addMode === m} onClick={() => onAddModeChange(m)} className={`h-touch px-2.5 font-medium sm:h-7 ${addMode === m ? 'bg-brand text-white' : 'bg-surface text-text-secondary hover:text-text'}`}>
+                {modeLabels[m]}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="relative">
         <Search size={14} strokeWidth={2} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary" />

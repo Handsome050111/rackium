@@ -3,7 +3,8 @@ import TopologyIcon from '../TopologyIcon.jsx'
 
 // A selected planned device (real mode): hostname (generated once), catalogue
 // model, configured PSUs (VAL-005) and delete. `models`: the role's catalogue models.
-export default function HldDeviceDetails({ device, models, editable, onChange, onDelete, onCreateUplink }) {
+// `modeLabels` (M7b-4a): the device is in the future design or interim kit.
+export default function HldDeviceDetails({ device, models, editable, onChange, onDelete, onCreateUplink, modeLabels = null }) {
   return (
     <div data-testid="hld-device" className="space-y-3 rounded-xl border border-border bg-surface p-4">
       <div className="flex items-center gap-2 text-sm font-semibold text-text">
@@ -20,6 +21,21 @@ export default function HldDeviceDetails({ device, models, editable, onChange, o
           <dd className="truncate font-medium text-text">{device.hostname ?? 'none (not a named device)'}</dd>
         </div>
       </dl>
+      {modeLabels && (
+        <label className="flex flex-col gap-1 text-xs">
+          <span className="text-text-secondary">Mode state</span>
+          <select
+            value={device.modeState ?? 'future'}
+            disabled={!editable}
+            onChange={(e) => onChange({ modeState: e.target.value })}
+            aria-label="Device mode state"
+            className="h-9 rounded-lg border border-border bg-surface px-2 text-xs text-text focus:border-brand focus:outline-none disabled:bg-surface-muted"
+          >
+            <option value="future">{modeLabels.future} — the future design</option>
+            <option value="interim">{modeLabels.interim} — interim kit, removed after cutover</option>
+          </select>
+        </label>
+      )}
       <label className="flex flex-col gap-1 text-xs">
         <span className="text-text-secondary">Model</span>
         <select

@@ -9,6 +9,7 @@ import KpiStrip from '../components/KpiStrip.jsx'
 import PhaseCard from '../components/PhaseCard.jsx'
 import RecentHistoryPanel from '../components/RecentHistoryPanel.jsx'
 import BuildingTasksPanel from '../components/tasks/BuildingTasksPanel.jsx'
+import { useModeLabels } from '../lib/useModeLabels.js'
 
 const PHASE_META = {
   cmo: { name: 'CMO Inventory Validation', icon: 'ClipboardCheck' },
@@ -26,6 +27,7 @@ const PRIORITY_CLASS = { low: 'text-status-grey', medium: 'text-status-amber', h
 
 export default function RealBuildingDashboard() {
   const { orgId, projectId, buildingId } = useParams()
+  const labels = useModeLabels(orgId, projectId)
   const { memberships, user } = useAuth()
   const { session: viewAsSession } = useViewAs()
   const isPm = memberships.some((m) => m.level === 'project' && String(m.projectId) === String(projectId) && m.role === 'pm')
@@ -129,7 +131,8 @@ export default function RealBuildingDashboard() {
             <PhaseCard
               key={entry.phaseKey}
               buildingId={buildingId}
-              phase={{ id: entry.phaseKey, name: meta.name, icon: meta.icon, status: entry.status, subLabel: entry.subLabel }}
+              // The CMO phase takes the configured word for the current state (M7b-4a).
+              phase={{ id: entry.phaseKey, name: entry.phaseKey === 'cmo' ? `${labels.current} Inventory Validation` : meta.name, icon: meta.icon, status: entry.status, subLabel: entry.subLabel }}
               to={`/orgs/${orgId}/projects/${projectId}/buildings/${buildingId}/${entry.phaseKey}`}
             />
           )

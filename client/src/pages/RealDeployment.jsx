@@ -58,8 +58,9 @@ export default function RealDeployment() {
       return true
     } catch (err) {
       setNotice(null)
-      setError(err.message)
       await reload()
+      // After the reload, which clears its own error: the action's error stays shown.
+      setError(err.message)
       return false
     }
   }

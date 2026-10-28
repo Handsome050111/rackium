@@ -14,6 +14,13 @@ const organisationSchema = new mongoose.Schema({
     },
     standardHeightsU: { type: [Number], default: [12, 24, 42, 45, 48] },
     customHeightsU: { type: [Number], default: [] },
+    // The state labels (M7b-4a, DATA-MODEL §5.21): the client's words for
+    // Rackium's current / interim / future; null = the default (CMO / IMO / FMO).
+    modeLabels: {
+      current: { type: String, default: null },
+      interim: { type: String, default: null },
+      future: { type: String, default: null },
+    },
     // Brief v2.3 §4.3: "Architects can see prices only if the Org Admin grants it".
     architectsSeePrices: { type: Boolean, default: false },
     // Hostname role codes over the defaults (shared/hldRoles.js; M4a).

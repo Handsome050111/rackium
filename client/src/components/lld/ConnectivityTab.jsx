@@ -10,6 +10,8 @@ import NexAiAnalyserPanel from './NexAiAnalyserPanel.jsx'
 import { upstreamPath, downstreamLinks } from '@rackium/shared/lldModel.js'
 import { relevantIdsForSelection, applyConnectivityHighlight } from '@rackium/shared/lldConnectivityFlow.js'
 import { useMediaQuery } from '../../lib/useMediaQuery.js'
+import ModeToggles from '../hld/ModeToggles.jsx'
+import { DEFAULT_MODE_VIEW } from '@rackium/shared/modeState.js'
 
 // `editorPath(rackId)` (real mode) replaces the prototype editor route.
 export default function ConnectivityTab({ context, editorPath }) {
@@ -20,6 +22,9 @@ export default function ConnectivityTab({ context, editorPath }) {
 
   const selectable = topology.devices.filter((d) => d.role === 'border' || d.role === 'edge')
   const [requestedId, setRequestedId] = useState(null)
+  // Mode states (real mode, M7b-4a): CMO / IMO / FMO shown, overlaid or hidden.
+  const [modeView, setModeView] = useState(DEFAULT_MODE_VIEW)
+  const modeLabels = context.modeLabels ?? null
   // Derived at render time, not via an effect: falls back to the Border
   // (or first selectable device) whenever the requested one no longer
   // exists in this context — e.g. right after the context reloads.
@@ -37,15 +42,17 @@ export default function ConnectivityTab({ context, editorPath }) {
     const base = buildHldFlow({
       floors: topology.floors,
       rooms: topology.rooms,
-      devices: topology.devices,
+      devices: modeLabels ? [...topology.devices, ...(topology.cmoDevices ?? [])] : topology.devices,
       connections: topology.connections,
       connectionFindings: topology.connectionFindings,
       selectedDeviceId: selectedId,
-      onSelectDevice: setRequestedId,
+      // CMO gear is shown, not traced.
+      onSelectDevice: (id) => (topology.devices.some((d) => d.id === id) ? setRequestedId(id) : undefined),
+      ...(modeLabels ? { modeView, modeLabels } : {}),
     })
     const { deviceIds, connectionIds } = relevantIdsForSelection(selectedId, upstream, downstream)
     return applyConnectivityHighlight(base, selectedId, deviceIds, connectionIds)
-  }, [topology, selectedId, upstream, downstream, setRequestedId])
+  }, [topology, selectedId, upstream, downstream, setRequestedId, modeView, modeLabels])
 
   const portGroups = useMemo(() => portSchedule.find((e) => e.device.id === selectedId)?.groups ?? [], [portSchedule, selectedId])
 
@@ -65,10 +72,13 @@ export default function ConnectivityTab({ context, editorPath }) {
         />
       </div>
 
-      <div className="h-[560px] min-w-0 flex-1 overflow-hidden rounded-xl border border-border bg-surface">
-        <ReactFlowProvider>
-          <HldCanvas flow={flow} onInit={() => {}} viewOnly={isPhone} />
-        </ReactFlowProvider>
+      <div className="min-w-0 flex-1 space-y-2">
+        {modeLabels && <ModeToggles labels={modeLabels} view={modeView} onChange={setModeView} />}
+        <div className="h-[560px] overflow-hidden rounded-xl border border-border bg-surface">
+          <ReactFlowProvider>
+            <HldCanvas flow={flow} onInit={() => {}} viewOnly={isPhone} fitKey={modeLabels ? JSON.stringify(modeView) : null} />
+          </ReactFlowProvider>
+        </div>
       </div>
 
       <div className="w-full min-w-0 shrink-0 space-y-4 xl:w-80">

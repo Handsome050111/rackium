@@ -13,13 +13,19 @@ const DEPLOYMENT_COLOR = { Pending: 'text-status-amber', Installed: 'text-brand'
 // uplinks only ever run between devices (never touch a room/floor band).
 export function DeviceNode({ data, selected }) {
   const DeploymentIcon = DEPLOYMENT_ICON[data.deploymentLabel]
+  // Mode states (M7b-4a): an overlaid state is a ghost; CMO gear and interim kit carry a badge.
   return (
     <div
       onClick={() => data.onSelect?.(data.deviceId)}
+      data-ghost={data.ghost ? 'true' : undefined}
+      data-mode-badge={data.modeBadge ?? undefined}
       className={`relative flex w-40 cursor-pointer items-center gap-2 rounded-lg border bg-surface px-2 py-1.5 shadow-sm ${
         selected ? 'border-brand ring-2 ring-brand/30' : 'border-brand/60'
-      }`}
+      } ${data.ghost ? 'border-dashed opacity-50' : ''}`}
     >
+      {data.modeBadge && (
+        <span className="absolute -top-2 left-2 rounded border border-border bg-surface px-1 text-[9px] font-semibold leading-[13px] text-text-secondary">{data.modeBadge}</span>
+      )}
       <Handle type="target" position={Position.Top} className="!h-2 !w-2 !bg-brand" />
       <Handle type="source" position={Position.Bottom} className="!h-2 !w-2 !bg-brand" />
       <TopologyIcon role={data.role} size={16} className="text-brand" />

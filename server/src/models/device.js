@@ -61,6 +61,10 @@ const deviceSchema = new mongoose.Schema({
   originId: { type: ObjectId, default: null },
   // PSUs configured on this device; defaults to the catalogue model's count (VAL-005).
   psuConfigured: { type: Number, default: null, min: 0 },
+  // Mode state (M7b-4a, DATA-MODEL §5.21): `current`, `interim` or `future`
+  // (labels are configuration). Null on rows from before M7b-4: existing gear
+  // reads as current, designed gear as future (shared/modeState.js modeOf).
+  modeState: { type: String, enum: ['current', 'interim', 'future', null], default: null },
   // Existing gear starts in service [F5].
   status: { type: String, enum: ['planned', 'ordered', 'delivered', 'installed', 'configured', 'tested', 'accepted', 'in_service', 'maintenance', 'retired'], required: true },
   installation: {

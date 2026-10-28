@@ -11,6 +11,9 @@ const none = (value) => Promise.resolve(value)
 export const deliveryApi = {
   commercial: (o, p) => (real ? apiRequest(`${base(o, p)}/commercial-settings`) : none(null)),
   setCommercial: (o, p, body) => (real ? apiRequest(`${base(o, p)}/commercial-settings`, { method: 'PATCH', body }) : none(null)),
+  // The state labels (M7b-4a, DATA-MODEL §5.21): CMO / IMO / FMO unless configured.
+  modeLabels: (o, p) => (real ? apiRequest(`${base(o, p)}/mode-labels`) : none(null)),
+  setModeLabels: (o, p, modeLabels) => (real ? apiRequest(`${base(o, p)}/mode-labels`, { method: 'PATCH', body: { modeLabels } }) : none(null)),
   bom: (o, p, buildingId) => (real ? apiRequest(`${base(o, p)}/bom/buildings/${buildingId}`) : none(null)),
   approveBom: (o, p, body) => (real ? apiRequest(`${base(o, p)}/bom/approve`, { method: 'POST', body }) : none(null)),
   updateLine: (o, p, body) => (real ? apiRequest(`${base(o, p)}/bom/lines`, { method: 'PATCH', body }) : none(null)),

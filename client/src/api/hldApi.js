@@ -28,6 +28,9 @@ export const hldApi = {
   replaceEndpoint: (o, p, id, body) => (real ? apiRequest(`${base(o, p)}/uplinks/${id}/replace-endpoint`, { method: 'POST', body }) : none(null)),
   splitUplink: (o, p, id, body) => (real ? apiRequest(`${base(o, p)}/uplinks/${id}/split`, { method: 'POST', body }) : none(null)),
   mergeAt: (o, p, deviceId, body) => (real ? apiRequest(`${base(o, p)}/devices/${deviceId}/merge`, { method: 'POST', body }) : none(null)),
+  // Decisions on CMO gear (M7b-4a, DATA-MODEL §5.21): Keep, Replace or Remove; null clears.
+  setCmoDecision: (o, p, deviceId, body) => (real ? apiRequest(`${base(o, p)}/devices/${deviceId}/cmo-decision`, { method: 'PUT', body }) : none(null)),
+  clearCmoDecision: (o, p, deviceId, { baseRevision, branchId = null }) => (real ? apiRequest(`${base(o, p)}/devices/${deviceId}/cmo-decision?baseRevision=${baseRevision}${branchId ? `&branchId=${branchId}` : ''}`, { method: 'DELETE' }) : none(null)),
   submit: (o, p, body) => (real ? apiRequest(`${base(o, p)}/submit`, { method: 'POST', body }) : none(null)),
   decide: (o, p, body) => (real ? apiRequest(`${base(o, p)}/decision`, { method: 'POST', body }) : none(null)),
 }
@@ -44,6 +47,8 @@ export function draftToUplinkBody(draft) {
     sourceSfpCode: draft.media === 'os2' || draft.media === 'om4' ? draft.sourceSfp || null : null,
     destSfpCode: draft.media === 'os2' || draft.media === 'om4' ? draft.destSfp || null : null,
     viaPatchPanel: Boolean(draft.usePatchPanel),
+    // IMO or FMO (M7b-4a); a draft without one takes the server's default (FMO).
+    ...(draft.modeState ? { modeState: draft.modeState } : {}),
   }
 }
 export function uplinkToDraft(conn) {
@@ -57,6 +62,7 @@ export function uplinkToDraft(conn) {
     sourceSfp: conn.sourceSfpCode,
     destSfp: conn.destSfpCode,
     usePatchPanel: conn.viaPatchPanel,
+    modeState: conn.modeState ?? null,
   }
 }
 

@@ -76,6 +76,8 @@ export default function EditUplinkPanel({
   sfpOptionsFor = (media, speed) => getCompatibleSfps(media, speed).map((s) => s.code),
   portOptionsFor = null,
   applyLabel = 'Apply & Validate Uplink',
+  // Real mode (M7b-4a): the state labels — the link is FMO (default) or IMO.
+  modeLabels = null,
 }) {
   const sourceDevice = devices.find((d) => d.id === draft.sourceDeviceId)
   const destDevice = devices.find((d) => d.id === draft.destDeviceId)
@@ -83,7 +85,7 @@ export default function EditUplinkPanel({
   const nameOf = (d) => d?.hostname ?? d?.label ?? '—'
 
   return (
-    <div className="space-y-4 rounded-xl border border-border bg-surface p-4">
+    <div data-testid="edit-uplink" className="space-y-4 rounded-xl border border-border bg-surface p-4">
       <div className="text-sm font-semibold text-text">Edit Uplink</div>
       <StepIndicator step={step} onStepChange={onStepChange} />
 
@@ -121,6 +123,14 @@ export default function EditUplinkPanel({
                 ))}
             </select>
           </Field>
+          {modeLabels && (
+            <Field label="Mode state">
+              <select value={draft.modeState ?? 'future'} onChange={(e) => onDraftChange({ modeState: e.target.value })} disabled={disabled} aria-label="Uplink mode state" className={inputClass}>
+                <option value="future">{modeLabels.future} — the future design</option>
+                <option value="interim">{modeLabels.interim} — interim, during the migration</option>
+              </select>
+            </Field>
+          )}
         </div>
       )}
 

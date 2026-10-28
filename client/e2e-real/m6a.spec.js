@@ -204,6 +204,9 @@ test('phone: the AP link patched cable by cable with Installed lengths, confirme
   await card.getByRole('checkbox', { name: 'Confirmed' }).first().check()
   await card.getByRole('button', { name: 'Confirm patching' }).click()
   await expect(screen.getByRole('alert')).toContainText('cable 2')
+  // Still shown once the screen has reloaded (the reload used to clear it).
+  await fe.waitForLoadState('networkidle')
+  await expect(screen.getByRole('alert')).toContainText('cable 2')
   await card.getByLabel('Cable 2 installed length').fill('14.5')
   await card.getByRole('checkbox', { name: 'Confirmed' }).nth(1).check()
   await card.getByRole('button', { name: 'Confirm patching' }).click()

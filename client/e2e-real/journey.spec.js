@@ -139,11 +139,15 @@ test('View As: the banner shows, writes are blocked, and Exit restores normal ac
 
   // Settings' Save button is disabled, and the server would 403 it regardless.
   await page.goto(`/orgs/${orgId}/projects/${projectId}/settings?tab=general`)
-  await expect(page.getByRole('button', { name: 'Save' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
+  // The state labels (M7b-4a) offer no save while viewing as.
+  await expect(page.getByTestId('mode-labels')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Save labels' })).toHaveCount(0)
 
   await page.getByRole('button', { name: 'Exit' }).click()
   await expect(page.getByText(/Viewing as/)).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Save' })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Save labels' })).toBeVisible()
 })
 
 test('a user with no role on another organisation\'s project is denied, not shown its data', async ({ browser }) => {

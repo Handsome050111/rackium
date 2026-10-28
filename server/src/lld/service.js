@@ -12,6 +12,9 @@ import { summariseFindings } from '@rackium/shared/hldRules.js'
 import { portKey, portsOf, isPatchPanel, validateLld, diffDesigns, reconcileWithHld, routeSides, routeBookings, hopProblems, pairBookings, pairConflicts, nextPanelLabel } from '@rackium/shared/lldDesign.js'
 import { canApproveSubmission, rolesAllowed, ACTIONS } from '@rackium/shared/policy.js'
 import { deviceDisplayName, cleanExistingLabel, withLegacyName } from '@rackium/shared/deviceName.js'
+import { modeOf, isCmoDevice } from '@rackium/shared/modeState.js'
+import { decisionsOf, decisionView, hldLayerForLld, modeLabelsOf, applyCmoDecisions } from '../hld/cmoDecisions.js'
+import { createReprintTask, notifyReprintTask } from '../deployment/reprint.js'
 import { Device } from '../models/device.js'
 import { Connection } from '../models/connection.js'
 import { PortOccupancy } from '../models/portOccupancy.js'
@@ -82,7 +85,10 @@ async function loadLayer(buildingId, layer, projectId, session = null) {
   const catalogue = await projectCatalogue(projectId)
   const settings = await orgSettings(session)
   const pathways = pathwayRows.map((p) => ({ fromRoomId: String(p.roomLowId), toRoomId: String(p.roomHighId), routeStatus: p.routeStatus, distanceM: p.distanceM ?? null }))
-  return { floors, rooms, racks, existing, devices, connections, occupancy, ruStates, pathways, catalogue, settings }
+  // The HLD's decisions on existing (CMO) gear and the state labels (DATA-MODEL §5.21).
+  const decisions = await decisionsOf(buildingId, typeof layer === 'string' ? await hldLayerForLld(layer, session) : 'hld', session)
+  const modeLabels = await modeLabelsOf(session)
+  return { floors, rooms, racks, existing, devices, connections, occupancy, ruStates, pathways, catalogue, settings, decisions, modeLabels }
 }
 
 function catalogueIndex(catalogue) {
@@ -116,6 +122,9 @@ function deviceView(d, cat, racks, rooms = []) {
     label: withLegacyName(deviceDisplayName(d, info?.label ?? 'Device'), d.legacyHostname),
     name: deviceDisplayName(d, info?.label ?? 'Device'),
     legacyHostname: d.legacyHostname ?? null,
+    // Mode state (DATA-MODEL §5.21); `cmo`: an imported CMO device.
+    modeState: modeOf(d),
+    ...(d.origin === 'existing' ? { cmo: isCmoDevice(d) } : {}),
     existingLabel: cleanExistingLabel(d.existingLabel),
     catalogueKey: d.catalogueKey ?? null,
     model: d.model ?? null,
@@ -210,13 +219,17 @@ function connectionView(c, length, segments = []) {
     length,
     segments,
     status: c.status,
+    modeState: modeOf(c),
   }
 }
 
 function inputs(data) {
   const cat = catalogueIndex(data.catalogue)
   const rackPos = rackPositions(data.racks)
-  const views = [...data.existing, ...data.devices].map((d) => deviceView(d, cat, data.racks, data.rooms))
+  // An existing device carries the HLD's decision; a replacement is named by its LLD copy.
+  const copyOf = (hldId) => data.devices.find((x) => String(x.hldRef) === hldId)
+  const decided = new Map((data.decisions ?? []).map((x) => [String(x.deviceId), decisionView(x, (hldId) => (copyOf(hldId) ? deviceDisplayName(copyOf(hldId), 'device') : null))]))
+  const views = [...data.existing, ...data.devices].map((d) => deviceView(d, cat, data.racks, data.rooms)).map((v) => (v.origin === 'existing' ? { ...v, cmoDecision: decided.get(v.id) ?? null } : v))
   const deviceById = new Map(views.map((d) => [d.id, d]))
   const { stockLengths } = data.settings
   const connections = data.connections.map((c) => connectionView(c, lengthOf(c, deviceById, rackPos, data.pathways, stockLengths), segmentsOf(c, deviceById, rackPos, data.pathways, stockLengths)))
@@ -226,6 +239,7 @@ function inputs(data) {
     deviceById,
     itemOf: (d) => cat.item(d.catalogueKey),
     opticOf: (code) => cat.optic(code),
+    modeLabels: data.modeLabels,
     patchPanelFreePorts: (roomId, kind) => {
       const panels = views.filter((d) => d.isPanel && d.roomId === String(roomId) && (kind === 'fibre') === d.ports.some((p) => /LC|SC|SFP/i.test(p.type)))
       if (!panels.length) return null
@@ -251,7 +265,7 @@ function snapshotOf(data) {
     devices: views.filter((d) => own.has(d.id)),
     connections,
     raw: {
-      devices: data.devices.map((d) => ({ _id: String(d._id), role: d.role ?? null, hostname: d.hostname ?? null, legacyHostname: d.legacyHostname ?? null, label: d.label ?? null, model: d.model ?? null, catalogueKey: d.catalogueKey ?? null, category: d.category ?? null, roomId: id(d.roomId), rackId: id(d.rackId), ru: d.ru ?? null, heightU: d.heightU ?? null, face: d.face ?? null, fullDepth: Boolean(d.fullDepth), mounting: d.mounting ?? null, psuConfigured: d.psuConfigured ?? null, hldRef: id(d.hldRef), originId: id(d.originId), salId: id(d.salId) })),
+      devices: data.devices.map((d) => ({ _id: String(d._id), role: d.role ?? null, hostname: d.hostname ?? null, legacyHostname: d.legacyHostname ?? null, label: d.label ?? null, model: d.model ?? null, catalogueKey: d.catalogueKey ?? null, category: d.category ?? null, roomId: id(d.roomId), rackId: id(d.rackId), ru: d.ru ?? null, heightU: d.heightU ?? null, face: d.face ?? null, fullDepth: Boolean(d.fullDepth), mounting: d.mounting ?? null, psuConfigured: d.psuConfigured ?? null, hldRef: id(d.hldRef), originId: id(d.originId), salId: id(d.salId), modeState: modeOf(d) })),
       connections: data.connections.map((c) => ({
         _id: String(c._id),
         hldRef: id(c.hldRef),
@@ -267,6 +281,7 @@ function snapshotOf(data) {
         cableId: c.cableId ?? null,
         hops: (c.hops ?? []).map((h) => ({ seq: h.seq, patchPanelId: String(h.patchPanelId), inPort: h.inPort, inSide: h.inSide ?? null, outPort: h.outPort, outSide: h.outSide ?? null, segmentCableId: h.segmentCableId ?? null, roomId: id(h.roomId), rackId: id(h.rackId), ru: h.ru ?? null, lengths: { engineerSelectedM: h.lengths?.engineerSelectedM ?? null, installedM: h.lengths?.installedM ?? null } })),
         lengths: { engineerSelectedM: c.lengths?.engineerSelectedM ?? null, installedM: c.lengths?.installedM ?? null },
+        modeState: modeOf(c),
       })),
     },
   }
@@ -561,6 +576,7 @@ async function copyIntoLayer({ devices, connections }, { layer, building, keepId
           fullDepth: Boolean(d.fullDepth),
           mounting: d.mounting === '0U' ? '0U' : 'rack',
           psuConfigured: d.psuConfigured ?? null,
+          modeState: d.modeState ?? null,
         },
       ],
       { session }
@@ -572,7 +588,7 @@ async function copyIntoLayer({ devices, connections }, { layer, building, keepId
   for (const c of connections) {
     // A copy into a branch remembers the main connection it came from.
     const originId = layer === MAIN || asNew ? null : keepIds ? c.originId ?? null : c.originId ?? c._id ?? c.id ?? null
-    const doc = new Connection({ _id: keepIds ? oid(c._id ?? c.id) : new mongoose.Types.ObjectId(), buildingId: building.id, layer, hldRef: c.hldRef ?? null, originId: originId ? oid(originId) : null, source: { deviceId: map(c.source.deviceId), portId: c.source.portId ?? null }, dest: { deviceId: map(c.dest.deviceId), portId: c.dest.portId ?? null }, media: c.media, speed: c.speed, route: c.route?.viaRoomIds?.length ? { viaRoomIds: c.route.viaRoomIds.map(oid) } : null, lengths: { installedM: c.lengths?.installedM ?? null }, createdBy: actor.userId, updatedBy: actor.userId })
+    const doc = new Connection({ _id: keepIds ? oid(c._id ?? c.id) : new mongoose.Types.ObjectId(), buildingId: building.id, layer, hldRef: c.hldRef ?? null, originId: originId ? oid(originId) : null, source: { deviceId: map(c.source.deviceId), portId: c.source.portId ?? null }, dest: { deviceId: map(c.dest.deviceId), portId: c.dest.portId ?? null }, media: c.media, speed: c.speed, route: c.route?.viaRoomIds?.length ? { viaRoomIds: c.route.viaRoomIds.map(oid) } : null, modeState: c.modeState ?? null, lengths: { installedM: c.lengths?.installedM ?? null }, createdBy: actor.userId, updatedBy: actor.userId })
     await writeConnection(
       doc,
       {
@@ -779,6 +795,13 @@ export function createLldService({ storage }) {
     return renamed
   }
 
+  // The main HLD's decisions written onto the CMO devices, audited; returns the renames.
+  async function applyDecisions(req, building, actor, session) {
+    const { renamed, changes } = await applyCmoDecisions({ buildingId: building.id, session })
+    if (changes.length) await audit(req, building, actor, 'device.mode_state.applied', { objectType: 'Building', objectId: building.id, comment: `${new Set(changes.map((c) => c.objectId)).size} CMO device(s) follow the HLD's decisions${renamed.length ? `; ${renamed.length} renamed, the old name kept` : ''}`, changes, session })
+    return renamed
+  }
+
   async function discardIn(req, building, branch, actor, session) {
     const layer = layerOf(String(branch._id))
     if (branch.includesHld) await discardHldBranch({ building, branchId: String(branch._id), session })
@@ -826,7 +849,7 @@ export function createLldService({ storage }) {
       if (!needs.has(key)) needs.set(key, { roomId, roomCode: roomCode.get(String(roomId)) ?? null, kind, links: 0, freePorts: computed.ctx.patchPanelFreePorts(roomId, kind) ?? 0 })
       needs.get(key).links += 1
     }
-    return { stage, lld, devices, connections: designConnections, panelNeeds: [...needs.values()], racks, rooms: data.rooms, catalogue: data.catalogue, settings: data.settings, findings: summary }
+    return { stage, lld, devices, connections: designConnections, panelNeeds: [...needs.values()], racks, rooms: data.rooms, catalogue: data.catalogue, settings: data.settings, findings: summary, modeLabels: data.modeLabels }
   }
 
   // The main LLD as deployment and the CMDB read it (M6a): every device of
@@ -889,6 +912,8 @@ export function createLldService({ storage }) {
       const labels = new Map(before.map((d) => [String(d._id), d.hostname ?? d.label ?? 'device']))
       await promoteInto(req, building, branch, actor, session)
       const renamed = await keepLegacyNames(req, building, before, actor, session)
+      // The (possibly changed) decisions on CMO gear reach the devices (DATA-MODEL §5.21).
+      renamed.push(...(await applyDecisions(req, building, actor, session)))
       await retireRemovedRecords({ organisationId: req.org.id, projectId: req.project.id, buildingId: building.id, reason: label, labels, session })
       const data = await loadLayer(building.id, MAIN, req.project.id, session)
       const lld = await LldDesign.findOne({ buildingId: building.id }).session(session).lean()
@@ -945,6 +970,7 @@ export function createLldService({ storage }) {
         devices: views.map((d) => ({ ...d, inDesign: own.has(d.id), occupied: (occupancyByDevice.get(d.id) ?? []).map((o) => ({ portKey: o.portKey, connectionId: id(o.connectionId), source: o.source })) })),
         connections,
         cableIdSuggestion: suggestNextCableId(allIds.map((r) => r.cableKey)),
+        modeLabels: data.modeLabels,
         versions: versions.map((v) => ({ id: String(v._id), number: v.number, label: v.label, frozen: v.frozen, branchId: id(v.branchId), counts: v.counts, createdAt: v.createdAt, createdBy: names.get(String(v.createdBy)) ?? null })),
         branches: branches.map((b) => ({ id: String(b._id), name: b.name, status: b.status, parentVersionId: id(b.parentVersionId), changeRequestId: id(b.changeRequestId), createdAt: b.createdAt })),
         approvals: approvals.map((a) => ({ id: String(a._id), status: a.status, submittedBy: names.get(String(a.submittedBy)) ?? null, submittedById: String(a.submittedBy), submittedAt: a.submittedAt, versionNumber: versions.find((v) => String(v._id) === String(a.designVersionId))?.number ?? null, decision: a.decision ? { value: a.decision.value, decidedBy: names.get(String(a.decision.decidedBy)) ?? null, decidedAt: a.decision.decidedAt, comments: a.decision.comments ?? null } : null })),
@@ -1334,8 +1360,14 @@ export function createLldService({ storage }) {
         }
         const design = await LldDesign.findOneAndUpdate({ buildingId: building.id }, { $set: set, $inc: { revision: 1 } }, { session, returnDocument: 'after' })
         await audit(req, building, actor, decision === 'approved' ? 'lld.approved' : 'lld.changes_requested', { objectType: 'Approval', objectId: approval._id, comment: String(comment ?? '').trim() || null, session })
-        return { revision: design.revision, state: design.state }
+        // Approved: the HLD's Keep decisions reach the CMO devices (DATA-MODEL §5.21);
+        // renamed gear on site gets the reprint-label task.
+        const renamed = decision === 'approved' ? await applyDecisions(req, building, actor, session) : []
+        const reprint = await createReprintTask({ organisationId: req.org.id, projectId: req.project.id, building, approval, renamed, sentBy: actor.userId, session })
+        return { revision: design.revision, state: design.state, reprint }
       })
+      if (result.reprint) await notifyReprintTask({ organisationId: req.org.id, projectId: req.project.id, task: result.reprint })
+      delete result.reprint
       await notifyQuietly({ type: decision === 'approved' ? 'lld_approved' : 'lld_changes_requested', buildingId: building.id, title: decision === 'approved' ? `LLD of ${building.code} approved` : `Changes requested to the LLD of ${building.code}`, body: String(comment ?? '').trim() || null, relatedObjectType: 'lld', relatedObjectId: approval._id, link: paths.building(req.org.id, req.project.id, building.id, 'lld'), actorId: actor.userId, to: { userIds: [approval.submittedBy] } })
       return result
     },

@@ -400,6 +400,9 @@ export function buildRegistry() {
   route('post', `${H}/devices`, 'Add a planned device from the library (Architect); hostname from the organisation naming codes', { body: C.hldDeviceCreateBody, status: 201, errors: stale })
   route('patch', `${H}/devices/{id}`, 'Change a planned device’s model or configured PSUs (Architect)', { params: p({ id: 1 }), body: C.hldDeviceUpdateBody, errors: stale })
   route('delete', `${H}/devices/{id}`, 'Delete a planned device and its uplinks (Architect); ports released, cable IDs retired', { params: p({ id: 1 }), query: C.hldRevisionQuery, errors: stale })
+  // M7b-4a: decisions on existing (CMO) gear (DATA-MODEL §5.21).
+  route('put', `${H}/devices/{id}/cmo-decision`, 'Decide what happens to a CMO device in the future design (Architect): Keep (a role and the new name from the naming pattern), Replace (by a device of the future design) or Remove; on a frozen HLD, a change request’s branch', { params: p({ id: 1 }), body: C.hldCmoDecisionBody, errors: stale })
+  route('delete', `${H}/devices/{id}/cmo-decision`, 'Clear a CMO device’s decision (Architect)', { params: p({ id: 1 }), query: C.hldCmoDecisionClearQuery, errors: stale })
   route('put', `${H}/devices/{id}/position`, 'Move a device on the canvas (positions are stored apart from the design)', { params: p({ id: 1 }), body: C.hldPositionBody })
   route('post', `${H}/uplinks/check`, 'Edit Uplink step 4: check a draft uplink with the validation rules', { body: C.hldUplinkCheckBody })
   route('post', `${H}/uplinks`, 'Create an uplink (Architect); ports and cable ID registered in the same transaction', { body: C.hldUplinkCreateBody, status: 201, errors: { 409: err('Port or cable ID in use, or stale revision') } })
@@ -448,6 +451,8 @@ export function buildRegistry() {
   const locked = { 409: err('Locked, not ready or stale') }
   route('get', `${PR}/commercial-settings`, "The project's commercial and resource standards: margin %, Bill of Resources minutes per task, customer power-cord standard")
   route('patch', `${PR}/commercial-settings`, 'Set margin %, resource minutes or the customer power-cord standard (PM)', { body: C.commercialSettingsBody })
+  route('get', `${PR}/mode-labels`, 'The state labels in force (M7b-4a): the client’s words for current / interim / future (default CMO / IMO / FMO), the organisation’s and the project’s own')
+  route('patch', `${PR}/mode-labels`, 'Set or clear (null) the project’s state labels (Org Admin or PM)', { body: C.projectModeLabelsBody })
   route('get', `${PR}/bom/buildings/{buildingId}`, 'The BOM: lines with source tag and reason, quantities, reconciliation, prices (when allowed), procurement facts; Draft until the Solution Package is approved', { params: p({ buildingId: 1 }) })
   route('post', `${PR}/bom/approve`, 'Approve the procurement BOM (PM) after the Solution Package approval; again after a change', { body: C.bomApproveBody, status: 201, errors: locked })
   route('patch', `${PR}/bom/lines`, 'Update a procurement line (PM): status by allowed transition, vendor, PO, expected/actual delivery; optimistic version', { body: C.procurementLineBody, errors: { 400: err('Transition not allowed'), 409: err('Locked or stale') } })
