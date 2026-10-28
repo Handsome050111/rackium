@@ -9,6 +9,8 @@ import { recordAudit, userActor } from '../audit/audit.js'
 import { AppError, badRequest, conflict, forbidden, notFound } from '../http/errors.js'
 import { callerAccess, requireBuilding } from '../access/scope.js'
 import { withTransaction } from '../db/transaction.js'
+import { modeOf } from '@rackium/shared/modeState.js'
+import { modeLabelsOf } from '../hld/cmoDecisions.js'
 
 const id = (v) => (v ? String(v) : null)
 const oid = (v) => new mongoose.Types.ObjectId(String(v))
@@ -43,7 +45,7 @@ export function createCmdbService({ deployment }) {
     return { ctx, records, connections, designFrozenAt }
   }
 
-  function recordView(ctx, d, designFrozenAt, names, today) {
+  function recordView(ctx, d, designFrozenAt, names, today, labels) {
     const rec = d.rec
     const inst = rec.installation ?? {}
     const rack = inst.rackId ? ctx.rackOf.get(String(inst.rackId)) : null
@@ -62,6 +64,9 @@ export function createCmdbService({ deployment }) {
       name: d.name,
       // The name before a change request renamed it (DATA-MODEL §5.19).
       legacyHostname: d.legacyHostname ?? null,
+      // Mode state (DATA-MODEL §5.22): Rackium's value, and the project's word for it.
+      modeState: modeOf(d.view),
+      modeLabel: labels[modeOf(d.view)],
       role: d.role,
       roleLabel: d.roleLabel,
       category: d.category,
@@ -171,7 +176,8 @@ export function createCmdbService({ deployment }) {
       if (!ctx.started) return { ...base, started: false, records: [], connections: [], cableMatrix: [], racks: [], reconciliation: null, changeLog: [] }
       const names = await namesOf(records.map((d) => d.rec?.acceptedBy))
       const [retired, retiredConns] = await Promise.all([DeploymentRecord.find({ buildingId: building.id, status: 'retired' }).sort({ 'retired.at': -1 }).lean(), ConnectionRecord.find({ buildingId: building.id, status: 'retired' }, { connectionId: 1 }).lean()])
-      const rows = records.map((d) => recordView(ctx, d, designFrozenAt, names, ctx.today))
+      const labels = await modeLabelsOf()
+      const rows = records.map((d) => recordView(ctx, d, designFrozenAt, names, ctx.today, labels))
       const conns = connections.map((c) => connectionView(ctx, c))
       const nameOf = (devId) => ctx.nameOf(devId)
       const asBuiltSegments = ctx.connections.map((c) => ({ id: c.id, segments: (c.rec?.installed?.segments ?? []).map((s) => ({ cableId: s.cableId })) }))
@@ -180,24 +186,26 @@ export function createCmdbService({ deployment }) {
         ...base,
         started: true,
         today: ctx.today,
+        modeLabels: labels,
         records: rows,
         connections: conns,
         cableMatrix: cableMatrix(conns, nameOf),
         floors: ctx.data.floors.map((f) => ({ id: String(f._id), name: f.name ?? f.token, order: f.order ?? 0 })),
         rooms: ctx.data.rooms.map((r) => ({ id: String(r._id), code: r.code, floorId: id(r.floorId) })),
         // Surveyed gear an as-built link ends on (outside the CMDB, shown for context).
-        existingDevices: ctx.data.views.filter((v) => v.origin === 'existing' && conns.some((c) => c.source.deviceId === v.id || c.dest.deviceId === v.id)).map((v) => ({ id: v.id, label: v.label, hostname: v.hostname, model: v.model, role: v.role, roomId: v.roomId, rackId: v.rackId, ru: v.ru, heightU: v.heightU })),
+        existingDevices: ctx.data.views.filter((v) => v.origin === 'existing' && conns.some((c) => c.source.deviceId === v.id || c.dest.deviceId === v.id)).map((v) => ({ id: v.id, label: v.label, hostname: v.hostname, model: v.model, role: v.role, roomId: v.roomId, rackId: v.rackId, ru: v.ru, heightU: v.heightU, modeState: modeOf(v), modeLabel: labels[modeOf(v)] })),
         // Patch panels on the as-built routes, placed in their racks (port trace).
         panels: ctx.devices.filter((d) => d.isPanel && conns.some((c) => c.hops.some((h) => h.patchPanelId === d.id))).map((d) => ({ id: d.id, label: d.label, rackId: id(d.rec?.installation?.rackId) ?? d.rackId, ru: d.rec?.installation?.ru ?? d.ru, heightU: d.heightU ?? 1 })),
         racks: ctx.data.racks.filter((r) => rackIds.has(String(r._id)) || conns.some((c) => c.hops.some((h) => h.rackId === String(r._id)))).map((r) => ({ id: String(r._id), code: r.code, roomId: String(r.roomId), roomCode: ctx.roomOf.get(String(r.roomId))?.code ?? null, heightU: r.heightU ?? 42 })),
+        // Kit removed after cutover (DATA-MODEL §5.22) is not counted against the design.
         reconciliation: reconcile({
-          designDevices: ctx.devices,
-          devices: ctx.devices.map((d) => ({ id: d.id, hostname: d.hostname ?? d.label, status: d.status, serial: d.serialised ? d.rec?.installation?.serial ?? null : 'n/a' })),
+          designDevices: ctx.devices.filter((d) => d.status !== 'retired'),
+          devices: ctx.devices.filter((d) => d.status !== 'retired').map((d) => ({ id: d.id, hostname: d.hostname ?? d.label, status: d.status, serial: d.serialised ? d.rec?.installation?.serial ?? null : 'n/a' })),
           connections: asBuiltSegments,
           openExceptions: ctx.exceptions.filter((e) => e.status === 'open').length,
         }),
         // Records a change request retired (their device left the design): listed, and in the change log.
-        retiredRecords: retired.map((r) => ({ id: String(r.deviceId), label: r.retired?.label ?? null, at: r.retired?.at ?? null, reason: r.retired?.reason ?? null, previousStatus: r.retired?.previousStatus ?? null, serial: r.retired?.serial ?? null, mac: r.retired?.mac ?? null })),
+        retiredRecords: retired.map((r) => ({ id: String(r.deviceId), label: r.retired?.label ?? null, at: r.retired?.at ?? null, reason: r.retired?.reason ?? null, previousStatus: r.retired?.previousStatus ?? null, serial: r.retired?.serial ?? null, mac: r.retired?.mac ?? null, cutover: Boolean(r.retired?.cutover), by: r.retired?.byName ?? null })),
         changeLog: await changeLog(req, building, rows, conns, [...retired.map((r) => String(r.deviceId)), ...retiredConns.map((r) => String(r.connectionId))]),
       }
     },

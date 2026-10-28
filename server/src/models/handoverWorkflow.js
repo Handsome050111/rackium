@@ -24,6 +24,12 @@ const handoverWorkflowSchema = new mongoose.Schema({
   baselineId: { type: ObjectId, default: null },
   // The handover package ZIP of the accepted round (permanently downloadable).
   packageDocumentId: { type: ObjectId, default: null },
+  // CMO gear marked Replace or Remove the PM keeps on site at handover, with
+  // the reason (M7b-4b, DATA-MODEL §5.22) — in the handover package.
+  oldGearOverride: {
+    type: new mongoose.Schema({ reason: String, by: ObjectId, byName: String, at: Date, devices: { type: [new mongoose.Schema({ id: String, name: String }, { _id: false })], default: [] } }, { _id: false }),
+    default: null,
+  },
   lastDecision: { type: new mongoose.Schema({ value: String, by: String, role: String, comments: String, at: Date }, { _id: false }), default: null },
   revision: { type: Number, default: 0 },
   updatedAt: { type: Date, default: () => new Date() },

@@ -1155,7 +1155,23 @@ The client: three states, not two — CMO (today), IMO (interim, during migratio
 
 **BOM:** interim kit is bought like the rest, its lines' reasons ending "— Interim (IMO)" ★5.
 
-**Not in M7b-4a** (M7b-4b): removing interim kit (and replaced or removed CMO gear) after cutover in deployment; handover blocked by installed interim kit, with a PM-overridable warning for installed CMO gear marked Replace or Remove (decision 4 as changed by the product owner); the CMDB's mode column, filter and export; demo data. Later: interim VLANs (logical topology), integration profiles' per-client value mapping.
+**Built in M7b-4b** (§5.22): removing interim kit (and replaced or removed CMO gear) after cutover; the handover rule (decision 4 as ruled); the CMDB's mode column, filter and export; demo data. Later: interim VLANs (logical topology), integration profiles' per-client value mapping.
+
+### 5.22 Mode states after cutover: deployment, handover, CMDB (M7b-4b; addendum v2.3 §2 Q5)
+
+The delivery side of §5.21. Interim kit lives only for the cutover; existing gear the HLD marks Replace or Remove goes once the new network runs.
+
+**Removed after cutover** (`POST /deployment/devices/:id/removal` { `note`? }; Field Engineer; the design frozen; not after handover). For interim kit on site (installed or later), and for CMO gear the main HLD marks Replace or Remove (`shared/modeState.js` `cutoverRemovalOf`; kept or undecided gear is never removed here). The change request's retire path: the deployment record goes to `retired` with `retired` { `at`, `reason` ("Removed after cutover[: note]"), `label`, `previousStatus`, `serial`, `mac`, `byName`, `cutover: true` }; the serial leaves the registry, the MAC is freed, its patched links' records are retired, open exceptions superseded; one audit entry (`deployment.device.removed`). CMO gear has no record until then: one is created, retired, and the device's own `status` becomes `retired`. Refused: not interim kit or marked CMO gear (409 `not_for_removal`), interim kit not installed (`not_installed`), twice (`already_removed`). The deployment screen lists them all ("After cutover: remove", with Removed by …); the deployment view's `removals`.
+
+**Counts:** removed kit leaves the pipeline, the deployment phase status ("every device accepted"), the handover checklist's deployment and CMDB lines and the CMDB reconciliation's design count; the CMDB lists it among the retired records (`cutover: true`).
+
+**Handover** (decision 4 as the product owner ruled), two checklist lines:
+- **Interim kit removed after cutover** — installed interim kit blocks the handover (not overridable).
+- **CMO gear marked Replace or Remove removed** — a warning while any is on site, which the PM meets by keeping it with a reason (`PUT /handover/buildings/:id/old-gear` { `reason` }; null withdraws; not once delivered). `handoverWorkflows.oldGearOverride` { `reason`, `by`, `byName`, `at`, `devices` [{ `id`, `name`}] } covers the devices on site when given — gear on site that it does not cover brings the warning back. Audited (`handover.old_gear_kept`, `handover.old_gear_override_withdrawn`); the package carries `kept-on-site.csv` (device, reason, who, when), listed in its manifest.
+
+**CMDB:** each record carries `modeState` and `modeLabel` (the project's word), the screen a Mode column and filter, the Excel export and the CMDB extract (CSV, PDF, JSON) a Mode column after Legacy hostname — Rackium's value stored, the configured label exported (core rule).
+
+**Demo data** (dev:local): B003 and B004 each have two CMO switches — one kept in the FMO, one replaced by the new Edge — and an interim switch with an IMO link to the Border. B004's LLD is approved, so its kept switch shows "old → new", with the reprint task.
 
 ---
 

@@ -32,8 +32,9 @@ const deploymentRecordSchema = new mongoose.Schema({
   // request removed the device from the design (M6a review).
   status: { type: String, enum: ['draft', 'installed', 'configured', 'tested', 'accepted', 'in_service', 'maintenance', 'retired'], default: 'draft' },
   // Set when retired: what it was, and the serial and MAC it released.
+  // M7b-4b: also removed after cutover (interim kit, replaced CMO gear), by whom.
   retired: {
-    type: new mongoose.Schema({ at: Date, reason: String, label: String, previousStatus: String, serial: String, mac: String }, { _id: false }),
+    type: new mongoose.Schema({ at: Date, reason: String, label: String, previousStatus: String, serial: String, mac: String, byName: String, cutover: Boolean }, { _id: false }),
     default: null,
   },
   installation: {

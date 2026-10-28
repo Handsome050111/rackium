@@ -82,3 +82,11 @@ export function decisionText(decision, labels = DEFAULT_MODE_LABELS) {
   if (decision.decision === 'replace') return `Replaced by ${decision.replacedByName ?? 'a device no longer in the design'}`
   return `Remove (${labels.current} only)`
 }
+
+// Removed after cutover (M7b-4b, DATA-MODEL §5.22): interim kit, and existing
+// (CMO) gear marked Replace or Remove. `device` as the design views carry it
+// (origin, modeState, cmoDecision). Null: the device stays.
+export function cutoverRemovalOf(device) {
+  if (device?.origin !== 'existing') return modeOf(device) === 'interim' ? 'interim' : null
+  return isCmoDevice(device) && ['replace', 'remove'].includes(device.cmoDecision?.decision) && modeOf(device) !== 'future' ? 'cmo' : null
+}

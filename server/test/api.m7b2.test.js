@@ -154,7 +154,7 @@ describe('Rename through a change request: the old name is kept and shown (adden
     expect((await cmdbView(p.architect, p)).records.find((r) => r.id === edge.id)).toMatchObject({ hostname: newEdge, legacyHostname: oldEdge, label: `${oldEdge} → ${newEdge}` })
     const csv = (await generate(ctx, p, p.architect, { typeKey: 'cmdb-extract', format: 'csv' })).toString()
     const [header, ...rows] = csv.trim().split(/\r?\n/)
-    expect(header.startsWith('Hostname,Legacy hostname,Role')).toBe(true)
+    expect(header.startsWith('Hostname,Legacy hostname,Mode,Role')).toBe(true)
     expect(rows.find((r) => r.startsWith(`${newEdge},`))).toContain(`,${oldEdge},`)
     const json = JSON.parse((await generate(ctx, p, p.architect, { typeKey: 'cmdb-extract', format: 'json' })).toString())
     expect(json.records.find((r) => r.id === edge.id)).toMatchObject({ hostname: newEdge, legacyHostname: oldEdge })

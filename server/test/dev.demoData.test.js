@@ -63,6 +63,16 @@ describe('dev:local demo data', () => {
     const statuses = bom.lines.map((l) => l.procurement.status)
     expect(statuses).toContain('ordered')
     expect(statuses).toContain('not_ordered')
+    // M7b-4: CMO gear kept and replaced, an interim switch (B003: decided in the
+    // HLD; B004: the LLD approved, so the kept switch is renamed, old → new).
+    const b003 = await get(`/hld/buildings/${at('lld')}`)
+    expect(b003.cmoDevices.map((d) => d.cmoDecision?.decision).sort()).toEqual(['keep', 'replace'])
+    expect(b003.devices.filter((d) => d.modeState === 'interim')).toHaveLength(1)
+    expect((await get(`/lld/buildings/${at('lld')}`)).devices.filter((d) => d.inDesign && d.modeState === 'interim')).toHaveLength(1)
+    const b004 = await get(`/hld/buildings/${at('bom')}`)
+    const kept = b004.cmoDevices.find((d) => d.cmoDecision?.decision === 'keep')
+    expect(kept).toMatchObject({ modeState: 'future', legacyHostname: 'B004-OLD-SW-01', hostname: kept.cmoDecision.hostname })
+    expect(bom.lines.some((l) => /Interim \(IMO\)/.test(l.basis ?? ''))).toBe(true)
     // Deployment under way: some installed, some not, nothing accepted.
     const dep = await get(`/deployment/buildings/${at('deployment')}`)
     const installed = dep.devices.filter((d) => d.status === 'installed').length

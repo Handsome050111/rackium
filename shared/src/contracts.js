@@ -645,6 +645,12 @@ export const hldSplitBody = z
 // Merge: the joined link's medium and speed default to the first link's.
 export const hldMergeBody = z.object({ media: z.enum(OPTIC_MEDIA).optional(), speed: z.enum(HLD_SPEEDS).optional(), baseRevision }).strict()
 
+// --- M7b-4b: after cutover (DATA-MODEL §5.22) ----------------------------------
+// Removing interim kit or replaced/removed CMO gear; the PM keeping CMO gear on
+// site at handover (a reason is mandatory; null withdraws it).
+export const cutoverRemovalBody = z.object({ note: z.string().trim().max(500).optional() }).strict()
+export const oldGearOverrideBody = z.object({ reason: z.string().trim().min(1, 'Give the reason the gear stays on site').max(500).nullable() }).strict()
+
 // --- M7b-4a: decisions on existing (CMO) gear (DATA-MODEL §5.21) --------------
 // Keep (a role for its new name), Replace (by a device of the design) or
 // Remove. Existing gear is shared by every design, so a branch is named.

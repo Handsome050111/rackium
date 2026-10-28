@@ -176,7 +176,7 @@ export default function RealHandover() {
         </div>
 
         <div className="space-y-4">
-          <ChecklistPanel checklist={view.checklist} />
+          <ChecklistPanel checklist={view.checklist} canKeepOldGear={!readOnly && view.permissions.keepOldGear} onKeepOldGear={(reason) => act(() => handoverApi.keepOldGear(orgId, projectId, buildingId, reason), reason ? 'Kept on site, with the reason' : 'Keeping it on site withdrawn')} />
           {(can.review || can.deliver || sent) && (
             <section className="space-y-3 rounded-xl border border-border bg-surface p-4" aria-label="Review and delivery">
               {can.review && (

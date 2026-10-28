@@ -66,10 +66,11 @@ export function withDesign(p) {
       const baseRevision = await d.rev(branchId)
       return agent[method](url).send({ ...body, baseRevision })
     },
-    device: async (role, branchId = null) => (await d.view(branchId)).devices.find((x) => x.inDesign && x.role === role),
+    // The design's own device of a role (interim kit apart, M7b-4).
+    device: async (role, branchId = null) => (await d.view(branchId)).devices.find((x) => x.inDesign && x.role === role && x.modeState !== 'interim'),
     link: async (a, b, branchId = null) => {
       const v = await d.view(branchId)
-      const id = (role) => v.devices.find((x) => x.inDesign && x.role === role).id
+      const id = (role) => v.devices.find((x) => x.inDesign && x.role === role && x.modeState !== 'interim').id
       return v.connections.find((c) => [c.source.deviceId, c.dest.deviceId].sort().join() === [id(a), id(b)].sort().join())
     },
   }
