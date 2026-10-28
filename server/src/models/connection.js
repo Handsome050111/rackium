@@ -71,6 +71,28 @@ const connectionSchema = new mongoose.Schema({
   // a stale save on its ports can say which port changed and who changed it
   // (the save-time conflict check, addendum v2.3 Q2).
   edited: { type: new mongoose.Schema({ layer: String, revision: Number }, { _id: false }), default: null },
+  // Reroute (DATA-MODEL §5.20): the rooms a cross-room cable passes through, in order.
+  route: { type: new mongoose.Schema({ viaRoomIds: { type: [ObjectId], default: [] } }, { _id: false }), default: null },
+  // Taken out of the design by an HLD tool (Break, Split, Merge) but kept for
+  // the audit trail (addendum v2.3 Q1): no ports, no cable ID, read by nothing
+  // but the HLD's broken-uplink list and validation (see the filter below).
+  archived: {
+    type: new mongoose.Schema(
+      { tool: { type: String, enum: ['break', 'split', 'merge'], required: true }, reason: { type: String, default: null }, at: { type: Date, required: true }, by: { type: ObjectId, default: null }, byName: { type: String, default: null }, sourceName: { type: String, default: null }, destName: { type: String, default: null } },
+      { _id: false }
+    ),
+    default: null,
+  },
+})
+
+// Archived connections are out of the design: every query leaves them out
+// unless it names `archived` itself (DATA-MODEL §5.20).
+function liveOnly() {
+  if (!Object.prototype.hasOwnProperty.call(this.getFilter(), 'archived')) this.where({ archived: null })
+}
+for (const op of ['find', 'findOne', 'countDocuments', 'distinct', 'updateOne', 'updateMany', 'deleteOne', 'deleteMany', 'findOneAndUpdate', 'findOneAndDelete', 'replaceOne']) connectionSchema.pre(op, liveOnly)
+connectionSchema.pre('aggregate', function liveOnlyAggregate() {
+  if (!this.pipeline().some((stage) => stage.$match && Object.prototype.hasOwnProperty.call(stage.$match, 'archived'))) this.pipeline().unshift({ $match: { archived: null } })
 })
 
 connectionSchema.__modelName = 'Connection'

@@ -11,6 +11,7 @@
 //   accessories.
 // Each line carries its source tag (Survey / HLD / LLD) and a reason.
 import { selectPowerCord } from './powerCords.js'
+import { expandPortMap } from './catalogue.js'
 
 export const SERIALISED_CATEGORIES = ['switch', 'router', 'firewall', 'ap', 'wlc', 'server', 'ups', 'pdu', 'probe']
 // Provided by the client or a carrier, never procured.
@@ -183,6 +184,34 @@ export function buildBom(design, context) {
       const item = cat.find((i) => i.kind === 'optic' && i.mediaSpeed?.media === c.media)
       addConsumable({ key: `cable:${c.media}`, category: 'Cables', item: item?.model ?? `${MEDIA_LABEL[c.media]} cable`, catalogueKey: item?.key ?? null, spec: c.media === 'stack' ? 'Stacking cable' : 'Direct-attach copper', qty: 1, source: designTag(c), reason: `${c.cableId ?? 'connection'} (${MEDIA_LABEL[c.media]})` })
     }
+  }
+
+  // --- Patch panels the HLD routes through (Reroute; DATA-MODEL §5.20) ---
+  // `design.panelNeeds`: [{ roomCode, kind ('copper' | 'fibre'), links,
+  // freePorts }] — the uplinks routed via a room's patch panel beyond the free
+  // ports of its surveyed panels, in the smallest generic panel of the kind.
+  // From the LLD on, panels are designed devices and counted above.
+  for (const need of stage === 'hld' ? design.panelNeeds ?? [] : []) {
+    const shortfall = need.links - (need.freePorts ?? 0)
+    if (shortfall <= 0) continue
+    const fibre = need.kind === 'fibre'
+    const panel = (context.catalogue ?? [])
+      .filter((i) => i.kind === 'device_model' && i.category === 'patch_panel' && i.portMap)
+      .map((i) => ({ item: i, ports: expandPortMap(i.portMap) }))
+      .filter(({ ports }) => ports.length && ports.every((p) => /LC|SC/i.test(p.type) === fibre))
+      .sort((a, b) => a.ports.length - b.ports.length)[0]
+    const per = panel?.ports.length ?? 24
+    const qty = Math.ceil(shortfall / per)
+    addConsumable({
+      key: `item:${lower(panel?.item.key ?? `${need.kind} patch panel`)}`,
+      category: 'Power & accessories',
+      item: panel?.item.model ?? `${fibre ? 'Fibre' : 'Copper'} patch panel`,
+      catalogueKey: panel?.item.key ?? null,
+      spec: panel?.item.description ?? 'patch_panel',
+      qty,
+      source: 'HLD',
+      reason: `${need.links} uplink(s) via the patch panel in ${need.roomCode ?? 'their room'}${need.freePorts ? `, ${need.freePorts} free surveyed port(s)` : ''}: ${qty} × ${per}-port`,
+    })
   }
 
   // --- Price and finish the lines ---

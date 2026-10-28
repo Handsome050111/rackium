@@ -62,6 +62,22 @@ export function hldRoutes({ config, hld }) {
   r.patch('/uplinks/:id', ...base, edit, validate({ params: idParam, body: C.hldUplinkUpdateBody }), async (req, res) => {
     res.json(await hld.updateUplink(req, req.input.params.id, req.input.body, actorOf(req)))
   })
+  // The design tools (DATA-MODEL §5.20; addendum v2.3 Q1).
+  r.post('/uplinks/:id/break', ...base, edit, validate({ params: idParam, body: C.hldBreakBody }), async (req, res) => {
+    res.json(await hld.breakUplink(req, req.input.params.id, req.input.body, actorOf(req)))
+  })
+  r.post('/uplinks/:id/reroute', ...base, edit, validate({ params: idParam, body: C.hldRerouteBody }), async (req, res) => {
+    res.json(await hld.rerouteUplink(req, req.input.params.id, req.input.body, actorOf(req)))
+  })
+  r.post('/uplinks/:id/replace-endpoint', ...base, edit, validate({ params: idParam, body: C.hldReplaceEndpointBody }), async (req, res) => {
+    res.json(await hld.replaceEndpoint(req, req.input.params.id, req.input.body, actorOf(req)))
+  })
+  r.post('/uplinks/:id/split', ...base, edit, validate({ params: idParam, body: C.hldSplitBody }), async (req, res) => {
+    res.status(201).json(await hld.splitUplink(req, req.input.params.id, req.input.body, actorOf(req)))
+  })
+  r.post('/devices/:id/merge', ...base, edit, validate({ params: idParam, body: C.hldMergeBody }), async (req, res) => {
+    res.status(201).json(await hld.mergeAt(req, req.input.params.id, req.input.body, actorOf(req)))
+  })
   r.delete('/uplinks/:id', ...base, edit, validate({ params: idParam, query: C.hldRevisionQuery }), async (req, res) => {
     res.json(await hld.deleteUplink(req, req.input.params.id, req.input.query, actorOf(req)))
   })

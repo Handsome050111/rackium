@@ -1062,7 +1062,39 @@ primary Field Engineer, goes to the PM who sent the change request.
 Found, not changed: on the LLD screens a long name is still cut in the device
 picker cards and on the canvas (both older than this PR); a renamed device
 shows "old → …" with its new name on the line below, so both names are
-visible there. Left for the canvas work of PR 3.
+visible there. Fixed in M7b-3 (Part 17).
+
+## Part 17: M7b-3 — the HLD design tools; long names on the LLD screens
+
+Built (DATA-MODEL §5.20; addendum v2.3 Q1): Break Uplink (archived with its
+reason, W-UPLINK-NEEDED a warning), Reroute (through rooms and/or the patch
+panel; the length and the HLD-stage BOM follow), Replace Endpoint (a new
+cable ID by default), Split (free ports checked before any write) and Merge
+(a new cable ID; the device stays, unlinked), each with Undo and Redo. An
+archived connection is out of every query unless the query names
+`archived` (a model-level filter), so no reader can pick one up by mistake.
+
+Found and fixed, each with a test:
+
+- **The LLD device cards and the HLD/LLD canvas cut long names** (noted in
+  Part 16; older than M7b): the cards wrap now, and a canvas node grows with
+  its name — the layout sizes each node from it (`deviceNodeHeight`), so
+  nothing overlaps; a name that fits one line keeps the old 40 px. Tests:
+  `shared/src/m7b3.test.js` (node height and layout) and
+  `e2e-real/m7b3.spec.js` (the name fits, HLD canvas and LLD cards, every
+  width).
+- **The HLD-stage BOM ignored routing through a patch panel** (older than
+  M7b-3): a link via the destination room's panel was one cable and needed
+  no panel. Now two cables (to the panel, a patch cord) and patch panels for
+  what the room's surveyed panels cannot take — the client's Reroute rule.
+  Tests: `api.m7b3.test.js` "Reroute…", `shared/src/m7b3.test.js`.
+- **Test helpers built a request before awaiting the revision** (caught
+  writing `api.m7b3.test.js`): supertest's server for the request was gone by
+  the time it was sent ("Cannot read properties of null (reading
+  'address')"). The helper reads the revision first, as the other files do.
+
+The mock HLD screen keeps the five tools disabled ("coming later"); they
+are wired on the real HLD only (`designTools`).
 
 ## Backlog for the final cleanup
 

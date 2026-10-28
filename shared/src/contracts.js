@@ -607,6 +607,32 @@ export const hldViewQuery = z.object({ branchId: objectId.optional() })
 export const hldSubmitBody = z.object({ buildingId: objectId, baseRevision })
 export const hldDecisionBody = z.object({ buildingId: objectId, decision: z.enum(['approved', 'changes_requested']), comment: z.string().trim().max(2000).optional() })
 
+// --- M7b-3: the HLD design tools (DATA-MODEL §5.20; addendum v2.3 Q1) ---------
+// Break: the reason is kept with the archived link.
+export const hldBreakBody = z.object({ reason: z.string().trim().min(1, 'Give the reason for breaking the uplink').max(300), baseRevision }).strict()
+// Reroute: same ends, another route — via the destination room's patch panel
+// or direct, and/or through other rooms in order (empty = the direct pathway).
+export const hldRerouteBody = z
+  .object({ viaPatchPanel: z.boolean().optional(), viaRoomIds: z.array(objectId).max(10).optional(), baseRevision })
+  .strict()
+  .refine((b) => b.viaPatchPanel !== undefined || b.viaRoomIds !== undefined, { message: 'Choose the patch-panel routing or the rooms to route through' })
+// Replace Endpoint: a new cable ID by default; keepCableId keeps the old one.
+export const hldReplaceEndpointBody = z
+  .object({ end: z.enum(['source', 'dest']), deviceId: objectId, portId: z.string().trim().min(1).max(40).nullable().optional(), keepCableId: z.boolean().optional(), baseRevision })
+  .strict()
+// Split: an existing device or a new one (role and room) goes into the link.
+export const hldSplitBody = z
+  .object({
+    deviceId: objectId.optional(),
+    newDevice: z.object({ role: z.enum(HLD_ROLE_KEYS), roomId: objectId, catalogueKey: z.string().trim().min(1).max(200).optional() }).strict().optional(),
+    ports: z.object({ towardSource: z.string().trim().min(1).max(40).optional(), towardDest: z.string().trim().min(1).max(40).optional() }).strict().optional(),
+    baseRevision,
+  })
+  .strict()
+  .refine((b) => Boolean(b.deviceId) !== Boolean(b.newDevice), { message: 'Name the device to insert, or describe a new one — one of the two' })
+// Merge: the joined link's medium and speed default to the first link's.
+export const hldMergeBody = z.object({ media: z.enum(OPTIC_MEDIA).optional(), speed: z.enum(HLD_SPEEDS).optional(), baseRevision }).strict()
+
 // --- M4b: LLD, Rackium Editor, design versions ----------------------------------
 // `branchId` (optional) addresses an LLD branch; omitted = the main LLD.
 const branchRef = { branchId: objectId.optional() }

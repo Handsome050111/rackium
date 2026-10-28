@@ -405,6 +405,13 @@ export function buildRegistry() {
   route('post', `${H}/uplinks`, 'Create an uplink (Architect); ports and cable ID registered in the same transaction', { body: C.hldUplinkCreateBody, status: 201, errors: { 409: err('Port or cable ID in use, or stale revision') } })
   route('patch', `${H}/uplinks/{id}`, 'Edit Uplink / Change Medium (Architect)', { params: p({ id: 1 }), body: C.hldUplinkUpdateBody, errors: { 409: err('Port or cable ID in use, or stale revision') } })
   route('delete', `${H}/uplinks/{id}`, 'Delete an uplink (Architect)', { params: p({ id: 1 }), query: C.hldRevisionQuery, errors: stale })
+  // M7b-3: the design tools (DATA-MODEL §5.20; addendum v2.3 Q1).
+  const toolErrors = { 409: err('Stale revision, frozen or submitted HLD, port or cable ID in use') }
+  route('post', `${H}/uplinks/{id}/break`, 'Break Uplink (Architect): ports released, cable ID retired, the link archived with its reason (not deleted); both devices get the W-UPLINK-NEEDED warning', { params: p({ id: 1 }), body: C.hldBreakBody, errors: toolErrors })
+  route('post', `${H}/uplinks/{id}/reroute`, 'Reroute (Architect): the same ends, another route — via the patch panel or direct, and/or through other rooms; the length and the BOM follow', { params: p({ id: 1 }), body: C.hldRerouteBody, errors: toolErrors })
+  route('post', `${H}/uplinks/{id}/replace-endpoint`, 'Replace Endpoint (Architect): one end to another device; a new cable ID unless keepCableId', { params: p({ id: 1 }), body: C.hldReplaceEndpointBody, errors: toolErrors })
+  route('post', `${H}/uplinks/{id}/split`, 'Split (Architect): A–B becomes A–X–B; X needs two free ports for the medium (409 no_free_ports, checked before any write); A–B archived', { params: p({ id: 1 }), body: C.hldSplitBody, status: 201, errors: { 409: err('No free ports on the inserted device, stale revision, frozen or submitted HLD') } })
+  route('post', `${H}/devices/{id}/merge`, 'Merge (Architect): A–X–B becomes A–B with a new cable ID; X stays in place, unlinked; both links archived', { params: p({ id: 1 }), body: C.hldMergeBody, status: 201, errors: { 409: err('The device does not have exactly two uplinks, stale revision, frozen or submitted HLD') } })
   route('post', `${H}/submit`, 'Submit the HLD for approval (Architect): refused while any Critical finding is open; creates the version and the approval', { body: C.hldSubmitBody, status: 201, errors: { 409: err('Critical findings, stale revision or already submitted') } })
   route('post', `${H}/decision`, 'Approve or request changes (PM or Reviewer, never the submitter); approval freezes the version', { body: C.hldDecisionBody, errors: { 409: err('Not awaiting approval') } })
 

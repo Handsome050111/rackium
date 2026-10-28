@@ -22,6 +22,12 @@ export const hldApi = {
   createUplink: (o, p, body) => (real ? apiRequest(`${base(o, p)}/uplinks`, { method: 'POST', body }) : none(null)),
   updateUplink: (o, p, id, body) => (real ? apiRequest(`${base(o, p)}/uplinks/${id}`, { method: 'PATCH', body }) : none(null)),
   deleteUplink: (o, p, id, baseRevision) => (real ? apiRequest(`${base(o, p)}/uplinks/${id}?baseRevision=${baseRevision}`, { method: 'DELETE' }) : none(null)),
+  // The design tools (M7b-3, DATA-MODEL §5.20).
+  breakUplink: (o, p, id, body) => (real ? apiRequest(`${base(o, p)}/uplinks/${id}/break`, { method: 'POST', body }) : none(null)),
+  rerouteUplink: (o, p, id, body) => (real ? apiRequest(`${base(o, p)}/uplinks/${id}/reroute`, { method: 'POST', body }) : none(null)),
+  replaceEndpoint: (o, p, id, body) => (real ? apiRequest(`${base(o, p)}/uplinks/${id}/replace-endpoint`, { method: 'POST', body }) : none(null)),
+  splitUplink: (o, p, id, body) => (real ? apiRequest(`${base(o, p)}/uplinks/${id}/split`, { method: 'POST', body }) : none(null)),
+  mergeAt: (o, p, deviceId, body) => (real ? apiRequest(`${base(o, p)}/devices/${deviceId}/merge`, { method: 'POST', body }) : none(null)),
   submit: (o, p, body) => (real ? apiRequest(`${base(o, p)}/submit`, { method: 'POST', body }) : none(null)),
   decide: (o, p, body) => (real ? apiRequest(`${base(o, p)}/decision`, { method: 'POST', body }) : none(null)),
 }

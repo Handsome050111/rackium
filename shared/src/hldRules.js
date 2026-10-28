@@ -33,6 +33,8 @@ export const HLD_RULES = {
   'W-SINGLE-PSU': { severity: 'warning', title: 'Single PSU when device supports dual (no power redundancy)' },
   'W-SINGLE-PDU': { severity: 'warning', title: 'Single PDU (no power redundancy)' },
   'W-EMPTY-RU': { severity: 'warning', title: 'Empty RU count exceeds 50% of rack' },
+  // Break Uplink (M7b-3): a warning, never a blocker (addendum v2.3 Q1).
+  'W-UPLINK-NEEDED': { severity: 'warning', title: 'Uplink needed — an uplink of this device was broken' },
   'I-BELOW-SPEED': { severity: 'info', title: 'Link negotiates below maximum speed' },
   'I-NO-HOSTNAME': { severity: 'info', title: 'Device has no hostname assigned' },
   'I-TBD': { severity: 'info', title: 'TBD fields remaining in connection record' },
@@ -163,7 +165,7 @@ function speedValue(s) {
 // Devices: { id, hostname, role, origin, roomId, rackId, ru, heightU, face, fullDepth, label, psuConfigured }
 export function validateHld(design, ctx) {
   const out = []
-  const { devices = [], connections = [], racks = [], cmoUnplaced = [] } = design
+  const { devices = [], connections = [], racks = [], cmoUnplaced = [], broken = [] } = design
   const deviceById = ctx.deviceById ?? new Map(devices.map((d) => [String(d.id), d]))
   const full = { ...ctx, deviceById }
 
@@ -264,7 +266,27 @@ export function validateHld(design, ctx) {
 
   for (const d of cmoUnplaced) out.push(finding('I-CMO-UNVALIDATED', 'device', d.id, `CMO device ${d.label} has not been found in a rack during the survey`))
 
+  out.push(...uplinkNeededFindings({ broken, connections, deviceById }))
+
   return sortFindings(dedupe(out))
+}
+
+// W-UPLINK-NEEDED (DATA-MODEL §5.20): each device of a broken uplink (Break
+// Uplink archives it) still in the design, until it has a link created after
+// the break. `broken`: [{ id, sourceDeviceId, destDeviceId, sourceName,
+// destName, reason, at }]; `connections`: the live links with `createdAt`.
+export function uplinkNeededFindings({ broken = [], connections = [], deviceById = new Map() }) {
+  const out = []
+  for (const b of broken) {
+    for (const [self, other] of [[b.sourceDeviceId, b.destName], [b.destDeviceId, b.sourceName]]) {
+      const device = deviceById.get(String(self))
+      if (!device) continue
+      const relinked = connections.some((c) => [String(c.source.deviceId), String(c.dest.deviceId)].includes(String(self)) && c.createdAt && new Date(c.createdAt) > new Date(b.at))
+      if (relinked) continue
+      out.push(finding('W-UPLINK-NEEDED', 'device', self, `${device.label ?? device.hostname ?? 'Device'}: uplink needed — its uplink to ${other ?? 'another device'} was broken${b.reason ? ` (${b.reason})` : ''}`, { suffix: b.id }))
+    }
+  }
+  return out
 }
 
 function dedupe(findings) {

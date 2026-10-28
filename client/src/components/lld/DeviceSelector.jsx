@@ -45,9 +45,10 @@ function DeviceGroup({ label, devices, selectedId, onSelect }) {
             }`}
           >
             <TopologyIcon role={d.role} size={14} />
-            <span className="min-w-0 flex-1 truncate">
+            {/* Whole names, wrapped (M7b-3): a renamed device reads "old → new". */}
+            <span className="min-w-0 flex-1 break-all">
               <span className="font-medium">{d.label}</span>
-              <span className="block truncate text-[10px] text-text-secondary">{d.hostname}</span>
+              <span className="block break-all text-[10px] text-text-secondary">{d.hostname}</span>
             </span>
           </button>
         ))}
