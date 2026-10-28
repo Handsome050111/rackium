@@ -26,6 +26,7 @@ import { namesOf } from '../delivery/common.js'
 // The ZIP writer loads on first use (the package is built rarely).
 const renderZip = async (entries) => (await import('../documents/render/office.js')).renderZip(entries)
 import { documentView } from '../documents/service.js'
+import { modeLabelsOf } from '../hld/cmoDecisions.js'
 
 const oid = (v) => new mongoose.Types.ObjectId(String(v))
 
@@ -60,7 +61,11 @@ export function createHandoverService({ storage, services, documents }) {
     const bom = await services.delivery.bom.view(req, building.id).catch(() => ({ lines: [] }))
     const dep = await services.deployment.view(req, building.id)
     const cmdb = dep.started ? await services.cmdb.view(req, building.id) : null
-    const devices = dep.devices ?? []
+    // Kit removed after cutover is no longer deployed (DATA-MODEL §5.22).
+    const devices = (dep.devices ?? []).filter((d) => d.status !== 'retired')
+    const removals = dep.removals ?? []
+    const workflow = await HandoverWorkflow.findOne({ buildingId: building.id }, { oldGearOverride: 1 }).lean()
+    const override = workflow?.oldGearOverride ?? null
     const unresolved = devices.reduce((n, d) => n + (d.openDeviations ?? 0), 0)
     return {
       surveyVerified: survey.get(building.id) === 'approved',
@@ -71,6 +76,13 @@ export function createHandoverService({ storage, services, documents }) {
       deployment: { planned: devices.length, accepted: devices.filter((d) => ['accepted', 'in_service', 'maintenance'].includes(d.status)).length },
       cmdb: { designCount: cmdb?.reconciliation?.designCount ?? devices.length, cmdbCount: cmdb?.reconciliation?.cmdbCount ?? 0 },
       exceptions: { open: (dep.exceptions ?? []).filter((e) => e.status === 'open').length, rejectedUncorrected: unresolved },
+      // After cutover: installed interim kit blocks; CMO gear left on site is a warning the PM may override.
+      cutover: {
+        interimOnSite: removals.filter((r) => r.kind === 'interim' && r.onSite).map((r) => r.label),
+        cmoOnSite: removals.filter((r) => r.kind === 'cmo' && !r.removed).map((r) => ({ id: r.id, name: r.label })),
+        override: override ? { reason: override.reason, by: override.byName ?? null, at: override.at ?? null, deviceIds: (override.devices ?? []).map((d) => d.id) } : null,
+      },
+      labels: await modeLabelsOf(),
     }
   }
 
@@ -100,6 +112,12 @@ export function createHandoverService({ storage, services, documents }) {
       const file = await File.findById(d.fileId).lean()
       entries.push({ path: d.fileName, data: await storage.read(file.storageKey) })
       manifest.push([d.typeKey, d.format, d.version, d.fileName, d.sha256, d.sizeBytes])
+    }
+    // CMO gear the PM kept on site, with the reason (DATA-MODEL §5.22).
+    const kept = workflow.oldGearOverride
+    if (kept?.devices?.length) {
+      entries.push({ path: 'kept-on-site.csv', data: toCsv([['Device', 'Reason', 'Kept by', 'At'], ...kept.devices.map((d) => [d.name, kept.reason, kept.byName ?? '', kept.at ? new Date(kept.at).toISOString() : ''])]) })
+      manifest.push(['kept-on-site', 'csv', '', 'kept-on-site.csv', '', ''])
     }
     entries.push({ path: 'manifest.csv', data: toCsv(manifest) })
     const buffer = await renderZip(entries)
@@ -144,7 +162,7 @@ export function createHandoverService({ storage, services, documents }) {
       approvals: approvals.map((a) => ({ id: String(a._id), status: a.status, submittedAt: a.submittedAt, client: a.client ? { name: a.client.name, role: a.client.role } : null, decision: a.decision ? { value: a.decision.value, decidedAt: a.decision.decidedAt, comments: a.decision.comments, signed: Boolean(a.decision.signatureFileId) } : null })),
       shareLinks: (await linksOf(building.id)).filter((l) => l.kind === 'handover'),
       baseline: baseline ? { label: baseline.label, acceptedAt: baseline.acceptedAt, client: baseline.client, documents: baseline.documents.length, packageDocumentId: baseline.packageDocumentId ? String(baseline.packageDocumentId) : null } : null,
-      permissions: { compile: roles.includes('pm') && !handoverActionProblem('compile', { state: workflow.state, ready, roles }), review: !handoverActionProblem('review', { state: workflow.state, roles }), deliver: !handoverActionProblem('deliver', { state: workflow.state, roles }) },
+      permissions: { compile: roles.includes('pm') && !handoverActionProblem('compile', { state: workflow.state, ready, roles }), review: !handoverActionProblem('review', { state: workflow.state, roles }), deliver: !handoverActionProblem('deliver', { state: workflow.state, roles }), keepOldGear: roles.includes('pm') && !['delivered', 'accepted'].includes(workflow.state) },
     }
   }
 
@@ -163,6 +181,32 @@ export function createHandoverService({ storage, services, documents }) {
     handoverStatusByBuilding,
 
     // Compile: a new round of the 11 documents as background jobs.
+    // The PM keeps CMO gear marked Replace or Remove on site at handover, with
+    // a reason (decision 4 as the product owner ruled; DATA-MODEL §5.22): the
+    // checklist's warning is then met for the devices on site now. null
+    // withdraws it. Audited; listed in the handover package.
+    async keepOldGear(req, buildingId, { reason }, actor) {
+      const building = await requireBuilding(req, buildingId)
+      const { roles } = await callerAccess(req)
+      if (!roles.includes('pm')) throw forbidden('Only a PM keeps old gear on site at handover')
+      const workflow = await workflowOf(building)
+      if (['delivered', 'accepted'].includes(workflow.state)) throw conflict('invalid_step', `The handover is ${HANDOVER_STATE_LABELS[workflow.state]} — nothing can change now`)
+      const { cutover } = await facts(req, building)
+      if (reason && !cutover.cmoOnSite.length) throw conflict('nothing_on_site', 'No gear marked Replace or Remove is left on site')
+      const byName = (await namesOf([actor.userId])).get(String(actor.userId)) ?? null
+      const before = workflow.oldGearOverride?.reason ?? null
+      const next = reason ? { reason, by: actor.userId, byName, at: new Date(), devices: cutover.cmoOnSite } : null
+      const done = await HandoverWorkflow.updateOne({ _id: workflow._id, revision: workflow.revision }, { $set: { oldGearOverride: next, updatedAt: new Date() }, $inc: { revision: 1 } })
+      if (!done.modifiedCount) throw conflict('stale', 'The handover changed meanwhile — reload')
+      await audit(req, building, actor, reason ? 'handover.old_gear_kept' : 'handover.old_gear_override_withdrawn', {
+        objectType: 'HandoverWorkflow',
+        objectId: String(workflow._id),
+        comment: reason ? `${cutover.cmoOnSite.map((d) => d.name).join(', ')} kept on site: ${reason}` : 'Keeping old gear on site withdrawn',
+        changes: [{ objectType: 'HandoverWorkflow', objectId: String(workflow._id), field: 'oldGearOverride', before, after: reason }],
+      })
+      return view(req, building.id)
+    },
+
     async compile(req, buildingId, actor) {
       return step(req, buildingId, 'compile', actor, async (building, workflow) => {
         const updated = await HandoverWorkflow.findOneAndUpdate({ _id: workflow._id, revision: workflow.revision }, { $set: { state: 'compiling', compiledAt: null, packageDocumentId: null, updatedAt: new Date() }, $inc: { round: 1, revision: 1 } }, { returnDocument: 'after' }).lean()

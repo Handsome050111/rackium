@@ -1133,6 +1133,31 @@ Found and fixed (each with a test):
 Also: the canvas refits when a mode toggle adds or removes a whole state
 (only then — adding or moving a device keeps the view).
 
+## Part 19: M7b-4b — mode states after cutover: deployment, handover, CMDB
+
+Built (DATA-MODEL §5.22): interim kit and replaced/removed CMO gear removed
+after cutover (the retire path, audited); the handover's two cutover lines
+(installed interim kit blocks; old gear on site a warning the PM keeps with a
+reason, listed in the package); the CMDB's mode column, filter and export in
+the project's words; demo data in B003 and B004.
+
+Found and fixed (each with a test):
+
+- **Removed kit would have held up the deployment and handover for ever**
+  (found designing the removal): the deployment phase status, the handover
+  checklist's deployment and CMDB lines and the CMDB reconciliation counted
+  every designed device, so a removed interim switch — never "accepted" again
+  — kept them from completing. Removed kit now leaves those counts. Tests:
+  `api.m7b4b.test.js` "installed interim kit blocks…" (deployment and CMDB
+  lines green after removal), "the CMDB shows the mode…" (design count).
+- **Two switches of one role got the same serial in the e2e setup** (caught
+  adding the interim switch): `handoverSetup.js` numbered serials by role
+  only. Numbered by position now.
+
+Also: this log's "Backlog for the final cleanup" heading, lost when Part 18
+was added (PR 4a), is back.
+
+## Backlog for the final cleanup
 
 Known, harmless today, left for one cleanup pass before release:
 

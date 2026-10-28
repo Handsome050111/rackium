@@ -44,7 +44,7 @@ describe('the old name of a renamed device', () => {
     ]
     expect(cmdbRowsOf(records).map((r) => [r.hostname, r.legacyHostname])).toEqual([['E-2', 'E-1'], ['A-1', '']])
     const out = cmdbExtract({ building: { code: 'B001' }, generatedAt: new Date() }, { records, connections: [], cableMatrix: [] })
-    expect(out.sheet.rows[0].slice(0, 3)).toEqual(['Hostname', 'Legacy hostname', 'Role'])
+    expect(out.sheet.rows[0].slice(0, 4)).toEqual(['Hostname', 'Legacy hostname', 'Mode', 'Role'])
     expect(out.sheet.rows[1].slice(0, 2)).toEqual(['E-2', 'E-1'])
     expect(out.json.records.map((r) => r.legacyHostname)).toEqual(['E-1', null])
   })

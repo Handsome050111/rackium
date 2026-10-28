@@ -295,6 +295,8 @@ const CMDB_COLUMNS = [
   ['hostname', 'Hostname'],
   // A device renamed through a change request keeps its old name (DATA-MODEL §5.19).
   ['legacyHostname', 'Legacy hostname'],
+  // The mode state in the project's words (DATA-MODEL §5.22).
+  ['mode', 'Mode'],
   ['role', 'Role'],
   ['model', 'Model'],
   ['serial', 'Serial'],
@@ -308,7 +310,7 @@ const CMDB_COLUMNS = [
   ['dguv', 'DGUV'],
 ]
 export function cmdbRowsOf(records) {
-  return records.map((r) => ({ hostname: r.hostname ?? r.name ?? r.label, legacyHostname: r.legacyHostname ?? '', role: r.roleLabel ?? r.role ?? r.category, model: r.model, serial: r.serial, mac: r.mac, room: r.roomCode, rack: r.rackCode, ru: r.ru, status: r.statusLabel, assetTag: r.assetTag, warrantyEnd: r.lifecycle?.warrantyEnd, dguv: r.dguv?.label ?? 'n/a' }))
+  return records.map((r) => ({ hostname: r.hostname ?? r.name ?? r.label, legacyHostname: r.legacyHostname ?? '', mode: r.modeLabel ?? '', role: r.roleLabel ?? r.role ?? r.category, model: r.model, serial: r.serial, mac: r.mac, room: r.roomCode, rack: r.rackCode, ru: r.ru, status: r.statusLabel, assetTag: r.assetTag, warrantyEnd: r.lifecycle?.warrantyEnd, dguv: r.dguv?.label ?? 'n/a' }))
 }
 export function cmdbExtract(ctx, data) {
   const doc = base(ctx, 'CMDB Extract')
@@ -318,7 +320,7 @@ export function cmdbExtract(ctx, data) {
     section('records', 'Configuration items', [block]),
     section('connections', 'Connections', [table([{ key: 'device', label: 'Device' }, { key: 'port', label: 'Port' }, { key: 'toDevice', label: 'Destination' }, { key: 'toPort', label: 'Port' }, { key: 'cableIds', label: 'Cable IDs' }, { key: 'test', label: 'Test' }], (data.cableMatrix ?? []).map((r) => ({ ...r, cableIds: r.cableIds.join(', '), test: r.testResult })))]),
   ]
-  const json = { building: ctx.building, generatedAt: ctx.generatedAt, records: data.records.map((r) => ({ id: r.id, hostname: r.hostname, legacyHostname: r.legacyHostname ?? null, role: r.role, model: r.model, vendor: r.vendor, serial: r.serial, mac: r.mac, assetTag: r.assetTag, status: r.status, location: { room: r.roomCode, rack: r.rackCode, ru: r.ru, face: r.face }, lifecycle: r.lifecycle, dguv: r.dguv, provenance: r.provenance, acceptedAt: r.acceptedAt })), connections: data.connections }
+  const json = { building: ctx.building, generatedAt: ctx.generatedAt, records: data.records.map((r) => ({ id: r.id, hostname: r.hostname, legacyHostname: r.legacyHostname ?? null, modeState: r.modeState ?? null, mode: r.modeLabel ?? null, role: r.role, model: r.model, vendor: r.vendor, serial: r.serial, mac: r.mac, assetTag: r.assetTag, status: r.status, location: { room: r.roomCode, rack: r.rackCode, ru: r.ru, face: r.face }, lifecycle: r.lifecycle, dguv: r.dguv, provenance: r.provenance, acceptedAt: r.acceptedAt })), connections: data.connections }
   return { doc, sheet: sheetOf('CMDB', block), json }
 }
 

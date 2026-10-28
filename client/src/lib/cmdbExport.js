@@ -4,6 +4,8 @@ export const CMDB_COLUMNS = [
   { heading: 'Hostname', value: (r) => r.hostname },
   // Renamed through a change request: the old name (DATA-MODEL §5.19).
   { heading: 'Legacy hostname', value: (r) => r.legacyHostname ?? '' },
+  // The mode state in the project's words (M7b-4b, DATA-MODEL §5.22).
+  { heading: 'Mode', value: (r) => r.modeLabel ?? '' },
   { heading: 'Role', value: (r) => r.role },
   { heading: 'Model', value: (r) => r.model },
   { heading: 'Floor', value: (r) => r.floorName ?? '' },

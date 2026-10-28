@@ -8,7 +8,10 @@ import { REQUIRED_INPUT_GROUPS } from '@rackium/shared/solutionPackage.js'
 // screens make): survey verified, HLD and LLD approved, the Solution Package
 // approved by the client (design frozen), the whole BOM delivered, every
 // device installed, every link patched and tested, all accepted.
-export async function deployedProject({ owner, browser, runId, prefix }) {
+// `cutover` (M7b-4b): two CMO switches — OLD-SW-01 replaced by the Edge,
+// OLD-SW-02 removed — and an interim (IMO) Edge with an IMO link to the
+// Border, deployed and accepted like the rest. Synthetic names and serials.
+export async function deployedProject({ owner, browser, runId, prefix, cutover = false }) {
   const orgId = await signUpAndSignIn(owner, { email: `${prefix}-${runId}@example.com`, organisationName: `${prefix.toUpperCase()} Org` })
   const projectId = await createProjectWithHierarchy(owner, orgId, { name: `${prefix.toUpperCase()} Project`, hierarchyCsv: fixture('hierarchy-two-buildings.csv') })
   const api = `/api/v1/orgs/${orgId}/projects/${projectId}`
@@ -22,7 +25,8 @@ export async function deployedProject({ owner, browser, runId, prefix }) {
     return res.json()
   }
   const lld = () => send(architect, 'get', `/lld/buildings/${b001}`, undefined, 200)
-  const byRole = (v, role) => v.devices.find((d) => (d.inDesign ?? true) && d.role === role)
+  // The design's own device of a role (interim kit apart).
+  const byRole = (v, role) => v.devices.find((d) => (d.inDesign ?? true) && d.role === role && d.modeState !== 'interim')
   const linkOf = (v, a, b) => {
     const ids = [byRole(v, a).id, byRole(v, b).id].sort().join()
     return v.connections.find((c) => [c.source.deviceId, c.dest.deviceId].sort().join() === ids)
@@ -41,6 +45,25 @@ export async function deployedProject({ owner, browser, runId, prefix }) {
   }
   const hld = await send(architect, 'get', `/hld/buildings/${b001}`, undefined, 200)
   await send(architect, 'post', '/hld/generate', { buildingId: b001, preset: 'M', baseRevision: hld.design.revision }, 201)
+  let interim = null
+  if (cutover) {
+    const sal = (await send(owner, 'get', '/cmo', undefined, 200)).sals.find((s) => s.code === 'ERL')
+    const rows = ['OLD-SW-01', 'OLD-SW-02'].map((hostname, i) => ({ rowIndex: i, hostname, vendor: null, model: 'Legacy Switch 48', serial: `SYN-E2E-CUT-${i + 1}-${runId}`, mac: null, building: 'B001', floor: null, room: main.code, rack: null, ru: null }))
+    await send(owner, 'post', '/cmo/import', { salId: sal.id, rows, fileName: 'cmo.xlsx' }, 201)
+    const h = () => send(architect, 'get', `/hld/buildings/${b001}`, undefined, 200)
+    let hv = await h()
+    const edgeH = hv.devices.find((d) => d.role === 'edge')
+    const borderH = hv.devices.find((d) => d.role === 'border')
+    const cmo = (name) => hv.cmoDevices.find((d) => d.hostname === name)
+    await send(architect, 'put', `/hld/devices/${cmo('OLD-SW-01').id}/cmo-decision`, { decision: 'replace', replacedById: edgeH.id, baseRevision: hv.design.revision }, 200)
+    hv = await h()
+    await send(architect, 'put', `/hld/devices/${cmo('OLD-SW-02').id}/cmo-decision`, { decision: 'remove', baseRevision: hv.design.revision }, 200)
+    hv = await h()
+    interim = (await send(architect, 'post', '/hld/devices', { buildingId: b001, role: 'edge', roomId: second.id, modeState: 'interim', baseRevision: hv.design.revision }, 201)).device
+    hv = await h()
+    const be = hv.connections.find((c) => [c.source.deviceId, c.dest.deviceId].sort().join() === [borderH.id, edgeH.id].sort().join())
+    await send(architect, 'post', '/hld/uplinks', { buildingId: b001, source: { deviceId: borderH.id }, dest: { deviceId: interim.id }, media: be.media, speed: be.speed, sourceSfpCode: be.sourceSfpCode, destSfpCode: be.destSfpCode, modeState: 'interim', baseRevision: hv.design.revision }, 201)
+  }
   await send(architect, 'post', '/hld/submit', { buildingId: b001, baseRevision: (await send(architect, 'get', `/hld/buildings/${b001}`, undefined, 200)).design.revision }, 201)
   await send(owner, 'post', '/hld/decision', { buildingId: b001, decision: 'approved' }, 200)
   await send(architect, 'post', '/lld/start', { buildingId: b001 }, 201)
@@ -62,6 +85,15 @@ export async function deployedProject({ owner, browser, runId, prefix }) {
     const c = linkOf(v, a, b)
     const first = c.source.deviceId === byRole(v, a).id
     await save('patch', `/lld/connections/${c.id}`, { source: { deviceId: c.source.deviceId, portId: first ? ports[0] : ports[1] }, dest: { deviceId: c.dest.deviceId, portId: first ? ports[1] : ports[0] }, cableId, ...(hops ? { hops } : {}) })
+  }
+  if (interim) {
+    v = await lld()
+    const temp = v.devices.find((d) => d.hldRef === interim.id)
+    await save('put', `/lld/devices/${temp.id}/placement`, { rackId: racks[1].id, ru: 38, face: 'front' })
+    v = await lld()
+    const link = v.connections.find((c) => [c.source.deviceId, c.dest.deviceId].includes(temp.id))
+    const tempIsSource = link.source.deviceId === temp.id
+    await save('patch', `/lld/connections/${link.id}`, { source: { deviceId: link.source.deviceId, portId: tempIsSource ? 'Te1/1/1' : 'Te1/1/3' }, dest: { deviceId: link.dest.deviceId, portId: tempIsSource ? 'Te1/1/3' : 'Te1/1/1' }, cableId: 'C-BT-1' })
   }
   await save('post', '/lld/submit', { buildingId: b001 }, 201)
   await send(owner, 'post', '/lld/decision', { buildingId: b001, decision: 'approved' }, 200)
@@ -90,7 +122,7 @@ export async function deployedProject({ owner, browser, runId, prefix }) {
   }
   // Everything installed, patched, tested and accepted.
   let dep = await send(fe, 'get', `/deployment/buildings/${b001}`, undefined, 200)
-  for (const d of dep.devices) await send(fe, 'put', `/deployment/devices/${d.id}/installation`, { ...(d.serialised ? { serial: `SN-${d.role}-${runId}` } : {}), ...(d.rackId ? { rackId: d.rackId, ru: d.ru, face: d.face } : {}), markInstalled: true }, 200)
+  for (const [i, d] of dep.devices.entries()) await send(fe, 'put', `/deployment/devices/${d.id}/installation`, { ...(d.serialised ? { serial: `SN-${d.role}-${i}-${runId}` } : {}), ...(d.rackId ? { rackId: d.rackId, ru: d.ru, face: d.face } : {}), markInstalled: true }, 200)
   for (const c of dep.connections) {
     await send(fe, 'put', `/deployment/connections/${c.id}/installation`, { segments: c.segments.map((s) => ({ index: s.index, cableId: s.cableId, installedM: s.effectiveM ?? 3, confirmed: true })), confirm: true, version: c.version ?? 0 }, 200)
     await send(fe, 'post', `/deployment/connections/${c.id}/test`, { result: 'pass' }, 200)

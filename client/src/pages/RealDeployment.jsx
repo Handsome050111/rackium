@@ -13,6 +13,8 @@ import { applyDeploymentStyling } from '@rackium/shared/deploymentFlow.js'
 import { deploymentApi } from '../api/deploymentApi.js'
 import DocumentExports from '../components/documents/DocumentExports.jsx'
 import LabelPrintDialog from '../components/documents/LabelPrintDialog.jsx'
+import CutoverRemovals from '../components/realDeployment/CutoverRemovals.jsx'
+import { useModeLabels } from '../lib/useModeLabels.js'
 import { useMediaQuery } from '../lib/useMediaQuery.js'
 import { useProjectRoles } from '../lib/useProjectRoles.js'
 
@@ -26,6 +28,7 @@ export default function RealDeployment() {
   const [search, setSearch] = useSearchParams()
   const isPhone = useMediaQuery('(max-width: 767px)')
   const { readOnly } = useProjectRoles(orgId, projectId)
+  const modeLabels = useModeLabels(orgId, projectId)
   const [view, setView] = useState(null)
   const [error, setError] = useState(null)
   const [notice, setNotice] = useState(null)
@@ -163,6 +166,7 @@ export default function RealDeployment() {
       )}
       {!isPhone && messages}
       <PipelineBar pipeline={view.pipeline} openExceptions={openExceptions} />
+      <CutoverRemovals removals={view.removals} labels={modeLabels} canRemove={!readOnly && view.permissions.remove && view.frozen} onRemove={(id, note) => act(() => deploymentApi.removeAfterCutover(orgId, projectId, id, note ? { note } : {}), 'Removed after cutover')} />
 
       {isPhone && selected && (
         // Phone: the device record is its own screen below the top bar, with a clear way back.

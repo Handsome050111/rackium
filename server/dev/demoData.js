@@ -28,8 +28,8 @@ export const STAGES = ['survey', 'hld', 'lld', 'bom', 'deployment', 'handover']
 export const DEMO_BUILDINGS = [
   { code: 'B001', name: 'Office North', salCode: 'ERL', campusCode: 'C01', stage: 'survey', stageLabel: 'Survey in progress: building tabs submitted, rooms open' },
   { code: 'B002', name: 'Office South', salCode: 'ERL', campusCode: 'C01', stage: 'hld', stageLabel: 'HLD submitted, waiting for review' },
-  { code: 'B003', name: 'Logistics Hall', salCode: 'ERL', campusCode: 'C01', stage: 'lld', stageLabel: 'LLD submitted, waiting for review' },
-  { code: 'B004', name: 'Training Centre', salCode: 'MUC', campusCode: 'C02', stage: 'bom', stageLabel: 'Package approved by the client, BOM approved, half ordered' },
+  { code: 'B003', name: 'Logistics Hall', salCode: 'ERL', campusCode: 'C01', stage: 'lld', stageLabel: 'LLD submitted, waiting for review; CMO gear kept / replaced and an interim (IMO) switch', modes: true },
+  { code: 'B004', name: 'Training Centre', salCode: 'MUC', campusCode: 'C02', stage: 'bom', stageLabel: 'Package approved by the client, BOM approved, half ordered; a kept CMO switch renamed (old → new), a replaced one, an interim switch', modes: true },
   { code: 'B005', name: 'Lab Building', salCode: 'MUC', campusCode: 'C02', stage: 'deployment', stageLabel: 'Deployment under way; an installed switch renamed by CR-1 (old → new), reprint task for Fiona Field' },
   { code: 'B006', name: 'Head Office', salCode: 'MUC', campusCode: 'C02', stage: 'handover', stageLabel: 'Handed over and accepted by the client (baseline v1.0)' },
 ]
@@ -83,7 +83,9 @@ export async function seedDemo({ agent, mailer, processDocuments, log = () => {}
   log(`organisation, project and ${DEMO_USERS.length} users`)
   const { pm, architect, reviewer, fe } = people
   const send = (who, method, p, body, status) => call(who, method, `${base}${p}`, body, status)
-  const ids = new Map((await send(admin, 'get', '/cmo', undefined, 200)).buildings.map((b) => [b.code, b.id]))
+  const cmoIndex = await send(admin, 'get', '/cmo', undefined, 200)
+  const ids = new Map(cmoIndex.buildings.map((b) => [b.code, b.id]))
+  const salIds = new Map(cmoIndex.sals.map((s) => [s.code, s.id]))
 
   const buildings = []
   for (const b of DEMO_BUILDINGS) {
@@ -111,8 +113,31 @@ export async function seedDemo({ agent, mailer, processDocuments, log = () => {}
     log(`${code}: ${target.hostname} → ${renamed} (CR-${cr.number}), reprint task for the Field Engineer`)
   }
 
+  // M7b-4a/4b (DATA-MODEL §5.21–5.22): two CMO switches imported into the
+  // building — one kept in the FMO (renamed when the LLD is approved), one
+  // replaced by the new Edge — and an interim (IMO) switch with an IMO link to
+  // the Border, for the cutover. Made-up names and serials.
+  async function modeDemo(id, code, salCode, rooms) {
+    const row = (i) => ({ rowIndex: i, hostname: `${code}-OLD-SW-0${i + 1}`, vendor: null, model: 'Legacy Switch 48', serial: `DEMO-${code}-CMO-${i + 1}`, mac: null, building: code, floor: null, room: rooms[i].code, rack: null, ru: null })
+    await send(admin, 'post', '/cmo/import', { salId: salIds.get(salCode), rows: [row(0), row(1)], fileName: `${code}-cmo.xlsx` }, 201)
+    let h = await send(architect, 'get', `/hld/buildings/${id}`, undefined, 200)
+    const [kept, replaced] = h.cmoDevices
+    const edge = h.devices.find((d) => d.role === 'edge')
+    const border = h.devices.find((d) => d.role === 'border')
+    await send(architect, 'put', `/hld/devices/${kept.id}/cmo-decision`, { decision: 'keep', role: 'edge', baseRevision: h.design.revision }, 200)
+    h = await send(architect, 'get', `/hld/buildings/${id}`, undefined, 200)
+    await send(architect, 'put', `/hld/devices/${replaced.id}/cmo-decision`, { decision: 'replace', replacedById: edge.id, baseRevision: h.design.revision }, 200)
+    h = await send(architect, 'get', `/hld/buildings/${id}`, undefined, 200)
+    const { device: temp } = await send(architect, 'post', '/hld/devices', { buildingId: id, role: 'edge', roomId: rooms[1].id, modeState: 'interim', baseRevision: h.design.revision }, 201)
+    h = await send(architect, 'get', `/hld/buildings/${id}`, undefined, 200)
+    const be = h.connections.find((c) => [c.source.deviceId, c.dest.deviceId].includes(border.id) && [c.source.deviceId, c.dest.deviceId].includes(edge.id))
+    await send(architect, 'post', '/hld/uplinks', { buildingId: id, source: { deviceId: border.id }, dest: { deviceId: temp.id }, media: be.media, speed: be.speed, sourceSfpCode: be.sourceSfpCode, destSfpCode: be.destSfpCode, modeState: 'interim', baseRevision: h.design.revision }, 201)
+    log(`${code}: ${kept.hostname} kept, ${replaced.hostname} replaced by ${edge.hostname}, interim switch ${temp.hostname}`)
+    return temp
+  }
+
   // Takes one building from an empty survey to its demo stage.
-  async function advance({ id, code, stage }) {
+  async function advance({ id, code, stage, salCode, modes }) {
     const reached = (s) => STAGES.indexOf(stage) > STAGES.indexOf(s)
 
     // Survey: a floor, two rooms with a rack each, a pathway between them.
@@ -146,6 +171,7 @@ export async function seedDemo({ agent, mailer, processDocuments, log = () => {}
     // HLD: generated from the survey (preset M), submitted, approved.
     const hld = await send(architect, 'get', `/hld/buildings/${id}`, undefined, 200)
     await send(architect, 'post', '/hld/generate', { buildingId: id, preset: 'M', baseRevision: hld.design.revision }, 201)
+    const interim = modes ? await modeDemo(id, code, salCode, rooms) : null
     await send(architect, 'post', '/hld/submit', { buildingId: id, baseRevision: (await send(architect, 'get', `/hld/buildings/${id}`, undefined, 200)).design.revision }, 201)
     if (!reached('hld')) return
     await send(reviewer, 'post', '/hld/decision', { buildingId: id, decision: 'approved' }, 200)
@@ -158,7 +184,8 @@ export async function seedDemo({ agent, mailer, processDocuments, log = () => {}
       return send(architect, method, p, { ...body, baseRevision: v.design.revision }, status)
     }
     v = await send(architect, 'get', `/lld/buildings/${id}`, undefined, 200)
-    const byRole = (role) => v.devices.find((d) => (d.inDesign ?? true) && d.role === role)
+    // The design's own devices by role (interim kit apart).
+    const byRole = (role) => v.devices.find((d) => (d.inDesign ?? true) && d.role === role && d.modeState !== 'interim')
     const linkOf = (a, z) => {
       const pair = [byRole(a).id, byRole(z).id].sort().join()
       return v.connections.find((c) => [c.source.deviceId, c.dest.deviceId].sort().join() === pair)
@@ -176,6 +203,16 @@ export async function seedDemo({ agent, mailer, processDocuments, log = () => {}
       const c = linkOf(a, z)
       const first = c.source.deviceId === byRole(a).id
       await save('patch', `/lld/connections/${c.id}`, { source: { deviceId: c.source.deviceId, portId: first ? ports[0] : ports[1] }, dest: { deviceId: c.dest.deviceId, portId: first ? ports[1] : ports[0] }, cableId, ...(hops ? { hops } : {}) })
+    }
+    if (interim) {
+      // The interim switch placed under the Edge, its IMO link to the Border patched.
+      v = await send(architect, 'get', `/lld/buildings/${id}`, undefined, 200)
+      const temp = v.devices.find((d) => d.hldRef === interim.id)
+      await save('put', `/lld/devices/${temp.id}/placement`, { rackId: racks[1].id, ru: 38, face: 'front' })
+      v = await send(architect, 'get', `/lld/buildings/${id}`, undefined, 200)
+      const link = v.connections.find((c) => [c.source.deviceId, c.dest.deviceId].includes(temp.id))
+      const tempIsSource = link.source.deviceId === temp.id
+      await save('patch', `/lld/connections/${link.id}`, { source: { deviceId: link.source.deviceId, portId: tempIsSource ? 'Te1/1/1' : 'Te1/1/3' }, dest: { deviceId: link.dest.deviceId, portId: tempIsSource ? 'Te1/1/3' : 'Te1/1/1' }, cableId: `${code}-C-BT-1` })
     }
     await save('post', '/lld/submit', { buildingId: id }, 201)
     if (!reached('lld')) return

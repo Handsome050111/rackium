@@ -15,6 +15,8 @@ export const deploymentApi = {
   overrideDguv: (o, p, deviceId, body) => (real ? apiRequest(`${base(o, p)}/deployment/devices/${deviceId}/dguv-override`, { method: 'PUT', body }) : none(null)),
   setStatus: (o, p, deviceId, body) => (real ? apiRequest(`${base(o, p)}/deployment/devices/${deviceId}/status`, { method: 'POST', body }) : none(null)),
   saveConnection: (o, p, connectionId, body) => (real ? apiRequest(`${base(o, p)}/deployment/connections/${connectionId}/installation`, { method: 'PUT', body }) : none(null)),
+  // Removed after cutover (M7b-4b): interim kit, replaced or removed CMO gear.
+  removeAfterCutover: (o, p, deviceId, body = {}) => (real ? apiRequest(`${base(o, p)}/deployment/devices/${deviceId}/removal`, { method: 'POST', body }) : none(null)),
   testConnection: (o, p, connectionId, body) => (real ? apiRequest(`${base(o, p)}/deployment/connections/${connectionId}/test`, { method: 'POST', body }) : none(null)),
   acceptConnection: (o, p, connectionId) => (real ? apiRequest(`${base(o, p)}/deployment/connections/${connectionId}/accept`, { method: 'POST', body: {} }) : none(null)),
   logException: (o, p, body) => (real ? apiRequest(`${base(o, p)}/deployment/exceptions`, { method: 'POST', body }) : none(null)),
@@ -91,8 +93,8 @@ export function cmdbRows(records) {
   }))
 }
 
-// Search across hostname, serial, MAC and cable IDs; filters by status and room.
-export function filterRecords(records, connections, { q = '', status = '', roomCode = '' } = {}) {
+// Search across hostname, serial, MAC and cable IDs; filters by status, room and mode (M7b-4b).
+export function filterRecords(records, connections, { q = '', status = '', roomCode = '', modeState = '' } = {}) {
   const needle = q.trim().toLowerCase()
   const cablesOf = new Map()
   for (const c of connections) {
@@ -104,6 +106,7 @@ export function filterRecords(records, connections, { q = '', status = '', roomC
   return records.filter((r) => {
     if (status && r.status !== status) return false
     if (roomCode && r.roomCode !== roomCode) return false
+    if (modeState && r.modeState !== modeState) return false
     if (!needle) return true
     return [r.hostname, r.label, r.serial, r.mac, r.assetTag, ...(cablesOf.get(r.id) ?? [])].some((v) => v && String(v).toLowerCase().includes(needle))
   })

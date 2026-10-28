@@ -31,6 +31,8 @@ export const handoverApi = {
   retry: (o, p, b) => (real ? apiRequest(`${base(o, p)}/handover/buildings/${b}/retry`, { method: 'POST', body: {} }) : none(null)),
   review: (o, p, b) => (real ? apiRequest(`${base(o, p)}/handover/buildings/${b}/review`, { method: 'POST', body: {} }) : none(null)),
   deliver: (o, p, b, body) => (real ? apiRequest(`${base(o, p)}/handover/buildings/${b}/deliver`, { method: 'POST', body }) : none(null)),
+  // CMO gear kept on site with a reason (M7b-4b); null withdraws it.
+  keepOldGear: (o, p, b, reason) => (real ? apiRequest(`${base(o, p)}/handover/buildings/${b}/old-gear`, { method: 'PUT', body: { reason } }) : none(null)),
 }
 
 // The public link pages: a document as a file (POST keeps the password out of URLs).

@@ -34,6 +34,10 @@ export function deploymentRoutes({ config, deployment }) {
   r.put('/devices/:deviceId/dguv-override', ...base, validate({ params: z.object({ deviceId: hex }), body: C.dguvOverrideBody }), async (req, res) => {
     res.json(await deployment.setDguvOverride(req, req.input.params.deviceId, req.input.body, actorOf(req)))
   })
+  // Removed after cutover (M7b-4b, DATA-MODEL §5.22).
+  r.post('/devices/:deviceId/removal', ...base, validate({ params: z.object({ deviceId: hex }), body: C.cutoverRemovalBody }), async (req, res) => {
+    res.json(await deployment.removeAfterCutover(req, req.input.params.deviceId, req.input.body, actorOf(req)))
+  })
   r.post('/devices/:deviceId/status', ...base, validate({ params: z.object({ deviceId: hex }), body: C.deviceStepBody }), async (req, res) => {
     res.json(await deployment.setDeviceStatus(req, req.input.params.deviceId, req.input.body, actorOf(req)))
   })

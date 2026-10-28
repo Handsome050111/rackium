@@ -66,7 +66,7 @@ export default function RealCmdb() {
   const [view, setView] = useState(null)
   const [error, setError] = useState(null)
   const [notice, setNotice] = useState(null)
-  const [filters, setFilters] = useState({ q: '', status: '', roomCode: '' })
+  const [filters, setFilters] = useState({ q: '', status: '', roomCode: '', modeState: '' })
   const [labels, setLabels] = useState(false)
   const tab = TABS.some((t) => t.id === search.get('tab')) ? search.get('tab') : 'inventory'
   const selectedId = search.get('record')
@@ -219,6 +219,16 @@ export default function RealCmdb() {
                       </option>
                     ))}
                   </select>
+                  {view.modeLabels && (
+                    <select aria-label="Mode" value={filters.modeState} onChange={(e) => setFilters({ ...filters, modeState: e.target.value })} className="h-touch rounded-lg border border-border bg-surface px-2 text-sm">
+                      <option value="">Mode: All</option>
+                      {['current', 'interim', 'future'].map((s) => (
+                        <option key={s} value={s}>
+                          {view.modeLabels[s]}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                   <button type="button" onClick={() => exportCmdbXlsx(cmdbRows(shown), `CMDB-${view.building.code}.xlsx`)} className="inline-flex h-touch items-center gap-1.5 rounded-lg border border-border px-3 text-sm font-medium text-text">
                     <Download size={16} strokeWidth={2} /> Excel
                   </button>
@@ -227,7 +237,7 @@ export default function RealCmdb() {
                   <table className="w-full min-w-max text-left text-xs">
                     <thead>
                       <tr className="border-b border-border bg-surface-muted text-text-secondary">
-                        {['Hostname', 'Role', 'Model', 'Room', 'Rack / RU', 'Serial', 'MAC', 'Status', 'DGUV'].map((h) => (
+                        {['Hostname', 'Mode', 'Role', 'Model', 'Room', 'Rack / RU', 'Serial', 'MAC', 'Status', 'DGUV'].map((h) => (
                           <th key={h} className="whitespace-nowrap px-3 py-2 font-medium">
                             {h}
                           </th>
@@ -238,6 +248,7 @@ export default function RealCmdb() {
                       {shown.map((r) => (
                         <tr key={r.id} onClick={() => go({ record: r.id })} className={`cursor-pointer border-b border-border/60 last:border-0 hover:bg-surface-muted ${selectedId === r.id ? 'bg-brand/5' : ''}`}>
                           <td className="whitespace-nowrap px-3 py-1.5 font-medium text-text">{withLegacyName(r.hostname ?? r.name ?? r.label, r.legacyHostname)}</td>
+                          <td className="whitespace-nowrap px-3 py-1.5 text-text-secondary" data-testid="cmdb-mode">{r.modeLabel ?? '—'}</td>
                           <td className="whitespace-nowrap px-3 py-1.5 text-text-secondary">{r.roleLabel ?? r.category}</td>
                           <td className="whitespace-nowrap px-3 py-1.5 text-text-secondary">{r.model}</td>
                           <td className="whitespace-nowrap px-3 py-1.5 text-text-secondary">{r.roomCode}</td>

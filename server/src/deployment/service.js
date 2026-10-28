@@ -26,6 +26,7 @@ import { procurementLineKeyOf, SERIALISED_CATEGORIES } from '@rackium/shared/bom
 import { buildLocationTree } from '@rackium/shared/locationTree.js'
 import { localDate } from '@rackium/shared/timeZone.js'
 import { deviceDisplayName } from '@rackium/shared/deviceName.js'
+import { cutoverRemovalOf } from '@rackium/shared/modeState.js'
 import { Device } from '../models/device.js'
 import { Connection } from '../models/connection.js'
 import { File } from '../models/file.js'
@@ -134,6 +135,7 @@ export function createDeploymentService({ lld }) {
         face: v.face,
         heightU: v.heightU,
         mounting: v.mounting,
+        modeState: v.modeState,
         status,
         lineKey,
         lineStatus,
@@ -162,7 +164,18 @@ export function createDeploymentService({ lld }) {
       d.openExceptions = exceptions.filter((e) => e.status === 'open' && (String(e.deviceId) === d.id || (e.connectionId && connIds.has(String(e.connectionId))))).length
       d.dguv = dguvStatus({ lastInspectionDate: d.rec?.dguv?.lastInspectionDate ?? null, mainsPowered: d.dguvRequired }, today, time.dguv)
     }
-    return { started: true, frozen, data, devices, deviceById, connections, connsOfDevice, exceptions, nameOf, viewOf, rackOf, roomOf, today, time }
+    // After cutover (DATA-MODEL §5.22): interim kit, and CMO gear the HLD marks
+    // Replace or Remove — removed by the Field Engineer, its record retired.
+    const removals = [
+      ...devices.filter((d) => cutoverRemovalOf(d.view) === 'interim').map((d) => ({ id: d.id, kind: 'interim', label: d.label, roomCode: d.roomCode, rackCode: d.rackCode, status: d.status, rec: d.rec, decision: null })),
+      ...data.views
+        .filter((v) => cutoverRemovalOf(v) === 'cmo')
+        .map((v) => {
+          const rec = recordOf.get(v.id) ?? null
+          return { id: v.id, kind: 'cmo', label: v.label, roomCode: roomOf.get(String(v.roomId))?.code ?? null, rackCode: v.rackCode, status: rec?.status === 'retired' ? 'retired' : 'in_service', rec, decision: v.cmoDecision }
+        }),
+    ]
+    return { started: true, frozen, data, devices, deviceById, connections, connsOfDevice, exceptions, nameOf, viewOf, rackOf, roomOf, today, time, removals }
   }
 
   // The device, checked: a designed device of this building's deployment.
@@ -410,12 +423,15 @@ export function createDeploymentService({ lld }) {
         devices,
         connections,
         exceptions: ctx.exceptions.map((e) => exceptionView(ctx, e, names)),
+        // After cutover (DATA-MODEL §5.22): what is removed, and whether it is gone.
+        removals: ctx.removals.map((r) => ({ id: r.id, kind: r.kind, label: r.label, roomCode: r.roomCode, rackCode: r.rackCode, status: r.status, statusLabel: r.status === 'retired' ? 'Removed' : STATUS_LABELS[r.status] ?? r.status, onSite: INSTALLED_PLUS.has(r.status), removed: r.status === 'retired', removedAt: r.rec?.retired?.at ?? null, removedBy: r.rec?.retired?.byName ?? null, decision: r.decision ? { decision: r.decision.decision, replacedByName: r.decision.replacedByName ?? null } : null })),
         existingDevices: ctx.data.views.filter((v) => v.origin === 'existing').map((v) => ({ id: v.id, label: v.label, hostname: v.hostname, model: v.model, role: v.role, roomId: v.roomId, rackId: v.rackId })),
         floors,
         rooms,
         racks,
         tree: buildLocationTree({ building: { id: building.id, name: `${building.code} ${building.name ?? ''}`.trim() }, floors, rooms, racks, devices: devices.map((d) => ({ id: d.id, hostname: d.hostname, label: d.label, name: d.name, legacyHostname: d.legacyHostname, roomId: d.roomId, rackId: d.rackId, status: d.status, deliveryReady: d.delivery.delivered })) }),
-        pipeline: pipelineStats(devices, connections),
+        // Kit removed after cutover leaves the counts.
+        pipeline: pipelineStats(devices.filter((d) => d.status !== 'retired'), connections.filter((c) => c.status !== 'retired')),
         roomChecklists: roomChecklists({
           devices: ctx.devices.map((d) => ({ roomCode: d.roomCode, role: d.role, passive: d.passive, mainsPowered: d.dguvRequired, dguvRecorded: Boolean(d.rec?.dguv?.lastInspectionDate), rackId: d.rackId, status: d.status })),
           connections: connections.map((c) => ({ roomCode: c.roomCode, media: c.media, status: c.status })),
@@ -427,6 +443,7 @@ export function createDeploymentService({ lld }) {
           overrideDguv: roles.some((r) => rolesAllowed(ACTIONS.MANAGE_DGUV_EXEMPTIONS).includes(r)),
           accept: roles.some((r) => ['pm', 'reviewer'].includes(r)),
           reviewExceptions: roles.some((r) => ['pm', 'reviewer'].includes(r)),
+          remove: roles.includes('field_engineer'),
         },
       }
     },
@@ -601,6 +618,55 @@ export function createDeploymentService({ lld }) {
         await audit(req, building, actor, 'deployment.dguv.override', { objectType: 'Device', objectId: d.id, comment: next ? `${d.label}: DGUV ${describe(next)}` : `${d.label}: DGUV back to the model's default`, changes: [{ objectType: 'Device', objectId: d.id, field: 'dguvOverride', before: describe(current), after: describe(next) }], session })
       })
       return { device: await deviceDetail(req, d.id) }
+    },
+
+    // Removed after cutover (DATA-MODEL §5.22; Field Engineer): interim kit on
+    // site, or CMO gear the HLD marks Replace or Remove. The retire path of a
+    // change request: the record retired with who and why, the serial and MAC
+    // released, its patched links retired, open exceptions closed; CMO gear's
+    // own record goes to retired too. Audited.
+    async removeAfterCutover(req, deviceId, body, actor) {
+      const roles = await rolesOf(req)
+      requireRole(roles, ['field_engineer'], 'Only the Field Engineer records a removal')
+      const device = mongoose.isValidObjectId(deviceId) ? await Device.findById(deviceId).lean() : null
+      if (!device?.buildingId) throw notFound('Device not found')
+      const building = await requireBuilding(req, device.buildingId)
+      await writable(building)
+      const ctx = await load(req, building)
+      if (!ctx.started) throw conflict('lld_not_started', 'This building has no LLD yet')
+      requireFrozen(ctx)
+      const r = ctx.removals.find((x) => x.id === String(device._id))
+      if (!r) throw conflict('not_for_removal', `${deviceDisplayName(device, 'This device')} stays after cutover — only interim kit and CMO gear marked Replace or Remove are removed`)
+      if (r.status === 'retired') throw conflict('already_removed', `${r.label} was already removed`)
+      if (r.kind === 'interim' && !INSTALLED_PLUS.has(r.status)) throw conflict('not_installed', `${r.label} is not installed — there is nothing on site to remove`)
+      const actorName = (await namesOf([actor.userId])).get(String(actor.userId)) ?? null
+      const reason = body.note ? `Removed after cutover: ${body.note}` : 'Removed after cutover'
+      const serial = (r.kind === 'cmo' ? device.installation?.serial : r.rec?.installation?.serial) ?? null
+      const mac = (r.kind === 'cmo' ? device.installation?.mac : r.rec?.installation?.mac) ?? null
+      await withTransaction(async (session) => {
+        const now = new Date()
+        const retired = { at: now, reason, label: r.label, previousStatus: r.status, serial, mac, byName: actorName, cutover: true }
+        const history = { status: 'retired', by: actor.userId, byName: actorName, at: now, note: reason }
+        if (r.rec) {
+          const done = await DeploymentRecord.updateOne({ _id: r.rec._id, status: r.rec.status }, { $set: { status: 'retired', retired, 'installation.serial': null, 'installation.mac': null, updatedAt: now }, $push: { history }, $inc: { version: 1 } }, { session })
+          if (!done.modifiedCount) throw conflict('stale_status', 'The device changed since you loaded it — reload')
+        } else {
+          await DeploymentRecord.create([{ buildingId: building.id, deviceId: device._id, status: 'retired', retired, history: [history] }], { session })
+        }
+        if (r.kind === 'cmo') await Device.updateOne({ _id: device._id }, { $set: { status: 'retired' } }, { session })
+        await SerialRegistry.deleteMany({ ownerType: 'device', ownerId: device._id }, { session })
+        const links = ctx.connsOfDevice(r.id).filter((c) => c.rec && c.rec.status !== 'retired')
+        for (const c of links) await ConnectionRecord.updateOne({ _id: c.rec._id }, { $set: { status: 'retired', retiredAt: now, updatedAt: now } }, { session })
+        await DeploymentException.updateMany({ deviceId: device._id, status: 'open' }, { $set: { status: 'superseded', closedAt: now } }, { session })
+        await audit(req, building, actor, 'deployment.device.removed', {
+          objectType: 'Device',
+          objectId: r.id,
+          comment: `${r.label} ${reason.toLowerCase()}${links.length ? `; ${links.length} link(s) with it` : ''}${serial ? `; serial ${serial} released` : ''}`,
+          changes: [{ objectType: 'Device', objectId: r.id, field: 'status', before: r.status, after: 'retired' }, ...(serial ? [{ objectType: 'Device', objectId: r.id, field: 'installation.serial', before: serial, after: null }] : []), ...links.map((c) => ({ objectType: 'Connection', objectId: c.id, field: 'status', before: c.rec.status, after: 'retired' }))],
+          session,
+        })
+      })
+      return { removed: r.id }
     },
 
     // Installed → Configured → Tested (Field Engineer) → Accepted (PM / Reviewer).
@@ -813,6 +879,11 @@ export async function deploymentStatusesByBuilding(session = null) {
   const total = new Map(designed.map((d) => [String(d._id), d.n]))
   const devices = await Device.find({ _id: { $in: records.map((r) => r.deviceId) }, layer: 'lld' }, { _id: 1 }).session(session).lean()
   const live = new Set(devices.map((d) => String(d._id)))
+  // Kit removed after cutover (DATA-MODEL §5.22) is designed but no longer awaited.
+  const removedRows = await DeploymentRecord.find({ status: 'retired', 'retired.cutover': true }, { buildingId: 1, deviceId: 1 }).session(session).lean()
+  const removedLive = await Device.find({ _id: { $in: removedRows.map((r) => r.deviceId) }, layer: 'lld' }, { buildingId: 1 }).session(session).lean()
+  const removedBy = new Map()
+  for (const d of removedLive) removedBy.set(String(d.buildingId), (removedBy.get(String(d.buildingId)) ?? 0) + 1)
   const byBuilding = new Map()
   for (const r of records) {
     if (!live.has(String(r.deviceId))) continue // a change request removed the device
@@ -826,7 +897,7 @@ export async function deploymentStatusesByBuilding(session = null) {
   const progress = new Map()
   for (const [buildingId, list] of byBuilding) {
     const accepted = list.filter((d) => ['accepted', 'in_service', 'maintenance'].includes(d.status)).length
-    const designedCount = total.get(buildingId) ?? list.length
+    const designedCount = (total.get(buildingId) ?? list.length) - (removedBy.get(buildingId) ?? 0)
     progress.set(buildingId, designedCount > 0 ? Math.min(1, accepted / designedCount) : 0)
     deployment.set(buildingId, accepted >= designedCount && designedCount > 0 ? 'completed' : 'in_progress')
     cmdb.set(buildingId, cmdbPhaseStatus(designedCount, accepted))

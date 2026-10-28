@@ -366,7 +366,7 @@ describe('Handover workflow (brief v2.3 §5.9)', () => {
     const docId = (key, format = 'pdf') => view.documents.find((d) => d.key === key).files.find((f) => f.format === format).document.id
     expect((await pdfPages(await download(p, p.admin.agent, docId('deployment-report')))).join('\n')).toContain('Installation records')
     expect((await pdfPages(await download(p, p.admin.agent, docId('as-built')))).join('\n')).toContain('The installation matches the frozen design field by field.')
-    expect((await download(p, p.admin.agent, docId('cmdb-extract', 'csv'))).toString()).toContain('Hostname,Legacy hostname,Role,Model')
+    expect((await download(p, p.admin.agent, docId('cmdb-extract', 'csv'))).toString()).toContain('Hostname,Legacy hostname,Mode,Role,Model')
     // Review (PM or Reviewer), then delivery (PM) with a share link.
     await p.fe.post(`${H}/review`).expect(403)
     expectStatus(await p.reviewer.post(`${H}/review`), 200)

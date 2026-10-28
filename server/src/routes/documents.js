@@ -144,6 +144,10 @@ export function handoverRoutes({ config, handover }) {
   r.post('/buildings/:buildingId/review', ...base, validate({ params: b }), async (req, res) => {
     res.json(await handover.review(req, req.input.params.buildingId, actorOf(req)))
   })
+  // CMO gear kept on site with a reason (M7b-4b, DATA-MODEL §5.22).
+  r.put('/buildings/:buildingId/old-gear', ...base, validate({ params: b, body: C.oldGearOverrideBody }), async (req, res) => {
+    res.json(await handover.keepOldGear(req, req.input.params.buildingId, req.input.body, actorOf(req)))
+  })
   r.post('/buildings/:buildingId/deliver', ...base, validate({ params: b, body: C.handoverDeliverBody }), async (req, res) => {
     res.status(201).json(await handover.deliver(req, req.input.params.buildingId, req.input.body, actorOf(req)))
   })
