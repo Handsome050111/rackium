@@ -49,6 +49,13 @@ export function hldRoutes({ config, hld }) {
   r.delete('/devices/:id', ...base, edit, validate({ params: idParam, query: C.hldRevisionQuery }), async (req, res) => {
     res.json(await hld.deleteDevice(req, req.input.params.id, req.input.query, actorOf(req)))
   })
+  // Decisions on existing (CMO) gear (DATA-MODEL §5.21): Keep, Replace or Remove.
+  r.put('/devices/:id/cmo-decision', ...base, edit, validate({ params: idParam, body: C.hldCmoDecisionBody }), async (req, res) => {
+    res.json(await hld.setCmoDecision(req, req.input.params.id, req.input.body, actorOf(req)))
+  })
+  r.delete('/devices/:id/cmo-decision', ...base, edit, validate({ params: idParam, query: C.hldCmoDecisionClearQuery }), async (req, res) => {
+    res.json(await hld.clearCmoDecision(req, req.input.params.id, req.input.query, actorOf(req)))
+  })
   r.put('/devices/:id/position', ...base, edit, validate({ params: idParam, body: C.hldPositionBody }), async (req, res) => {
     res.json(await hld.moveDevice(req, req.input.params.id, req.input.body, actorOf(req)))
   })

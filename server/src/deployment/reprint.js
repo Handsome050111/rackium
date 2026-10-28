@@ -4,6 +4,7 @@ import { Building } from '../models/building.js'
 import { Connection } from '../models/connection.js'
 import { ConnectionRecord } from '../models/connectionRecord.js'
 import { DeploymentRecord } from '../models/deploymentRecord.js'
+import { Device } from '../models/device.js'
 import { recordAudit, systemActor } from '../audit/audit.js'
 import { notifyQuietly, paths, projectMembers } from '../notifications/notify.js'
 import { buildingWithScopeIds } from '../access/scope.js'
@@ -14,20 +15,25 @@ const ON_SITE = ['installed', 'configured', 'tested', 'accepted', 'in_service', 
 const NOTES_MAX = 2000
 
 // The reprint-label task, the closing step of a rename (addendum v2.3 Q5;
-// DATA-MODEL §5.19): created in the client approval's transaction when the
-// change request renamed devices that are already installed — one per change
-// request. `renamed`: [{ deviceId, from, to }] from applyChangeRequest;
-// `sentBy`: the PM who sent the change request to the client.
-export async function createReprintTask({ organisationId, projectId, building, changeRequest, renamed, sentBy, session }) {
+// DATA-MODEL §5.19): created in the approval's transaction when devices on
+// site were renamed — one per change request (the client's approval), or per
+// LLD approval that renamed kept CMO gear (M7b-4a, §5.21). `renamed`:
+// [{ deviceId, from, to }]; `sentBy`: the PM who sent the change request, or
+// the LLD's approver. Existing (CMO) gear is on site by definition.
+export async function createReprintTask({ organisationId, projectId, building, changeRequest = null, approval = null, renamed, sentBy, session }) {
   if (!renamed?.length) return null
-  const onSite = new Set((await DeploymentRecord.find({ deviceId: { $in: renamed.map((r) => oid(r.deviceId)) }, status: { $in: ON_SITE } }, { deviceId: 1 }).session(session).lean()).map((r) => String(r.deviceId)))
+  const ids = renamed.map((r) => oid(r.deviceId))
+  const installed = (await DeploymentRecord.find({ deviceId: { $in: ids }, status: { $in: ON_SITE } }, { deviceId: 1 }).session(session).lean()).map((r) => String(r.deviceId))
+  const existing = (await Device.find({ _id: { $in: ids }, origin: 'existing' }, { _id: 1 }).session(session).lean()).map((d) => String(d._id))
+  const onSite = new Set([...installed, ...existing])
   const due = renamed.filter((r) => onSite.has(r.deviceId))
   if (!due.length) return null
-  if (await Task.exists({ kind: 'reprint_labels', relatedObjectId: String(changeRequest._id) }).session(session)) return null
+  const sourceId = String((changeRequest ?? approval)._id)
+  if (await Task.exists({ kind: 'reprint_labels', relatedObjectId: sourceId }).session(session)) return null
 
   // Every link of the frozen LLD with an end or a patch-panel hop on a renamed device.
-  const ids = new Set(due.map((r) => r.deviceId))
-  const touches = (c) => ids.has(String(c.source.deviceId)) || ids.has(String(c.dest.deviceId)) || (c.hops ?? []).some((h) => ids.has(String(h.patchPanelId)))
+  const dueIds = new Set(due.map((r) => r.deviceId))
+  const touches = (c) => dueIds.has(String(c.source.deviceId)) || dueIds.has(String(c.dest.deviceId)) || (c.hops ?? []).some((h) => dueIds.has(String(h.patchPanelId)))
   const connections = (await Connection.find({ buildingId: oid(building.id), layer: 'lld' }).session(session).lean()).filter(touches)
   // The cable IDs on site: as recorded at patching, else as designed.
   const records = new Map((await ConnectionRecord.find({ connectionId: { $in: connections.map((c) => c._id) } }).session(session).lean()).map((r) => [String(r.connectionId), r]))
@@ -44,11 +50,11 @@ export async function createReprintTask({ organisationId, projectId, building, c
   const [task] = await Task.create(
     [
       {
-        title: `Reprint labels — CR-${changeRequest.number}: ${due.length} renamed device(s)`.slice(0, 200),
+        title: `Reprint labels — ${changeRequest ? `CR-${changeRequest.number}` : `LLD of ${building.code}`}: ${due.length} renamed device(s)`.slice(0, 200),
         kind: 'reprint_labels',
-        relatedObjectType: 'change_request',
-        relatedObjectId: String(changeRequest._id),
-        relatedLabel: `CR-${changeRequest.number} ${changeRequest.title}`,
+        relatedObjectType: changeRequest ? 'change_request' : null,
+        relatedObjectId: sourceId,
+        relatedLabel: changeRequest ? `CR-${changeRequest.number} ${changeRequest.title}` : `LLD of ${building.code} approved`,
         buildingId: building.id,
         phaseKey: 'deployment',
         assignedTo,
@@ -60,7 +66,7 @@ export async function createReprintTask({ organisationId, projectId, building, c
     ],
     { session }
   )
-  await recordAudit({ organisationId, projectId, buildingId: building.id, phaseKey: 'deployment', actor: systemActor(), action: 'task.created', objectType: 'Task', objectId: task._id, changeType: 'system', source: 'system', comment: `${task.title} (on the client's approval of CR-${changeRequest.number})`, session })
+  await recordAudit({ organisationId, projectId, buildingId: building.id, phaseKey: 'deployment', actor: systemActor(), action: 'task.created', objectType: 'Task', objectId: task._id, changeType: 'system', source: 'system', comment: `${task.title} (${changeRequest ? `on the client's approval of CR-${changeRequest.number}` : `on the approval of the LLD of ${building.code}`})`, session })
   return task
 }
 

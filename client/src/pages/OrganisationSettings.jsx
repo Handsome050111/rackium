@@ -12,6 +12,7 @@ import FieldHelpSection from '../components/FieldHelpSection.jsx'
 import { LogoField } from '../components/documents/BrandingSettings.jsx'
 import { documentsApi } from '../api/documentsApi.js'
 import { canIn } from '../lib/realRoles.js'
+import ModeLabelsForm from '../components/ModeLabelsForm.jsx'
 
 function Section({ title, description, children }) {
   return (
@@ -138,6 +139,19 @@ export default function OrganisationSettings() {
           />
         )}
       </Section>
+
+      {settings?.modeLabels && (
+        <ModeLabelsForm
+          title="Mode state labels"
+          own={Object.fromEntries(Object.entries(settings.modeLabels).map(([s, v]) => [s, v === settings.defaultModeLabels[s] ? null : v]))}
+          inherited={settings.defaultModeLabels}
+          canEdit
+          onSave={async (modeLabels) => {
+            const res = await organisationApi.updateSettings(orgId, { modeLabels })
+            setSettings(res.settings)
+          }}
+        />
+      )}
 
       <Section title="Cable stock lengths" description="Suggested cable lengths in the LLD round up to the next stock length; longer runs need a custom length.">
         {settings?.stockLengths && (

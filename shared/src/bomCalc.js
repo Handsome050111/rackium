@@ -12,6 +12,7 @@
 // Each line carries its source tag (Survey / HLD / LLD) and a reason.
 import { selectPowerCord } from './powerCords.js'
 import { expandPortMap } from './catalogue.js'
+import { DEFAULT_MODE_LABELS, modeOf } from './modeState.js'
 
 export const SERIALISED_CATEGORIES = ['switch', 'router', 'firewall', 'ap', 'wlc', 'server', 'ups', 'pdu', 'probe']
 // Provided by the client or a carrier, never procured.
@@ -76,6 +77,9 @@ export function buildBom(design, context) {
   const cat = catalogueLookup(context.catalogue ?? [])
   const rackById = new Map(racks.map((r) => [String(r.id), r]))
   const designTag = (record) => (stage === 'hld' ? 'HLD' : record?.hldRef ? 'HLD' : 'LLD')
+  // Interim kit is bought like the rest, and says so in its reason (M7b-4a, DATA-MODEL §5.21).
+  const labels = { ...DEFAULT_MODE_LABELS, ...(context.modeLabels ?? {}) }
+  const interim = (record) => (modeOf(record) === 'interim' ? ` — Interim (${labels.interim})` : '')
   const lines = []
   const calc = []
   const consumables = new Map()
@@ -110,10 +114,10 @@ export function buildBom(design, context) {
         unit: 'Each',
         qty: 1,
         source: designTag(d),
-        reasons: [`Planned ${d.role ?? category} in the ${stage === 'hld' ? 'HLD' : 'LLD'}`],
+        reasons: [`Planned ${d.role ?? category} in the ${stage === 'hld' ? 'HLD' : 'LLD'}${interim(d)}`],
       })
     } else {
-      addConsumable({ key: `item:${lower(item?.key ?? d.catalogueKey ?? d.label)}`, category: 'Power & accessories', item: item?.model ?? d.model ?? d.label ?? 'Accessory', catalogueKey: item?.key ?? d.catalogueKey ?? null, spec: item?.description ?? category ?? '', qty: 1, source: designTag(d), reason: `${d.label ?? name}${d.rackCode ? ` in ${d.rackCode}` : ''}` })
+      addConsumable({ key: `item:${lower(item?.key ?? d.catalogueKey ?? d.label)}`, category: 'Power & accessories', item: item?.model ?? d.model ?? d.label ?? 'Accessory', catalogueKey: item?.key ?? d.catalogueKey ?? null, spec: item?.description ?? category ?? '', qty: 1, source: designTag(d), reason: `${d.label ?? name}${d.rackCode ? ` in ${d.rackCode}` : ''}${interim(d)}` })
     }
     // Uplink module, PSUs and power cords for a powered model.
     if (!item) continue
@@ -151,7 +155,7 @@ export function buildBom(design, context) {
     for (const code of [c.sourceSfpCode, c.destSfpCode]) {
       if (!code) continue
       const optic = cat.item(code)
-      addConsumable({ key: `optic:${lower(code)}`, category: 'Optics & fibre', item: optic?.model ?? code, catalogueKey: optic?.key ?? code, spec: optic?.mediaSpeed ? `${optic.mediaSpeed.speed} ${MEDIA_LABEL[optic.mediaSpeed.media] ?? optic.mediaSpeed.media} optic` : 'Optic', qty: 1, source: designTag(c), reason: `link end ${c.cableId ?? c.id}` })
+      addConsumable({ key: `optic:${lower(code)}`, category: 'Optics & fibre', item: optic?.model ?? code, catalogueKey: optic?.key ?? code, spec: optic?.mediaSpeed ? `${optic.mediaSpeed.speed} ${MEDIA_LABEL[optic.mediaSpeed.media] ?? optic.mediaSpeed.media} optic` : 'Optic', qty: 1, source: designTag(c), reason: `link end ${c.cableId ?? c.id}${interim(c)}` })
     }
   }
 
@@ -176,13 +180,13 @@ export function buildBom(design, context) {
           spec: effective != null ? `${effective} m` : 'Length pending (place both ends)',
           qty: 1,
           source: stage === 'hld' ? 'HLD' : 'LLD',
-          reason: `${name} at ${effective ?? '—'} m (${seg.engineerSelectedM != null ? 'Engineer Selected' : 'Suggested'})`,
+          reason: `${name} at ${effective ?? '—'} m (${seg.engineerSelectedM != null ? 'Engineer Selected' : 'Suggested'})${interim(c)}`,
           lengthM: effective,
         })
       }
     } else if (c.media === 'stack' || c.media === 'dac') {
       const item = cat.find((i) => i.kind === 'optic' && i.mediaSpeed?.media === c.media)
-      addConsumable({ key: `cable:${c.media}`, category: 'Cables', item: item?.model ?? `${MEDIA_LABEL[c.media]} cable`, catalogueKey: item?.key ?? null, spec: c.media === 'stack' ? 'Stacking cable' : 'Direct-attach copper', qty: 1, source: designTag(c), reason: `${c.cableId ?? 'connection'} (${MEDIA_LABEL[c.media]})` })
+      addConsumable({ key: `cable:${c.media}`, category: 'Cables', item: item?.model ?? `${MEDIA_LABEL[c.media]} cable`, catalogueKey: item?.key ?? null, spec: c.media === 'stack' ? 'Stacking cable' : 'Direct-attach copper', qty: 1, source: designTag(c), reason: `${c.cableId ?? 'connection'} (${MEDIA_LABEL[c.media]})${interim(c)}` })
     }
   }
 

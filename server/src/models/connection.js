@@ -62,6 +62,10 @@ const connectionSchema = new mongoose.Schema({
     installedM: { type: Number, default: null },
   },
   status: { type: String, enum: ['designed', 'approved', 'installed', 'tested', 'accepted', 'in_service', 'faulty', 'decommissioned'], default: 'designed' },
+  // Mode state (M7b-4a, DATA-MODEL §5.21): `current`, `interim` or `future`
+  // (labels are configuration). Null on rows from before M7b-4: a link
+  // reads as future (shared/modeState.js modeOf).
+  modeState: { type: String, enum: ['current', 'interim', 'future', null], default: null },
   testResult: { type: String, enum: ['pass', 'fail', null], default: null },
   createdBy: { type: ObjectId, default: null },
   createdAt: { type: Date, default: () => new Date() },

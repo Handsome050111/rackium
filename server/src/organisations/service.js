@@ -1,6 +1,7 @@
 import mongoose from 'mongoose'
 import { PROJECT_ROLES, ORG_ROLE, ORG_MEMBER_ROLE, canCreateProjects } from '@rackium/shared/policy.js'
 import { computeOverallProgress } from '@rackium/shared/phaseCalculations.js'
+import { DEFAULT_MODE_LABELS, MODE_STATES, resolveModeLabels } from '@rackium/shared/modeState.js'
 import { Membership } from '../models/membership.js'
 import { Invitation } from '../models/invitation.js'
 import { Project } from '../models/project.js'
@@ -102,6 +103,9 @@ function settingsView(org) {
     defaultDguv: DEFAULT_DGUV,
     // M6b: whether a logo is set (the screen loads it only then).
     hasLogo: Boolean(org.settings?.logo?.storageKey),
+    // M7b-4a: the state labels (DATA-MODEL §5.21), over the defaults.
+    modeLabels: resolveModeLabels(org.settings?.modeLabels),
+    defaultModeLabels: DEFAULT_MODE_LABELS,
   }
 }
 
@@ -313,6 +317,8 @@ export function createOrganisationService({ mailer, auth }) {
       if (body.timeZone !== undefined) org.set('settings.timeZone', body.timeZone)
       if (body.digestTime !== undefined) org.set('settings.digestTime', body.digestTime)
       if (body.dguv !== undefined) org.set('settings.dguv', body.dguv)
+      // A label equal to the default is stored as no override.
+      for (const state of MODE_STATES) if (body.modeLabels?.[state] !== undefined) org.set(`settings.modeLabels.${state}`, body.modeLabels[state] && body.modeLabels[state] !== DEFAULT_MODE_LABELS[state] ? body.modeLabels[state] : null)
       await org.save()
       const after = settingsView(org.toObject())
       const changes = [
@@ -324,6 +330,7 @@ export function createOrganisationService({ mailer, auth }) {
         ...diffChanges({ objectType: 'Organisation', objectId: org._id, before, after, fields: ['timeZone', 'digestTime'] }),
         ...['intervalMonths', 'expiringSoonDays', 'expiringDays'].filter((f) => before.dguv[f] !== after.dguv[f]).map((f) => ({ objectType: 'Organisation', objectId: String(org._id), field: `dguv.${f}`, before: before.dguv[f], after: after.dguv[f] })),
         ...['front', 'rear'].filter((f) => before.cageNutsPerRu[f] !== after.cageNutsPerRu[f]).map((f) => ({ objectType: 'Organisation', objectId: String(org._id), field: `cageNutsPerRu.${f}`, before: before.cageNutsPerRu[f], after: after.cageNutsPerRu[f] })),
+        ...MODE_STATES.filter((s) => before.modeLabels[s] !== after.modeLabels[s]).map((s) => ({ objectType: 'Organisation', objectId: String(org._id), field: `modeLabels.${s}`, before: before.modeLabels[s], after: after.modeLabels[s] })),
       ]
       if (changes.length) {
         await recordAudit({

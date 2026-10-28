@@ -148,7 +148,7 @@ export default function ChangeRequestsPanel({ orgId, projectId, buildingId, pack
             <>
               <div className="font-semibold text-text">Design changes ({detail.impact.design.total})</div>
               {detail.impact.design.hld && (
-                <DesignDiff columns={DIFF_COLUMNS} sections={[{ title: 'HLD devices', data: detail.impact.design.hld.devices }, { title: 'HLD uplinks', data: detail.impact.design.hld.connections }]} empty="No HLD change." />
+                <DesignDiff columns={DIFF_COLUMNS} sections={[{ title: 'HLD devices', data: detail.impact.design.hld.devices }, { title: 'HLD uplinks', data: detail.impact.design.hld.connections }, ...(detail.impact.design.hld.decisions ? [{ title: 'Decisions on existing gear', data: detail.impact.design.hld.decisions }] : [])]} empty="No HLD change." />
               )}
               <DesignDiff columns={DIFF_COLUMNS} sections={[{ title: detail.impact.design.hld ? 'LLD devices' : 'Devices', data: detail.impact.design.devices }, { title: detail.impact.design.hld ? 'LLD connections' : 'Connections', data: detail.impact.design.connections }]} empty="No LLD change yet — edit the design on its branch." />
               <div className="font-semibold text-text">BOM impact ({detail.impact.bom.total})</div>

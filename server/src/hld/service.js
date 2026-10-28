@@ -11,6 +11,9 @@ import { generateFromBlueprint, BLUEPRINT_PRESETS, BLUEPRINT_VARIANTS, blueprint
 import { validateHld, uplinkChecks, summariseFindings, portSuitsMedia } from '@rackium/shared/hldRules.js'
 import { canApproveSubmission, rolesAllowed, ACTIONS } from '@rackium/shared/policy.js'
 import { deviceDisplayName } from '@rackium/shared/deviceName.js'
+import { modeOf, isCmoDevice } from '@rackium/shared/modeState.js'
+import { CmoDecision } from '../models/cmoDecision.js'
+import { modeLabelsOf, decisionsOf, decisionView, copyDecisions, dropDecisions } from './cmoDecisions.js'
 import { DesignBranch } from '../models/designBranch.js'
 import { ChangeRequest } from '../models/changeRequest.js'
 import { assertChangeRequestEditable, claimBranchRevision } from '../design/branchClaim.js'
@@ -90,7 +93,10 @@ async function loadDesign(buildingId, projectId, session = null, branchId = null
   const occupancy = await PortOccupancy.find({ layer: layerFilter(branchId), deviceId: { $in: devices.map((d) => d._id) } }, { deviceId: 1 }).session(session).lean()
   const catalogue = await projectCatalogue(projectId)
   const pathways = pathwayRows.map((p) => ({ fromRoomId: String(p.roomLowId), toRoomId: String(p.roomHighId), routeStatus: p.routeStatus, distanceM: p.distanceM ?? null }))
-  return { floors, rooms, racks, devices, connections, archived, positions, pathways, catalogue, occupancy }
+  // What this layer decides for the existing (CMO) gear, and the state labels (DATA-MODEL §5.21).
+  const decisions = await decisionsOf(buildingId, hldLayerOf(branchId), session)
+  const modeLabels = await modeLabelsOf(session)
+  return { floors, rooms, racks, devices, connections, archived, positions, pathways, catalogue, occupancy, decisions, modeLabels }
 }
 
 function catalogueIndex(catalogue) {
@@ -158,6 +164,10 @@ const toDeviceView = (d, cat, positions) => {
     roleLabel: info?.label ?? null,
     hostname: d.hostname ?? null,
     label: deviceDisplayName(d, info?.label ?? 'Device'),
+    legacyHostname: d.legacyHostname ?? null,
+    // Mode state (DATA-MODEL §5.21); `cmo`: an imported CMO device, which gets a decision.
+    modeState: modeOf(d),
+    ...(d.origin === 'existing' ? { cmo: isCmoDevice(d) } : {}),
     catalogueKey: d.catalogueKey ?? null,
     model: d.model ?? null,
     category: cat.item(d.catalogueKey)?.category ?? null,
@@ -191,13 +201,15 @@ const toConnectionView = (c, length) => ({
   lengths: { suggestedM: length.suggestedM, engineerSelectedM: c.lengths?.engineerSelectedM ?? null },
   length,
   status: c.status,
+  modeState: modeOf(c),
 })
 
 // Everything the rules need, from loaded data.
 function ruleInputs(data) {
   const cat = catalogueIndex(data.catalogue)
   const rackPos = rackPositions(data.racks)
-  const deviceViews = data.devices.map((d) => ({ ...toDeviceView(d, cat), face: d.face ?? 'front', fullDepth: Boolean(d.fullDepth), label: deviceDisplayName(d, roleInfo(d.role)?.label ?? 'device') }))
+  const decided = decisionsByDevice(data)
+  const deviceViews = data.devices.map((d) => ({ ...toDeviceView(d, cat), face: d.face ?? 'front', fullDepth: Boolean(d.fullDepth), label: deviceDisplayName(d, roleInfo(d.role)?.label ?? 'device'), ...(d.origin === 'existing' ? { cmoDecision: decided.get(String(d._id)) ?? null } : {}) }))
   const deviceById = new Map(deviceViews.map((d) => [d.id, d]))
   const connections = data.connections.map((c) => toConnectionView(c, lengthOf(c, deviceById, rackPos, data.pathways)))
   const ctx = {
@@ -205,17 +217,28 @@ function ruleInputs(data) {
     itemOf: (d) => cat.item(d.catalogueKey),
     opticOf: (code) => cat.optic(code),
     patchPanelFreePorts: patchPanelCounter(data, cat),
+    modeLabels: data.modeLabels,
   }
   return { cat, rackPos, deviceViews, deviceById, connections, ctx }
+}
+
+// The layer's decisions on existing gear by device, as views (DATA-MODEL §5.21).
+function decisionsByDevice(data) {
+  const nameOfDevice = (deviceId) => {
+    const d = data.devices.find((x) => String(x._id) === deviceId)
+    return d ? deviceDisplayName(d, roleInfo(d.role)?.label ?? 'device') : null
+  }
+  return new Map((data.decisions ?? []).map((x) => [String(x.deviceId), decisionView(x, nameOfDevice)]))
 }
 
 function runValidation(data) {
   const { deviceViews, connections, ctx } = ruleInputs(data)
   const racks = data.racks.map((r) => ({ id: String(r._id), code: r.code, heightU: r.heightU, maxLoadKg: r.details?.maxLoadKg ?? null }))
+  const cmoDevices = deviceViews.filter((d) => d.cmo)
   const cmoUnplaced = data.devices.filter((d) => d.origin === 'existing' && d.importBatchId && !d.rackId).map((d) => ({ id: String(d._id), label: d.hostname ?? d.installation?.serial ?? 'device' }))
   const createdAt = new Map(data.connections.map((c) => [String(c._id), c.createdAt]))
   const broken = (data.archived ?? []).filter((c) => c.archived.tool === 'break').map((c) => ({ id: String(c._id), sourceDeviceId: String(c.source.deviceId), destDeviceId: String(c.dest.deviceId), sourceName: c.archived.sourceName, destName: c.archived.destName, reason: c.archived.reason, at: c.archived.at }))
-  const findings = validateHld({ devices: deviceViews, connections: connections.map((c) => ({ ...c, ...c.length, createdAt: createdAt.get(c.id) })), racks, cmoUnplaced, broken }, ctx)
+  const findings = validateHld({ devices: deviceViews, connections: connections.map((c) => ({ ...c, ...c.length, createdAt: createdAt.get(c.id) })), racks, cmoUnplaced, broken, cmoDevices }, ctx)
   return { findings, summary: summariseFindings(findings) }
 }
 
@@ -351,13 +374,17 @@ export async function hldDesignSnapshot(buildingId, projectId, { branchId = null
   const planned = data.devices.filter((d) => d.origin === 'planned')
   const devices = planned.map((d) => toDeviceView(d, cat, data.positions))
   const connections = data.connections.map((c) => toConnectionView(c, lengthOf(c, deviceById, rackPos, data.pathways)))
-  if (!branchId) return { devices, connections }
+  // The decisions on existing gear (DATA-MODEL §5.21): a change request may change only these.
+  const existingName = new Map(data.devices.filter((d) => d.origin === 'existing').map((d) => [String(d._id), deviceDisplayName(d, 'device')]))
+  const decisions = (main) => (data.decisions ?? []).map((x) => ({ deviceId: String(x.deviceId), name: existingName.get(String(x.deviceId)) ?? 'device', decision: x.decision, hostname: x.hostname ?? null, replacedById: x.replacedById ? main(String(x.replacedById)) : null }))
+  if (!branchId) return { devices, connections, cmoDecisions: decisions((x) => x) }
   const main = new Map(planned.map((d) => [String(d._id), d.originId ? String(d.originId) : String(d._id)]))
   const conn = new Map(data.connections.map((c) => [String(c._id), c.originId ? String(c.originId) : String(c._id)]))
   const m = (x) => main.get(String(x)) ?? String(x)
   return {
     devices: devices.map((d) => ({ ...d, id: m(d.id) })),
     connections: connections.map((c) => ({ ...c, id: conn.get(c.id) ?? c.id, source: { ...c.source, deviceId: m(c.source.deviceId) }, dest: { ...c.dest, deviceId: m(c.dest.deviceId) } })),
+    cmoDecisions: decisions(m),
   }
 }
 
@@ -384,6 +411,7 @@ export async function copyHldIntoBranch({ building, branchId, projectId, session
     await takePorts(doc, devices, session, layer)
     await registerCableId(doc, session, layer)
   }
+  await copyDecisions({ buildingId: building.id, from: 'hld', to: layer, mapId: (x) => String(idMap.get(x) ?? x), session })
 }
 
 // Removes a branch's HLD layer (a rejected or withdrawn change request).
@@ -395,6 +423,7 @@ export async function discardHldBranch({ building, branchId, session }) {
   await CanvasPosition.deleteMany({ objectType: 'device', objectId: { $in: devices } }, { session })
   await Connection.deleteMany({ buildingId: building.id, layer }, { session })
   await Device.deleteMany({ buildingId: building.id, layer }, { session })
+  await dropDecisions({ buildingId: building.id, layer, session })
 }
 
 // An approved change request: the branch's HLD replaces the building's main
@@ -442,18 +471,21 @@ export async function promoteHldBranch({ building, branchId, projectId, session 
     await takePorts(doc, devices, session, 'hld')
     await registerCableId(doc, session, 'hld')
   }
+  // The branch's decisions replace the main ones, on the main ids.
+  await copyDecisions({ buildingId: building.id, from: layer, to: 'hld', mapId: (x) => String(mainId.get(x) ?? x), session })
+  await dropDecisions({ buildingId: building.id, layer, session })
 }
 
 // A frozen HLD version of the building's main design (submit, or an approved
 // change request): the snapshot file and its `designVersions` row.
 export async function writeHldVersion({ storage, building, projectId, design, actor, label = null, validation = null, session }) {
   const data = await loadDesign(building.id, projectId, session)
-  const { devices, connections } = await hldDesignSnapshot(building.id, projectId, { session })
+  const { devices, connections, cmoDecisions } = await hldDesignSnapshot(building.id, projectId, { session })
   const versionId = new mongoose.Types.ObjectId()
   const fileId = new mongoose.Types.ObjectId()
   const last = await DesignVersion.findOne({ buildingId: building.id, designType: 'hld' }).sort({ number: -1 }).session(session).lean()
   const number = (last?.number ?? 0) + 1
-  const snapshot = { designType: 'hld', building: { id: building.id, code: building.code, name: building.name }, revision: design.revision, preset: design.preset, devices, connections, validation: validation ?? runValidation(data).summary, createdAt: new Date().toISOString() }
+  const snapshot = { designType: 'hld', building: { id: building.id, code: building.code, name: building.name }, revision: design.revision, preset: design.preset, devices, connections, cmoDecisions, validation: validation ?? runValidation(data).summary, createdAt: new Date().toISOString() }
   const bytes = Buffer.from(JSON.stringify(snapshot, null, 2))
   const storageKey = `files/${projectId}/${fileId}`
   await storage.put(storageKey, bytes)
@@ -483,7 +515,7 @@ export function createHldService({ storage }) {
   }
 
   // Creates one planned device in the caller's transaction.
-  async function createDevice({ building, role, roomId, rackId = null, catalogueKey, floors, rooms, catalogue, takenHostnames, session, layer = 'hld' }) {
+  async function createDevice({ building, role, roomId, rackId = null, catalogueKey, floors, rooms, catalogue, takenHostnames, session, layer = 'hld', modeState = null }) {
     const info = roleInfo(role)
     if (!info) throw badRequest(`Unknown role ${role}`)
     const room = rooms.find((r) => String(r._id) === String(roomId))
@@ -515,6 +547,8 @@ export function createHldService({ storage }) {
           category: item?.category ?? info.category,
           heightU: item?.heightU ?? null,
           psuConfigured: item?.psuCount ?? null,
+          // Interim kit (DATA-MODEL §5.21); the future state otherwise.
+          modeState: modeState ?? 'future',
         },
       ],
       { session }
@@ -522,8 +556,11 @@ export function createHldService({ storage }) {
     return device
   }
 
+  // Every name in use, and the ones Keep decisions give existing gear (DATA-MODEL §5.21).
   async function projectHostnames(session) {
-    return new Set((await Device.find({ hostname: { $type: 'string' } }, { hostname: 1 }).session(session).lean()).map((d) => d.hostname))
+    const names = (await Device.find({ hostname: { $type: 'string' } }, { hostname: 1 }).session(session).lean()).map((d) => d.hostname)
+    const kept = await CmoDecision.distinct('hostname', { hostname: { $type: 'string' } }).session(session)
+    return new Set([...names, ...kept])
   }
 
   async function createConnection({ building, body, data, actor, session, layer = 'hld' }) {
@@ -545,6 +582,7 @@ export function createHldService({ storage }) {
       destSfpCode: body.destSfpCode ?? null,
       viaPatchPanel: Boolean(body.viaPatchPanel),
       cableId: body.cableId ?? null,
+      modeState: body.modeState ?? 'future',
       createdBy: actor.userId,
       updatedBy: actor.userId,
     })
@@ -568,7 +606,9 @@ export function createHldService({ storage }) {
     const data = await loadDesign(building.id, req.project.id, null, branch ? branchId : null)
     const { cat, deviceById, rackPos } = ruleInputs(data)
     const planned = data.devices.filter((d) => d.origin === 'planned')
-    const plannedIds = new Set(planned.map((d) => String(d._id)))
+    const cmo = data.devices.filter(isCmoDevice)
+    const shown = new Set([...planned, ...cmo].map((d) => String(d._id)))
+    const decided = decisionsByDevice(data)
     const approvals = await Approval.find({ buildingId: building.id, phaseKey: 'hld' }).sort({ submittedAt: -1 }).limit(20).lean()
     const versions = await DesignVersion.find({ buildingId: building.id, designType: 'hld' }).sort({ number: -1 }).lean()
     const names = await namesOf([...approvals.flatMap((a) => [a.submittedBy, a.decision?.decidedBy]), design.lastEditedBy, branch?.doc.lastEditedBy])
@@ -588,7 +628,11 @@ export function createHldService({ storage }) {
       rooms: data.rooms.map((r) => ({ id: String(r._id), floorId: String(r.floorId), code: r.code, isMainRoom: Boolean(r.isMainRoom), hasRack: data.racks.some((k) => String(k.roomId) === String(r._id)) })),
       racks: data.racks.map((k) => ({ id: String(k._id), roomId: String(k.roomId), code: k.code, heightU: k.heightU })),
       devices: planned.map((d) => toDeviceView(d, cat, data.positions)),
-      connections: data.connections.filter((c) => plannedIds.has(String(c.source.deviceId)) || plannedIds.has(String(c.dest.deviceId))).map((c) => toConnectionView(c, lengthOf(c, deviceById, rackPos, data.pathways))),
+      // The building's CMO devices and what this design decides for each (DATA-MODEL §5.21).
+      cmoDevices: cmo.map((d) => ({ ...toDeviceView(d, cat, data.positions), serial: d.installation?.serial ?? null, roomCode: data.rooms.find((r) => String(r._id) === String(d.roomId))?.code ?? null, rackCode: data.racks.find((k) => String(k._id) === String(d.rackId))?.code ?? null, cmoDecision: decided.get(String(d._id)) ?? null })),
+      // Every link with a planned or CMO end (the canvas draws those whose ends it shows).
+      connections: data.connections.filter((c) => shown.has(String(c.source.deviceId)) || shown.has(String(c.dest.deviceId))).map((c) => toConnectionView(c, lengthOf(c, deviceById, rackPos, data.pathways))),
+      modeLabels: data.modeLabels,
       approvals: approvals.map((a) => ({
         id: String(a._id),
         status: a.status,
@@ -667,6 +711,14 @@ export function createHldService({ storage }) {
   async function deviceInScope(req, deviceId) {
     const device = mongoose.isValidObjectId(deviceId) ? await Device.findById(deviceId).lean() : null
     if (!device || device.origin !== 'planned' || !inHld(device)) throw notFound('Device not found')
+    await requireBuilding(req, device.buildingId)
+    return device
+  }
+
+  // An imported CMO device of a building in the caller's scope (DATA-MODEL §5.21).
+  async function cmoDeviceInScope(req, deviceId) {
+    const device = mongoose.isValidObjectId(deviceId) ? await Device.findById(deviceId).lean() : null
+    if (!device || !isCmoDevice(device) || !device.buildingId) throw notFound('CMO device not found')
     await requireBuilding(req, device.buildingId)
     return device
   }
@@ -779,8 +831,9 @@ export function createHldService({ storage }) {
 
     async addDevice(req, body, actor) {
       return write(req, body.buildingId, body.baseRevision, actor, async ({ building, data, session, layer }) => {
-        const device = await createDevice({ building, role: body.role, roomId: body.roomId, catalogueKey: body.catalogueKey, floors: data.floors, rooms: data.rooms, catalogue: data.catalogue, takenHostnames: await projectHostnames(session), session, layer })
-        await recordAudit({ organisationId: req.org.id, projectId: req.project.id, buildingId: building.id, phaseKey: 'hld', actor: userActor(actor.userId, actor.role), action: 'hld.device.added', objectType: 'Device', objectId: device._id, changeType: 'design_intent', source: 'ui', comment: device.hostname ?? device.label, session })
+        const device = await createDevice({ building, role: body.role, roomId: body.roomId, catalogueKey: body.catalogueKey, floors: data.floors, rooms: data.rooms, catalogue: data.catalogue, takenHostnames: await projectHostnames(session), session, layer, modeState: body.modeState })
+        const mode = device.modeState === 'interim' ? ` (${data.modeLabels.interim})` : ''
+        await recordAudit({ organisationId: req.org.id, projectId: req.project.id, buildingId: building.id, phaseKey: 'hld', actor: userActor(actor.userId, actor.role), action: 'hld.device.added', objectType: 'Device', objectId: device._id, changeType: 'design_intent', source: 'ui', comment: `${device.hostname ?? device.label}${mode}`, session })
         return { device: toDeviceView(device.toObject(), catalogueIndex(data.catalogue)) }
       }, { branchId: body.branchId ?? null })
     },
@@ -800,6 +853,10 @@ export function createHldService({ storage }) {
         if (body.psuConfigured !== undefined) {
           changes.push({ field: 'psuConfigured', before: device.psuConfigured, after: body.psuConfigured })
           device.psuConfigured = body.psuConfigured
+        }
+        if (body.modeState !== undefined && body.modeState !== modeOf(device)) {
+          changes.push({ field: 'modeState', before: modeOf(device), after: body.modeState })
+          device.modeState = body.modeState
         }
         await device.save({ session })
         await recordAudit({ organisationId: req.org.id, projectId: req.project.id, buildingId: String(device.buildingId), phaseKey: 'hld', actor: userActor(actor.userId, actor.role), action: 'hld.device.updated', objectType: 'Device', objectId: device._id, changeType: 'design_intent', source: 'ui', changes: changes.map((c) => ({ objectType: 'Device', objectId: String(device._id), ...c })), session })
@@ -828,7 +885,7 @@ export function createHldService({ storage }) {
         const conn = await createConnection({ building, body, data, actor, session, layer })
         await Connection.updateOne({ _id: conn._id }, { $set: { edited: { layer, revision: design.revision } } }, { session })
         data.connections.push(conn.toObject())
-        await recordAudit({ organisationId: req.org.id, projectId: req.project.id, buildingId: building.id, phaseKey: 'hld', actor: userActor(actor.userId, actor.role), action: 'hld.uplink.created', objectType: 'Connection', objectId: conn._id, changeType: 'design_intent', source: 'ui', comment: `${conn.media.toUpperCase()} ${conn.speed}`, session })
+        await recordAudit({ organisationId: req.org.id, projectId: req.project.id, buildingId: building.id, phaseKey: 'hld', actor: userActor(actor.userId, actor.role), action: 'hld.uplink.created', objectType: 'Connection', objectId: conn._id, changeType: 'design_intent', source: 'ui', comment: `${conn.media.toUpperCase()} ${conn.speed}${conn.modeState === 'interim' ? ` (${data.modeLabels.interim})` : ''}`, session })
         return { uplink: withLengths(data, conn) }
       }, { branchId: body.branchId ?? null }).catch(async (err) => {
         throw await namePortConflict(err, { layer: hldLayerOf(body.branchId ?? null), baseRevision: body.baseRevision, ends: [body.source, body.dest] })
@@ -851,7 +908,7 @@ export function createHldService({ storage }) {
           conn[side] = { deviceId: device._id, portId: portOf(device, body[side].portId ?? null, cat) }
         }
         if (String(conn.source.deviceId) === String(conn.dest.deviceId)) throw badRequest('An uplink joins two different devices')
-        for (const f of ['media', 'speed', 'sourceSfpCode', 'destSfpCode', 'viaPatchPanel']) if (body[f] !== undefined) conn[f] = body[f]
+        for (const f of ['media', 'speed', 'sourceSfpCode', 'destSfpCode', 'viaPatchPanel', 'modeState']) if (body[f] !== undefined) conn[f] = body[f]
         const portsChanged = ['source', 'dest'].some((s) => String(before[s].deviceId) !== String(conn[s].deviceId) || (before[s].portId ?? null) !== (conn[s].portId ?? null))
         if (portsChanged) {
           await PortOccupancy.deleteMany({ connectionId: conn._id }, { session })
@@ -866,6 +923,8 @@ export function createHldService({ storage }) {
         conn.updatedAt = new Date()
         await conn.save({ session })
         const fields = ['media', 'speed', 'sourceSfpCode', 'destSfpCode', 'viaPatchPanel', 'cableId']
+        before.modeState = modeOf(before)
+        if (body.modeState !== undefined) fields.push('modeState')
         const changes = fields.filter((f) => (before[f] ?? null) !== (conn[f] ?? null)).map((f) => ({ objectType: 'Connection', objectId: String(conn._id), field: f, before: before[f] ?? null, after: conn[f] ?? null }))
         if (portsChanged) changes.push({ objectType: 'Connection', objectId: String(conn._id), field: 'endpoints', before: `${before.source.portId ?? '—'} / ${before.dest.portId ?? '—'}`, after: `${conn.source.portId ?? '—'} / ${conn.dest.portId ?? '—'}` })
         data.connections = data.connections.map((c) => (String(c._id) === String(conn._id) ? conn.toObject() : c))
@@ -1027,7 +1086,7 @@ export function createHldService({ storage }) {
         }
         const name = nameOf(data, x._id)
         await archive(conn, { tool: 'split', reason: `Split: ${name} inserted`, data, actor, session })
-        const base = { media: conn.media, speed: conn.speed, sourceSfpCode: conn.sourceSfpCode ?? null, destSfpCode: conn.destSfpCode ?? null }
+        const base = { media: conn.media, speed: conn.speed, sourceSfpCode: conn.sourceSfpCode ?? null, destSfpCode: conn.destSfpCode ?? null, modeState: modeOf(conn) }
         // Re-terminated runs: new cable IDs when the link had one.
         const ax = await createConnection({ building, body: { ...base, source: conn.source, dest: { deviceId: x._id, portId: body.ports?.towardSource ?? null }, viaPatchPanel: false, cableId: conn.cableId ? await nextCableId(session) : null }, data, actor, session, layer })
         const xb = await createConnection({ building, body: { ...base, source: { deviceId: x._id, portId: body.ports?.towardDest ?? null }, dest: conn.dest, viaPatchPanel: Boolean(conn.viaPatchPanel), cableId: conn.cableId ? await nextCableId(session) : null }, data, actor, session, layer })
@@ -1053,13 +1112,62 @@ export function createHldService({ storage }) {
         const [a, b] = links.map(far)
         if (String(a.end.deviceId) === String(b.end.deviceId)) throw conflict('merge_same_device', `Both uplinks of ${name} go to ${nameOf(data, a.end.deviceId)} — nothing to join`)
         for (const l of links) await archive(l, { tool: 'merge', reason: `Merge: ${name} taken out of the path`, data, actor, session })
-        const ab = await createConnection({ building, body: { source: { deviceId: a.end.deviceId, portId: a.end.portId ?? null }, dest: { deviceId: b.end.deviceId, portId: b.end.portId ?? null }, media: body.media ?? links[0].media, speed: body.speed ?? links[0].speed, sourceSfpCode: a.sfp, destSfpCode: b.sfp, viaPatchPanel: Boolean(links[1].viaPatchPanel), cableId: await nextCableId(session) }, data, actor, session, layer })
+        const ab = await createConnection({ building, body: { source: { deviceId: a.end.deviceId, portId: a.end.portId ?? null }, dest: { deviceId: b.end.deviceId, portId: b.end.portId ?? null }, media: body.media ?? links[0].media, speed: body.speed ?? links[0].speed, sourceSfpCode: a.sfp, destSfpCode: b.sfp, viaPatchPanel: Boolean(links[1].viaPatchPanel), cableId: await nextCableId(session), modeState: links.some((l) => modeOf(l) === 'interim') ? 'interim' : 'future' }, data, actor, session, layer })
         data.connections.push(ab.toObject())
         await recordAudit({ ...auditBase(req, existing, actor), action: 'hld.device.merged', objectType: 'Device', objectId: existing._id, comment: `${nameOf(data, a.end.deviceId)} — ${nameOf(data, b.end.deviceId)} joined (${ab.cableId}); ${name} stays, unlinked`, changes: links.map((l) => ({ objectType: 'Connection', objectId: String(l._id), field: 'archived', before: null, after: `merge: ${name} taken out` })), session })
         return { uplink: withLengths(data, ab), archived: links.map((l) => String(l._id)), device: xId }
       }, { branchId: branchOfHldLayer(existing.layer) }).catch(async (err) => {
         throw await namePortConflict(err, { layer: existing.layer, baseRevision: body.baseRevision })
       })
+    },
+
+    // --- Decisions on existing (CMO) gear (DATA-MODEL §5.21; addendum v2.3 Q5) ----
+
+    // Keep (a role, and the new name the naming pattern gives it), Replace (by
+    // a device of this design's future state) or Remove. A design write like
+    // any other: the revision, frozen → a change request's branch, audited.
+    async setCmoDecision(req, deviceId, body, actor) {
+      const device = await cmoDeviceInScope(req, deviceId)
+      return write(req, device.buildingId, body.baseRevision, actor, async ({ building, data, session, layer }) => {
+        const previous = (data.decisions ?? []).find((x) => String(x.deviceId) === String(device._id)) ?? null
+        const set = { decision: body.decision, role: null, hostname: null, replacedById: null }
+        if (body.decision === 'replace') {
+          const by = data.devices.find((d) => String(d._id) === String(body.replacedById) && d.origin === 'planned')
+          if (!by) throw notFound('The replacing device is not in this design')
+          if (modeOf(by) !== 'future') throw badRequest(`Choose a device of the ${data.modeLabels.future} — ${nameOf(data, by._id)} is ${data.modeLabels.interim} only`)
+          set.replacedById = by._id
+        }
+        if (body.decision === 'keep') {
+          set.role = body.role
+          // The same role keeps the name it was given; a new role is named afresh.
+          if (previous?.decision === 'keep' && previous.role === body.role) set.hostname = previous.hostname ?? null
+          else if (modeOf(device) === 'future' && device.role === body.role) set.hostname = device.hostname ?? null
+          else {
+            const room = data.rooms.find((r) => String(r._id) === String(device.roomId))
+            const floor = data.floors.find((f) => String(f._id) === String(device.floorId ?? room?.floorId))
+            const taken = await projectHostnames(session)
+            if (previous?.hostname) taken.delete(previous.hostname)
+            set.hostname = nextHostname(body.role, { ...(await hostnameParts(building, session)), floor: floor?.token ?? 'X' }, [...taken])
+          }
+        }
+        await CmoDecision.updateOne({ buildingId: building.id, layer, deviceId: device._id }, { $set: { ...set, decidedBy: actor.userId, decidedAt: new Date() } }, { upsert: true, session })
+        const saved = await CmoDecision.findOne({ layer, deviceId: device._id }).session(session).lean()
+        const name = nameOf(data, device._id)
+        const text = (x) => (x ? [x.decision, x.hostname, x.replacedById ? nameOf(data, x.replacedById) : null].filter(Boolean).join(' · ') : null)
+        await recordAudit({ ...auditBase(req, device, actor), action: 'hld.cmo.decided', objectType: 'Device', objectId: device._id, comment: `${name}: ${text(saved)}`, changes: [{ objectType: 'Device', objectId: String(device._id), field: 'cmoDecision', before: text(previous), after: text(saved) }], session })
+        return { decision: decisionView(saved, (x) => nameOf(data, x)) }
+      }, { branchId: body.branchId ?? null })
+    },
+
+    async clearCmoDecision(req, deviceId, { baseRevision, branchId = null }, actor) {
+      const device = await cmoDeviceInScope(req, deviceId)
+      return write(req, device.buildingId, baseRevision, actor, async ({ building, data, session, layer }) => {
+        const previous = (data.decisions ?? []).find((x) => String(x.deviceId) === String(device._id))
+        if (!previous) throw notFound('This device has no decision to clear')
+        await CmoDecision.deleteOne({ buildingId: building.id, layer, deviceId: device._id }, { session })
+        await recordAudit({ ...auditBase(req, device, actor), action: 'hld.cmo.decision_cleared', objectType: 'Device', objectId: device._id, comment: `${nameOf(data, device._id)}: ${previous.decision} cleared`, changes: [{ objectType: 'Device', objectId: String(device._id), field: 'cmoDecision', before: previous.decision, after: null }], session })
+        return { decision: null }
+      }, { branchId })
     },
 
     // Canvas position only — not a design change, so no revision is claimed.
@@ -1078,7 +1186,7 @@ export function createHldService({ storage }) {
       if (body.branchId) await changeRequestBranch(building, body.branchId)
       const data = await loadDesign(building.id, req.project.id, null, body.branchId ?? null)
       const { deviceById, rackPos, ctx } = ruleInputs(data)
-      const draft = { id: body.connectionId ?? 'draft', source: { deviceId: body.source.deviceId, portId: body.source.portId ?? null }, dest: { deviceId: body.dest.deviceId, portId: body.dest.portId ?? null }, media: body.media, speed: body.speed, sourceSfpCode: body.sourceSfpCode ?? null, destSfpCode: body.destSfpCode ?? null, viaPatchPanel: Boolean(body.viaPatchPanel) }
+      const draft = { id: body.connectionId ?? 'draft', source: { deviceId: body.source.deviceId, portId: body.source.portId ?? null }, dest: { deviceId: body.dest.deviceId, portId: body.dest.portId ?? null }, media: body.media, speed: body.speed, sourceSfpCode: body.sourceSfpCode ?? null, destSfpCode: body.destSfpCode ?? null, viaPatchPanel: Boolean(body.viaPatchPanel), modeState: body.modeState ?? 'future' }
       for (const side of ['source', 'dest']) if (!deviceById.has(String(draft[side].deviceId))) throw notFound('Device not found in this building')
       const length = lengthOf(draft, deviceById, rackPos, data.pathways)
       const occupied = async (end) => {

@@ -30,6 +30,11 @@ const projectSettingsSchema = new mongoose.Schema({
     ),
     default: () => ({}),
   },
+  // The project's state labels over the organisation's (M7b-4a, DATA-MODEL §5.21).
+  modeLabels: {
+    type: new mongoose.Schema({ current: { type: String, default: null }, interim: { type: String, default: null }, future: { type: String, default: null } }, { _id: false }),
+    default: () => ({}),
+  },
   updatedBy: { type: ObjectId, default: null },
   updatedAt: { type: Date, default: () => new Date() },
 })

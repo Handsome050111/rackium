@@ -4,6 +4,7 @@ import { MEDIA_LABEL, endLabel, buildPortGroups } from '@rackium/shared/lldModel
 import { portKey, portOptions, suggestPort, routeSides, routeTrace, hopText } from '@rackium/shared/lldDesign.js'
 import { SEGMENT_KIND_LABEL } from '@rackium/shared/cableSegments.js'
 import { withLegacyName } from '@rackium/shared/deviceName.js'
+import { decisionText } from '@rackium/shared/modeState.js'
 
 const real = API_MODE === 'real'
 const base = (orgId, projectId) => `/orgs/${orgId}/projects/${projectId}/lld`
@@ -185,7 +186,9 @@ export function toLldContext(view, validation = null) {
     rows,
     portSchedule,
     rackElevations,
-    topology: { floors: view.floors, rooms: view.rooms, devices: topologyDevices, connections: view.connections, connectionFindings },
+    // CMO gear (M7b-4a, DATA-MODEL §5.21) apart: drawn when its state is shown, never selectable.
+    topology: { floors: view.floors, rooms: view.rooms, devices: topologyDevices, cmoDevices: view.devices.filter((d) => d.cmo).map((d) => ({ ...d, position: null, hostname: d.label, model: decisionText(d.cmoDecision, view.modeLabels ?? undefined) })), connections: view.connections, connectionFindings },
+    modeLabels: view.modeLabels ?? null,
     // NexAI analyser: the approved HLD's device count against the LLD's own (no panels, no surveyed gear).
     hldDeviceCount: view.hld.deviceCount ?? null,
     lldDeviceCount: view.devices.filter((d) => d.inDesign && !d.isPanel).length,

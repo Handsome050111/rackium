@@ -11,6 +11,9 @@ import { ApiError } from '../api/httpClient.js'
 import { useViewAs } from '../lib/ViewAsContext.jsx'
 import { useProjectRoles } from '../lib/useProjectRoles.js'
 import DocumentSettingsTab from '../components/documents/BrandingSettings.jsx'
+import ModeLabelsForm from '../components/ModeLabelsForm.jsx'
+import { deliveryApi } from '../api/deliveryApi.js'
+import { rememberModeLabels } from '../lib/useModeLabels.js'
 
 const PHASE_LABELS = { cmo: 'CMO', survey: 'Survey', hld: 'HLD', lld: 'LLD', 'solution-package': 'Solution Package', bom: 'BOM', deployment: 'Deployment', cmdb: 'CMDB', handover: 'Handover' }
 const HIERARCHY_FIELDS = ['countryCode', 'countryName', 'salCode', 'campusCode', 'buildingCode', 'buildingName', 'wingCode', 'wingName']
@@ -83,6 +86,7 @@ export default function ProjectSettings() {
       {notice && <p className="rounded-lg border border-status-green/40 bg-status-green/5 px-3 py-2 text-sm text-status-green">{notice}</p>}
 
       {tab === 'general' && <GeneralTab project={project} onSave={save} readOnly={readOnly} />}
+      {tab === 'general' && <ProjectModeLabels orgId={orgId} projectId={projectId} canEdit={!readOnly && (has('pm') || has('org_admin'))} />}
       {tab === 'hierarchy' && <HierarchyTab orgId={orgId} projectId={projectId} project={project} onImported={load} readOnly={readOnly} />}
       {tab === 'phases' && <PhasesTab project={project} onSave={save} readOnly={readOnly} />}
       {tab === 'members' && <MembersTab />}
@@ -121,6 +125,29 @@ function GeneralTab({ project, onSave, readOnly }) {
         Save
       </button>
     </div>
+  )
+}
+
+// The project's state labels over the organisation's (M7b-4a, DATA-MODEL §5.21).
+function ProjectModeLabels({ orgId, projectId, canEdit }) {
+  const [labels, setLabels] = useState(null)
+  useEffect(() => {
+    deliveryApi.modeLabels(orgId, projectId).then(setLabels).catch(() => {})
+  }, [orgId, projectId])
+  if (!labels) return null
+  return (
+    // Not keyed on the saved labels: a remount would drop the form's "Saved.".
+    <ModeLabelsForm
+      title="Mode state labels for this project"
+      own={labels.project}
+      inherited={labels.organisation}
+      canEdit={canEdit}
+      onSave={async (modeLabels) => {
+        const res = await deliveryApi.setModeLabels(orgId, projectId, modeLabels)
+        rememberModeLabels(orgId, projectId, res.modeLabels)
+        setLabels(res)
+      }}
+    />
   )
 }
 

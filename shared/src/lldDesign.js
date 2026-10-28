@@ -6,6 +6,7 @@ import { expandPortMap } from './catalogue.js'
 import { validateHld, portSuitsMedia, HLD_RULES } from './hldRules.js'
 import { roleInfo } from './hldRoles.js'
 import { cleanExistingLabel } from './deviceName.js'
+import { modeOf } from './modeState.js'
 
 // --- Ports ---------------------------------------------------------------------
 
@@ -325,14 +326,18 @@ export const ALL_RULES = { ...HLD_RULES, ...LLD_RULES }
 // --- Version diff (brief §6.10) ----------------------------------------------------
 
 // label: a patch panel's or cable manager's name (renamed: fix/cmo-naming-gaps).
-const DEVICE_FIELDS = ['hostname', 'label', 'role', 'catalogueKey', 'roomId', 'rackId', 'ru', 'face', 'psuConfigured']
+// modeState: interim or future (M7b-4a, DATA-MODEL §5.21).
+const DEVICE_FIELDS = ['hostname', 'label', 'role', 'catalogueKey', 'roomId', 'rackId', 'ru', 'face', 'psuConfigured', 'modeState']
 // segmentLengths: the Engineer Selected length of each cable after a panel (M5a review).
-const CONNECTION_FIELDS = ['source', 'dest', 'media', 'speed', 'sourceSfpCode', 'destSfpCode', 'cableId', 'hops', 'engineerSelectedM', 'segmentLengths']
+const CONNECTION_FIELDS = ['source', 'dest', 'media', 'speed', 'sourceSfpCode', 'destSfpCode', 'cableId', 'hops', 'engineerSelectedM', 'segmentLengths', 'modeState']
+// What an HLD decides for an existing (CMO) device (M7b-4a): keyed by the device.
+const DECISION_FIELDS = ['decision', 'hostname', 'replacedById']
 const show = (v) => (v == null ? null : typeof v === 'object' ? JSON.stringify(v) : v)
 // The Engineer Selected lengths of the cables after each panel; null while none is set.
 const segmentLengthsText = (hops) => (hops.some((h) => h.lengths?.engineerSelectedM != null) ? hops.map((h) => h.lengths?.engineerSelectedM ?? '—').join(' / ') : null)
 const flatConn = (c) => ({
   ...c,
+  modeState: modeOf(c),
   source: `${c.source.deviceId}:${c.source.portId ?? '—'}`,
   dest: `${c.dest.deviceId}:${c.dest.portId ?? '—'}`,
   hops: (c.hops ?? []).map((h) => `${h.patchPanelId}:${h.inPort}${h.inSide ? `(${h.inSide})` : ''}>${h.outPort}${h.outSide ? `(${h.outSide})` : ''}${h.segmentCableId ? `[${h.segmentCableId}]` : ''}`).join(' | ') || null,
@@ -365,11 +370,15 @@ export function diffDesigns(before, after) {
   const labels = new Map([...(before.connections ?? []).map((c) => [String(c.id), label(nb)(c)]), ...(after.connections ?? []).map((c) => [String(c.id), label(na)(c)])])
   // A label is compared for devices without a hostname (panels, cable managers);
   // a hostname-named device's label is display only and is not.
-  const named = (list) => list.map((d) => (d.hostname ? { ...d, label: null } : d))
+  // Snapshots from before M7b-4 carry no mode: they read as the future design.
+  const named = (list) => list.map((d) => ({ ...(d.hostname ? { ...d, label: null } : d), modeState: modeOf(d) }))
   const devices = diffList(named(before.devices ?? []), named(after.devices ?? []), DEVICE_FIELDS, (d) => d.hostname ?? d.label ?? d.role)
   const connections = diffList((before.connections ?? []).map(flatConn), (after.connections ?? []).map(flatConn), CONNECTION_FIELDS, (c) => labels.get(String(c.id)))
   const count = (x) => x.added.length + x.removed.length + x.changed.length
-  return { devices, connections, total: count(devices) + count(connections) }
+  // An HLD snapshot's decisions on existing gear: a change request may change only these.
+  if (!before.cmoDecisions && !after.cmoDecisions) return { devices, connections, total: count(devices) + count(connections) }
+  const decisions = diffList(before.cmoDecisions ?? [], after.cmoDecisions ?? [], DECISION_FIELDS, (d) => d.name ?? 'device', (d) => String(d.deviceId))
+  return { devices, connections, decisions, total: count(devices) + count(connections) + count(decisions) }
 }
 
 // --- HLD → LLD reconciliation (brief §5.4: no automatic re-sync) ---------------

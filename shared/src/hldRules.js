@@ -10,6 +10,7 @@ import { DEFAULT_MEDIA_LIMITS_M } from './cableLength.js'
 import { findConflicts } from './rackValidation.js'
 import { expandPortMap } from './catalogue.js'
 import { roleInfo } from './hldRoles.js'
+import { DEFAULT_MODE_LABELS, inFuture, isCmoDevice, modeOf } from './modeState.js'
 
 export const SEVERITIES = ['critical', 'warning', 'info']
 export const SEVERITY_LABEL = { critical: 'Critical', warning: 'Warning', info: 'Info' }
@@ -35,6 +36,9 @@ export const HLD_RULES = {
   'W-EMPTY-RU': { severity: 'warning', title: 'Empty RU count exceeds 50% of rack' },
   // Break Uplink (M7b-3): a warning, never a blocker (addendum v2.3 Q1).
   'W-UPLINK-NEEDED': { severity: 'warning', title: 'Uplink needed — an uplink of this device was broken' },
+  // Mode states (M7b-4a, DATA-MODEL §5.21): the state labels are configuration, so titles name none.
+  'E-MODE-LINK': { severity: 'critical', title: 'A link of the future design ends on a device that is not in it' },
+  'W-NO-DECISION': { severity: 'warning', title: 'Existing device with no decision for the future design' },
   'I-BELOW-SPEED': { severity: 'info', title: 'Link negotiates below maximum speed' },
   'I-NO-HOSTNAME': { severity: 'info', title: 'Device has no hostname assigned' },
   'I-TBD': { severity: 'info', title: 'TBD fields remaining in connection record' },
@@ -165,7 +169,7 @@ function speedValue(s) {
 // Devices: { id, hostname, role, origin, roomId, rackId, ru, heightU, face, fullDepth, label, psuConfigured }
 export function validateHld(design, ctx) {
   const out = []
-  const { devices = [], connections = [], racks = [], cmoUnplaced = [], broken = [] } = design
+  const { devices = [], connections = [], racks = [], cmoUnplaced = [], broken = [], cmoDevices = null } = design
   const deviceById = ctx.deviceById ?? new Map(devices.map((d) => [String(d.id), d]))
   const full = { ...ctx, deviceById }
 
@@ -267,6 +271,7 @@ export function validateHld(design, ctx) {
   for (const d of cmoUnplaced) out.push(finding('I-CMO-UNVALIDATED', 'device', d.id, `CMO device ${d.label} has not been found in a rack during the survey`))
 
   out.push(...uplinkNeededFindings({ broken, connections, deviceById }))
+  out.push(...modeFindings({ connections, deviceById, cmoDevices, labels: ctx.modeLabels }))
 
   return sortFindings(dedupe(out))
 }
@@ -285,6 +290,37 @@ export function uplinkNeededFindings({ broken = [], connections = [], deviceById
       if (relinked) continue
       out.push(finding('W-UPLINK-NEEDED', 'device', self, `${device.label ?? device.hostname ?? 'Device'}: uplink needed — its uplink to ${other ?? 'another device'} was broken${b.reason ? ` (${b.reason})` : ''}`, { suffix: b.id }))
     }
+  }
+  return out
+}
+
+// Mode-state rules (M7b-4a, DATA-MODEL §5.21; addendum v2.3 Q5).
+// E-MODE-LINK: a future-state link with an end that will not exist then —
+// interim kit, or existing gear marked Replace or Remove (undecided gear is
+// not judged). W-NO-DECISION: each CMO device of `cmoDevices` without a
+// decision, or whose replacement left the design — a warning, never a block.
+// Devices carry `modeState`, `origin` and (existing gear) `cmoDecision`.
+export function modeFindings({ connections = [], deviceById = new Map(), cmoDevices = null, labels = DEFAULT_MODE_LABELS }) {
+  const out = []
+  const name = (d) => d?.label ?? d?.hostname ?? 'device'
+  const why = (d) => {
+    if (d.origin !== 'existing') return `${labels.interim} only`
+    return d.cmoDecision?.decision === 'replace' ? `being replaced (${labels.current} only)` : `marked Remove (${labels.current} only)`
+  }
+  for (const c of connections) {
+    if (modeOf(c) !== 'future') continue
+    const a = deviceById.get(String(c.source.deviceId))
+    const b = deviceById.get(String(c.dest.deviceId))
+    for (const [side, d] of [['source', a], ['dest', b]]) {
+      if (!d || inFuture(d) !== false) continue
+      out.push(finding('E-MODE-LINK', 'connection', c.id, `${name(a)} → ${name(b)}: this ${labels.future} link ends on ${name(d)}, which is ${why(d)} — make the link ${labels.interim}, or change the device`, { suffix: side }))
+    }
+  }
+  for (const d of cmoDevices ?? []) {
+    if (!isCmoDevice(d) || modeOf(d) === 'future') continue
+    const decision = d.cmoDecision
+    if (!decision) out.push(finding('W-NO-DECISION', 'device', d.id, `${name(d)}: no decision yet — keep it in the ${labels.future}, replace it or remove it`))
+    else if (decision.decision === 'replace' && !deviceById.has(String(decision.replacedById))) out.push(finding('W-NO-DECISION', 'device', d.id, `${name(d)}: the device replacing it is no longer in the design — choose again`))
   }
   return out
 }
@@ -332,5 +368,8 @@ export function uplinkChecks(conn, ctx, { portsFree = { source: true, dest: true
     const pp = has('VAL-004')
     checks.push({ id: 'patch-panel-capacity', label: 'Patch-panel capacity', status: pp.length ? 'fail' : 'pass', message: pp.length ? 'VAL-004: no free ports on the destination patch panel' : 'Free ports available' })
   }
-  return { checks, findings: found, blocked: found.some((f) => f.severity === 'critical') || !portsOk }
+  // A future-state link to a device that will not be in the future design (M7b-4a).
+  const mode = ctx.deviceById ? modeFindings({ connections: [conn], deviceById: ctx.deviceById, labels: ctx.modeLabels ?? DEFAULT_MODE_LABELS }) : []
+  if (mode.length) checks.push({ id: 'mode-state', label: 'Mode state', status: 'fail', message: mode.map((f) => f.message.split(': ').slice(1).join(': ')).join(' · ') })
+  return { checks, findings: [...found, ...mode], blocked: found.some((f) => f.severity === 'critical') || mode.length > 0 || !portsOk }
 }

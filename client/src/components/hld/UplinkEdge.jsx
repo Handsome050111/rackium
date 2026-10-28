@@ -17,7 +17,9 @@ export function UplinkEdge({ sourceX, sourceY, targetX, targetY, sourcePosition,
         style={{
           stroke: media.stroke,
           strokeWidth: selected ? 3 : 2,
-          strokeDasharray: data?.preview ? '6 4' : media.style === 'dashed' ? '6 4' : undefined,
+          // An interim (IMO) link is dotted; an overlaid one a ghost (M7b-4a).
+          strokeDasharray: data?.modeTag ? '2 3' : data?.preview ? '6 4' : media.style === 'dashed' ? '6 4' : undefined,
+          ...(data?.ghost ? { opacity: 0.35 } : {}),
           // React Flow passes a custom edge's top-level `style` through as a
           // prop (unlike nodes, it is not auto-applied) — merged in last so
           // callers like the LLD Connectivity tab can dim an edge via opacity
@@ -30,6 +32,7 @@ export function UplinkEdge({ sourceX, sourceY, targetX, targetY, sourcePosition,
           style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
           className="pointer-events-none absolute flex items-center gap-1 rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] font-medium text-text shadow-sm"
         >
+          {data?.modeTag && <span className="font-semibold text-text-secondary">{data.modeTag}</span>}
           {data?.speed && <span>{data.speed}</span>}
           {StatusIcon && <StatusIcon size={11} strokeWidth={2} className={STATUS_COLOR[data.status]} />}
         </div>

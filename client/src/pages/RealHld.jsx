@@ -16,6 +16,10 @@ import HldDeviceDetails from '../components/hld/HldDeviceDetails.jsx'
 import HldToolPanel from '../components/hld/HldToolPanel.jsx'
 import { TOOL_TITLES } from '../components/hld/hldTools.js'
 import ArchivedUplinks from '../components/hld/ArchivedUplinks.jsx'
+import ModeToggles from '../components/hld/ModeToggles.jsx'
+import CmoDecisionPanel from '../components/hld/CmoDecisionPanel.jsx'
+import { DEFAULT_MODE_LABELS, DEFAULT_MODE_VIEW, decisionText, modeOf } from '@rackium/shared/modeState.js'
+import { withLegacyName } from '@rackium/shared/deviceName.js'
 import DragPreviewCard from '../components/DragPreviewCard.jsx'
 import { hldApi, draftToUplinkBody, uplinkToDraft, libraryCategories, connectionStatus } from '../api/hldApi.js'
 import { useDragSensors } from '../lib/useDragSensors.js'
@@ -60,6 +64,9 @@ export default function RealHld() {
   // The design tool's uplink or device ({ connectionId } | { deviceId }).
   const [toolTarget, setToolTarget] = useState(null)
   const [toolBusy, setToolBusy] = useState(false)
+  // Mode states (M7b-4a, DATA-MODEL §5.21): what the canvas shows, and where new devices go.
+  const [modeView, setModeView] = useState(DEFAULT_MODE_VIEW)
+  const [addMode, setAddMode] = useState('future')
   const flowInstanceRef = useRef(null)
   const sensors = useDragSensors()
 
@@ -128,7 +135,9 @@ export default function RealHld() {
   }
 
   const devices = useMemo(() => view?.devices ?? [], [view])
+  const cmoDevices = useMemo(() => view?.cmoDevices ?? [], [view])
   const connections = useMemo(() => view?.connections ?? [], [view])
+  const labels = view?.modeLabels ?? DEFAULT_MODE_LABELS
   const findingsByConn = useMemo(() => connectionStatus(validation?.findings), [validation])
 
   function openCreate(sourceDeviceId) {
@@ -361,7 +370,28 @@ export default function RealHld() {
 
   function handleSelectFinding(f) {
     if (f.objectType === 'connection') openEdit(f.objectId)
-    else if (f.objectType === 'device') handleSelectDevice(f.objectId)
+    else if (f.objectType === 'device') {
+      // A finding on hidden CMO gear brings the CMO onto the canvas as an overlay.
+      if (cmoDevices.some((d) => d.id === f.objectId) && modeView.current === 'hide') setModeView((v) => ({ ...v, current: 'overlay' }))
+      handleSelectDevice(f.objectId)
+    }
+  }
+
+  // A CMO device's decision (DATA-MODEL §5.21), with its inverse for Undo.
+  const decisionBody = (d) => (d.decision === 'keep' ? { decision: 'keep', role: d.role } : d.decision === 'replace' ? { decision: 'replace', replacedById: d.replacedById } : { decision: 'remove' })
+  const setDecision = (deviceId, body) => (rev) => hldApi.setCmoDecision(orgId, projectId, deviceId, { ...body, ...onBranch, baseRevision: rev })
+  const clearDecision = (deviceId) => (rev) => hldApi.clearCmoDecision(orgId, projectId, deviceId, { baseRevision: rev, branchId })
+  async function decideCmo(device, body) {
+    const prev = device.cmoDecision
+    setToolBusy(true)
+    await write(setDecision(device.id, body), { record: () => ({ apply: setDecision(device.id, body), revert: prev ? setDecision(device.id, decisionBody(prev)) : clearDecision(device.id) }) })
+    setToolBusy(false)
+  }
+  async function clearCmo(device) {
+    const prev = device.cmoDecision
+    setToolBusy(true)
+    await write(clearDecision(device.id), { record: () => ({ apply: clearDecision(device.id), revert: setDecision(device.id, decisionBody(prev)) }) })
+    setToolBusy(false)
   }
 
   async function moveDevice(deviceId, position) {
@@ -382,12 +412,13 @@ export default function RealHld() {
     const room = flow.roomNodes.find((r) => point.x >= r.x && point.x <= r.x + r.width && point.y >= r.y && point.y <= r.y + r.height)
     if (!room) return
     let createdId = null
-    const res = await write((rev) => hldApi.addDevice(orgId, projectId, { buildingId, ...onBranch, role: data.item.role, roomId: room.roomId, baseRevision: rev }), {
+    const modeState = addMode
+    const res = await write((rev) => hldApi.addDevice(orgId, projectId, { buildingId, ...onBranch, role: data.item.role, roomId: room.roomId, modeState, baseRevision: rev }), {
       record: (r) => {
         createdId = r.device.id
         return {
           apply: async (rev) => {
-            const again = await hldApi.addDevice(orgId, projectId, { buildingId, ...onBranch, role: data.item.role, roomId: room.roomId, baseRevision: rev })
+            const again = await hldApi.addDevice(orgId, projectId, { buildingId, ...onBranch, role: data.item.role, roomId: room.roomId, modeState, baseRevision: rev })
             createdId = again.device.id
             return again
           },
@@ -432,15 +463,22 @@ export default function RealHld() {
   const flow = buildHldFlow({
     floors: view.floors,
     rooms: view.rooms,
-    devices: devices.map((d) => ({ ...d, model: [d.model, view.racks.find((k) => k.id === d.rackId)?.code].filter(Boolean).join(' · ') })),
+    devices: [
+      ...devices.map((d) => ({ ...d, hostname: d.hostname ? withLegacyName(d.hostname, d.legacyHostname) : d.hostname, model: [d.model, view.racks.find((k) => k.id === d.rackId)?.code].filter(Boolean).join(' · ') })),
+      // CMO gear: its name ("old → new" once renamed) and its decision under it.
+      ...cmoDevices.map((d) => ({ ...d, hostname: withLegacyName(d.label, d.legacyHostname), model: decisionText(d.cmoDecision, labels) })),
+    ],
     connections,
     connectionFindings: findingsByConn,
     selectedDeviceId,
     selectedConnectionId,
     onSelectDevice: handleSelectDevice,
     draggableDevices: editable && mode === 'move',
+    modeView,
+    modeLabels: labels,
   })
   const selectedDevice = devices.find((d) => d.id === selectedDeviceId) ?? null
+  const selectedCmo = cmoDevices.find((d) => d.id === selectedDeviceId) ?? null
   const portOptionsFor = (deviceId) => devices.find((d) => d.id === deviceId)?.ports ?? []
   const sfpOptionsFor = (media, speed) => library.optics.filter((o) => o.media === media && String(o.speed) === String(speed)).map((o) => o.key)
   const sizeInfo = library.presets.find((p) => p.key === preset)
@@ -605,12 +643,13 @@ export default function RealHld() {
         )}
         {ownSubmission && (has('pm') || has('reviewer') || has('external_reviewer')) && <p className="text-xs text-text-secondary">You submitted this HLD — another PM or Reviewer decides on it.</p>}
 
-        {canEdit && <HldToolbar mode={draft ? (selectedConnectionId ? 'change-medium' : 'create-uplink') : mode} onSelectTool={selectTool} onUndo={undo} canUndo={history.index >= 0} onRedo={redo} canRedo={history.index < history.actions.length - 1} onDelete={deleteSelected} canDelete={Boolean(selectedConnectionId || selectedDeviceId)} disabled={!editable} designTools />}
+        {canEdit && <HldToolbar mode={draft ? (selectedConnectionId ? 'change-medium' : 'create-uplink') : mode} onSelectTool={selectTool} onUndo={undo} canUndo={history.index >= 0} onRedo={redo} canRedo={history.index < history.actions.length - 1} onDelete={deleteSelected} canDelete={Boolean(selectedConnectionId || (selectedDeviceId && !selectedCmo))} disabled={!editable} designTools />}
         {canEdit && mode === 'move' && !draft && <p className="text-xs text-text-secondary">Move: drag devices inside their room. Positions are saved separately from the design.</p>}
 
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
           <SurveyInputsPanel buildingId={buildingId} summary={view.surveyInputs} basePath={`/orgs/${orgId}/projects/${projectId}/buildings/${buildingId}`} />
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 space-y-2">
+            <ModeToggles labels={labels} view={modeView} onChange={setModeView} />
             <ReactFlowProvider>
               <HldCanvas
                 flow={flow}
@@ -618,12 +657,13 @@ export default function RealHld() {
                 viewOnly={isPhone}
                 onEdgeClick={(id) => (TOOL_IDS.includes(mode) && mode !== 'merge' ? setToolTarget({ connectionId: id }) : openEdit(id))}
                 nodesDraggable={editable && mode === 'move'}
+                fitKey={JSON.stringify(modeView)}
                 onNodeDragStop={editable && mode === 'move' ? moveDevice : undefined}
               />
             </ReactFlowProvider>
           </div>
           <div className="w-full shrink-0 space-y-4 xl:w-80">
-            {editable && <HldObjectLibrary enabled categories={libraryCategories(library.roles)} />}
+            {editable && <HldObjectLibrary enabled categories={libraryCategories(library.roles)} addMode={addMode} onAddModeChange={setAddMode} modeLabels={labels} />}
             {editable && TOOL_IDS.includes(mode) ? (
               <HldToolPanel
                 tool={mode}
@@ -658,7 +698,8 @@ export default function RealHld() {
                   })
                   setCheck(null)
                 }}
-                devices={devices}
+                devices={[...devices, ...cmoDevices]}
+                modeLabels={labels}
                 validation={check}
                 onValidate={runCheck}
                 onApply={applyUplink}
@@ -673,7 +714,19 @@ export default function RealHld() {
                 applyLabel={selectedConnectionId ? 'Save uplink' : 'Create uplink'}
               />
             ) : selectedDevice ? (
-              <HldDeviceDetails device={selectedDevice} models={catalogueModels[selectedDevice.role] ?? []} editable={editable} onChange={updateDevice} onDelete={deleteSelected} onCreateUplink={() => openCreate(selectedDevice.id)} />
+              <HldDeviceDetails device={selectedDevice} models={catalogueModels[selectedDevice.role] ?? []} editable={editable} onChange={updateDevice} onDelete={deleteSelected} onCreateUplink={() => openCreate(selectedDevice.id)} modeLabels={labels} />
+            ) : selectedCmo ? (
+              <CmoDecisionPanel
+                key={`${selectedCmo.id}:${JSON.stringify(selectedCmo.cmoDecision)}`}
+                device={selectedCmo}
+                labels={labels}
+                roles={library.roles ?? []}
+                futureDevices={devices.filter((d) => modeOf(d) === 'future')}
+                editable={editable}
+                busy={toolBusy}
+                onDecide={(body) => decideCmo(selectedCmo, body)}
+                onClear={() => clearCmo(selectedCmo)}
+              />
             ) : (
               <div className="rounded-xl border border-dashed border-border p-4 text-xs text-text-secondary">
                 {editable ? 'Select a device or an uplink, drag a device from the library into a room, or use Create Uplink.' : 'Select a device or an uplink to see it.'}
