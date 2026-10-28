@@ -1015,6 +1015,55 @@ the package. It is a completeness gate with no amounts, and hiding it would
 change the package's readiness for those roles; left for the PR that reworks
 the Solution Package view (addendum backlog, DATA-MODEL §11).
 
+## Part 16: M7b-2 — renames through a change request, legacy hostname, reprint task
+
+Built (DATA-MODEL §5.19; addendum v2.3 Q5): a device renamed through an
+approved change request keeps its old name (`legacyHostname`, set once,
+never changed), shown "old → new" wherever it appears, and the field team
+gets a reprint-label task for the renamed devices that are installed.
+
+Found and fixed, each with a test:
+
+- **Cable labels cut long device names and lost the port.** Each end line was
+  one line with an ellipsis; on the 63.5 × 38.1 mm stock the QR code leaves
+  ~24 mm of text, so a full hostname already ended in "…" and its port went
+  with it (older than this PR; the M6b test matched the old label by its
+  prefix for that reason). Each end now wraps to up to four lines, breaking
+  anywhere, so "old → new" and the port print whole on every stock (checked on
+  the three stocks' PDFs). Test: `api.m7b2.test.js` "with a primary Field
+  Engineer…" (the full name and the port, both ends of the switch).
+- **The deployment location tree cut device names** ("E-DE-ERL-C01-…" on
+  desktop): a renamed device's "old → new" was invisible on the checklist the
+  engineer works through (older than this PR for long names). Device names
+  wrap now. Test: `e2e-real/m7b2.spec.js` (the renamed device's name fits,
+  at every width).
+- **The reprint task's notification skipped the PM it fell to** (caught by its
+  own test before commit): notifications leave out their actor, and the task
+  named the sending PM as both. A system-created task has no actor now.
+- **Search reported an old-name match as "Name"** (caught by its own test):
+  generated devices keep the original name in their stored label too, and the
+  label won the tie. The old hostname is matched first.
+- **Test: the mock deployment duplicate-serial test clicked a device behind
+  the open device panel on a phone** (failed both tries once tree names
+  wrapped): on a phone the panel covers the list from 64 px down, and the
+  one-line row used to scroll into the strip above it. The test goes back to
+  the list first, as a user would; all four layouts pass.
+
+Checked by removing the rule and seeing its test fail: the reprint task only
+for installed devices, the model guard on `legacyHostname`.
+
+Decided while building (★ in DATA-MODEL §5.19): `legacyHostname` is set for
+every device whose name an approved change request changed (installed or
+not — the client approved the old name); for gear named by its label (patch
+panels) it keeps the old label; a rename before LLD approval keeps no old
+name; the reprint task covers active devices and panels alike and, without a
+primary Field Engineer, goes to the PM who sent the change request.
+
+Found, not changed: on the LLD screens a long name is still cut in the device
+picker cards and on the canvas (both older than this PR); a renamed device
+shows "old → …" with its new name on the line below, so both names are
+visible there. Left for the canvas work of PR 3.
+
 ## Backlog for the final cleanup
 
 Known, harmless today, left for one cleanup pass before release:

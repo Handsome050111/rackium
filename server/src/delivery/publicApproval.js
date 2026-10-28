@@ -20,6 +20,7 @@ import { buildingWithScopeIds } from '../access/scope.js'
 import { readSnapshot } from './common.js'
 import { withLink, assertUsable, checkPassword } from './shareLinks.js'
 import { impactWithoutCost } from './changeRequests.js'
+import { createReprintTask, notifyReprintTask } from '../deployment/reprint.js'
 
 const KIND_LABEL = { solution_package: 'Solution Package', change_request: 'Change request', handover: 'Handover package', document_download: 'Documents' }
 
@@ -108,6 +109,8 @@ export function createPublicApprovalService({ storage, lld, getHandover = () => 
         await checkPassword(link, body.password)
         const signature = await storeSignature(link, scope, body.signature)
         const req = { org: { id: scope.organisationId }, project: { id: scope.projectId } }
+        // Created with an approved change request that renamed installed devices (M7b-2).
+        let reprintTask = null
         try {
           const result = await withTransaction(async (session) => {
             const now = new Date()
@@ -132,7 +135,7 @@ export function createPublicApprovalService({ storage, lld, getHandover = () => 
                 ? await getHandover().decide({ approval, decision: body.decision, comments: body.comments, client, building, scope, session })
                 : link.kind === 'solution_package'
                   ? await decideSolutionPackage({ approval, decision: body.decision, building, session })
-                  : await decideChangeRequest({ req, link, decision: body.decision, building, actor, session })
+                  : await decideChangeRequest({ req, link, decision: body.decision, building, actor, session, onReprint: (task) => (reprintTask = task) })
             await recordAudit({
               organisationId: scope.organisationId,
               projectId: scope.projectId,
@@ -157,6 +160,7 @@ export function createPublicApprovalService({ storage, lld, getHandover = () => 
             const { crId: _ignored, ...outHandover } = result
             return outHandover
           }
+          await notifyReprintTask({ organisationId: scope.organisationId, projectId: scope.projectId, task: reprintTask })
           const kind = link.kind === 'solution_package' ? 'sp' : 'cr'
           const cr = kind === 'cr' ? await ChangeRequest.findById(link.changeRequestId, { number: 1, title: 1 }).lean() : null
           const what = kind === 'sp' ? 'the Solution Package' : `CR-${cr?.number} ${cr?.title ?? ''}`.trim()
@@ -192,10 +196,12 @@ export function createPublicApprovalService({ storage, lld, getHandover = () => 
   // Approve: the branch replaces the frozen HLD and LLD (new approved, frozen
   // versions of both). Request changes: back to the Architect. Reject: the
   // branch (HLD and LLD) goes.
-  async function decideChangeRequest({ req, link, decision, building, actor, session }) {
+  async function decideChangeRequest({ req, link, decision, building, actor, session, onReprint }) {
     const cr = await ChangeRequest.findById(link.changeRequestId).session(session).lean()
     if (decision === 'approved') {
-      const { versionId, number, hldVersionId, hldNumber } = await lld.applyChangeRequest(req, { building, branchId: cr.branchId, label: `CR-${cr.number} ${cr.title}`.slice(0, 80) }, actor, session)
+      const { versionId, number, hldVersionId, hldNumber, renamed } = await lld.applyChangeRequest(req, { building, branchId: cr.branchId, label: `CR-${cr.number} ${cr.title}`.slice(0, 80) }, actor, session)
+      // Renamed devices already installed: the labels on site are reprinted (DATA-MODEL §5.19).
+      onReprint(await createReprintTask({ organisationId: req.org.id, projectId: req.project.id, building, changeRequest: cr, renamed, sentBy: actor.userId, session }))
       await ChangeRequest.updateOne({ _id: cr._id }, { $set: { status: 'approved', decidedAt: new Date(), resultingVersionId: versionId, resultingHldVersionId: hldVersionId } }, { session })
       return { lldVersionNumber: number, hldVersionNumber: hldNumber }
     }

@@ -144,9 +144,9 @@ describe('delivery and as-built documents', () => {
   })
   it('CMDB extract: PDF model, CSV sheet and JSON with provenance', () => {
     const out = cmdbExtract(ctx, cmdb)
-    expect(out.sheet.rows[1]).toEqual(['E-SW-01', 'Edge', 'C9300-48UX', 'FOC123', '70:b3:17:55:2a:01', 'TR-EG-02', 'R01', 30, 'Accepted', 'INV-1', '2031-10-01', 'Valid'])
+    expect(out.sheet.rows[1]).toEqual(['E-SW-01', '—', 'Edge', 'C9300-48UX', 'FOC123', '70:b3:17:55:2a:01', 'TR-EG-02', 'R01', 30, 'Accepted', 'INV-1', '2031-10-01', 'Valid'])
     expect(out.json.records[0]).toMatchObject({ serial: 'FOC123', provenance: { serial: { source: 'deployment' } }, location: { rack: 'R01', ru: 30 } })
-    expect(toCsv(out.sheet.rows).split('\r\n')[0]).toBe('Hostname,Role,Model,Serial,MAC,Room,Rack,RU,Status,Asset tag,Warranty end,DGUV')
+    expect(toCsv(out.sheet.rows).split('\r\n')[0]).toBe('Hostname,Legacy hostname,Role,Model,Serial,MAC,Room,Rack,RU,Status,Asset tag,Warranty end,DGUV')
   })
   it('DGUV report counts every status, not inspected included', () => {
     const out = dguvReport(ctx, { settings: { intervalMonths: 48, expiringSoonDays: 90, expiringDays: 30 }, devices: [{ label: 'E-SW-01', room: 'TR-EG-02', lastInspectionDate: '2026-10-01', inspector: 'Meyer', dueDate: '2030-10-01', status: 'valid' }, { label: 'B-SW-01', status: null }] })

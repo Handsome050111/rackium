@@ -140,6 +140,10 @@ test.describe('Deployment & Installation', () => {
 
     const summaryCard = page.locator('.rounded-xl.border.border-border.bg-surface.p-4').first()
     async function selectDevice(hostname) {
+      // On a phone an open device covers the list: back to it first, as a user
+      // would (the click used to land in the strip above the panel — M7b-2).
+      const back = page.getByRole('button', { name: 'Back to devices' })
+      if (await back.isVisible()) await back.click()
       await page.click(`text=${hostname}`)
       await expect(summaryCard).toContainText(hostname, { timeout: 10000 })
     }

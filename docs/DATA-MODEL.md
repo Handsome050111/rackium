@@ -806,7 +806,7 @@ Architect and PM edits to a device after handover, or during operation, are audi
 
 ### 5.11 Tasks and notifications [C]
 
-**`tasks`**: `projectId` · `organisationId` · `buildingId` (O) · `title` (R) · `relatedObjectType` · `relatedObjectId` (O) · `assignedTo` (ObjectId, R; must hold an active membership on the project) · `assignedBy` (R) · `deadline` (Date, O, UTC midnight) · `notes` (String, O) · `status` (`not_started` / `in_progress` / `complete`, R, default `not_started`) · `createdAt` · `updatedAt` · `completedAt` (O).
+**`tasks`**: `projectId` · `organisationId` · `buildingId` (O) · `title` (R) · `relatedObjectType` · `relatedObjectId` (O) · `assignedTo` (ObjectId, R; must hold an active membership on the project) · `assignedBy` (R) · `deadline` (Date, O, UTC midnight) · `notes` (String, O) · `status` (`not_started` / `in_progress` / `complete`, R, default `not_started`) · `createdAt` · `updatedAt` · `completedAt` (O). M7b-2: `kind` (O; `reprint_labels`, system-created), `renames[]` and `connectionIds[]` (reprint tasks, §5.19).
 
 - Transitions: `not_started` → `in_progress` (assignee); `in_progress` → `complete` (assignee); any → `not_started` (assigner or PM, reopen).
 - Assignment to a user without an active membership is rejected.
@@ -1102,6 +1102,22 @@ Rows whose date is unknown — a phase completion backfilled without evidence (`
 - **Deployment patching** (where two engineers patch the same switch) had no check — the last save silently won. `connectionRecords` gain `version`, `changedBy`, `changedByName`, `changedAt`; the patching save names the `version` it loaded (required) and a newer one is refused: **409 `port_changed`** "Port Te1/1/2 on <device> (to Te1/1/1 on <device>) was changed by <user> since you loaded it — reload, then make your change again." Two saves of one version at once: one wins, the other is refused (the transaction collides and its retry sees the new version). Naming a port another link of the building is patched to (recorded on site, a saved draft included, else as designed): **409 `port_in_use`**, naming the link and who.
 - **HLD and LLD** already refused any save based on an older design revision (409 `stale_revision`, naming who last changed the design). Connections now carry `edited` { `layer`, `revision` }; a stale save that edits a connection changed since, or asks for a port such a connection now holds, is refused as **409 `port_changed`** naming the port and the user (`server/src/design/portConflict.js`); a stale save elsewhere keeps the generic refusal.
 
+### 5.19 Renames through a change request: legacy hostname and the reprint task (M7b-2; addendum v2.3 §2 Q5, §17 "Cable ID")
+
+The rename itself is §7 and §5.14 (preview, one audit entry, after LLD approval only on a change request's branch, §5.15). M7b-2 adds what the client asked for when a device that exists is renamed: its old name is kept and shown, and the labels on site are reprinted.
+
+**`devices.legacyHostname`** (String, O, default null) — the name the device had before its first rename that became real.
+- **Set** when an approved change request is applied (`applyChangeRequest`, in the client approval's transaction): for each device of the frozen LLD whose name the change altered — the hostname, or the label for gear named by its label (patch panels, cable managers) ★ — `legacyHostname` takes the old name when it is still empty. One audit entry, `device.legacy_hostname.set` (one change per device, before → after).
+- **Immutable** once set ★: a later rename (another change request) keeps the first name; renaming back to it shows the plain name again. The model refuses any update that changes a set `legacyHostname` (only a write filtered on `legacyHostname: null` may set it). It travels with the device through branch copies, version snapshots and promotion (records keep their ids).
+- **Not set** by a rename before the LLD is approved ★ — nothing exists on site and nothing has been printed; the design simply has a new name. Surveyed (CMO) gear migrating to the FMO naming is M7b PR 4 (`mode_state`), which reuses this field.
+- **Shown as "old → new"** wherever the device appears: the design view's `label` is `"<legacy> → <name>"` (a new `name` field carries the current name alone, for edit boxes), and everything that names devices from it follows — LLD and HLD screens, the deployment location tree, installation panel and checklists, connection ends, QR cable labels (the end line wraps to two lines instead of cutting the name), the documents generated afterwards. The CMDB has its own **Legacy hostname** column (screen, Excel, CSV/JSON/PDF extract). Global search also finds a device by its old name ("Old hostname" match).
+
+**Reprint-label task** — the closing step of a rename (Q5: "it is the closing step of the rename, not an optional extra").
+- **Created** in the same transaction, once per change request (idempotent: `tasks` unique on `kind` + `relatedObjectId`), when the change renamed at least one device whose as-built record is Installed or later — patch panels and active devices alike ★. Not for renamed devices not yet installed (their labels are printed with the new name), nor for a rejected or withdrawn change request.
+- **Content:** `tasks.kind: 'reprint_labels'`, `relatedObjectType: 'change_request'`, `phaseKey: 'deployment'`, `renames[]` { `deviceId`, `from`, `to` }, `connectionIds[]` — every connection of the frozen LLD with an end or a patch-panel hop on a renamed device; notes list old → new and the cable IDs.
+- **Assignee:** the building's primary Field Engineer (an active member whose scope covers the building); none → the PM who sent the change request to the client (the approval's submitter) ★. Notified like any assigned task (`task_assigned`). `assignedBy`: that PM.
+- **Done:** the assignee opens it, prints the label sheet (the task links to the building's deployment screen with the label dialog open and those connections chosen: `…/deployment?labels=<id,…>`), fixes the labels and completes the task (the usual task rules, `task.completed` audited).
+
 ---
 
 ## 6. Calculated values (never stored)
@@ -1152,6 +1168,7 @@ These are computed from source records on read, or from a projection rebuilt fro
 - **Hostnames never regenerate automatically.** A hostname is generated once from the naming pattern at creation, and stored on the device.
 - **Explicit rename.** Architect or PM runs a rename action. It shows a **preview** of every affected hostname, then applies the change in one transaction. The rename writes one audit entry (`device.hostname.renamed`) with the old and new value for each device.
 - **After LLD approval, a rename goes only through a change request** (§5.9, gate `change_request`), like any other frozen change.
+- **The old name is kept** (M7b-2, §5.19): once the change request is approved, the device's `legacyHostname` holds its name before the first such rename — immutable — and it is shown "old → new"; renamed installed devices get a reprint-label task.
 - Cable IDs are stored once and never regenerate. Reassignment is an audited action.
 - Serials and MACs are stored as entered. Validation results are calculated.
 - Design version numbers are stored and monotonic.
@@ -1360,7 +1377,7 @@ Audit entries are kept for the life of the organisation. The GDPR purge (brief �
 - **Branding template.** Generated documents use a clean default template in the Rackium design tokens until Technonex supplies its branding template (M6b).
 - **Per-download watermark.** A PDF carries the watermark of the user who generated it; another member downloading it gets the same file (audited). A watermark per download would mean rendering per download.
 - **Offline installation queue for deployment.** M6a's installation record, patching, link tests and DGUV entries need a connection; on a phone in a basement that is the weak point. To build: queue installation, patching and DGUV writes (and their photos) on the device like the survey's offline mode (§5.7), replay them in order on sync with the server re-running delivery gating, serial/MAC uniqueness and deviation detection, and a conflict rule when two people record the same device or cable.
-- **Reprint labels after a panel rename (M7b).** When an approved change request renames a patch panel that is already installed, the cable labels on site show the old name. To build: the change request's approval creates a "reprint label" task in the deployment flow for the field team (the affected connections, their cable IDs and a label-sheet link), closed when new labels are printed and fixed.
+- ~~**Reprint labels after a panel rename (M7b).**~~ Built in M7b-2 (§5.19), for active devices too.
 - **Photo EXIF/GPS handling.** Photos are stored as uploaded after browser compression (§9.4); EXIF is not read. To build: `capturedAt` from EXIF when present, EXIF GPS copied to `files.geo` only with the uploader's consent, and EXIF stripped from exported files (§9.2).
 
 ## 12. Decision trace

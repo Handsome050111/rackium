@@ -22,6 +22,12 @@ const taskSchema = new mongoose.Schema({
   status: { type: String, enum: TASK_STATUSES, default: 'not_started' },
   // Bill of Resources origin (brief §5.5): the task kind and the room it was made for.
   resourceTask: { type: String, default: null },
+  // System-created tasks (M7b-2, DATA-MODEL §5.19): 'reprint_labels' — after
+  // a change request renamed installed devices, the labels on site are
+  // reprinted. Which devices (old → new) and which cables.
+  kind: { type: String, enum: ['reprint_labels', null], default: null },
+  renames: { type: [new mongoose.Schema({ deviceId: String, from: String, to: String }, { _id: false })], default: undefined },
+  connectionIds: { type: [String], default: undefined },
   completedAt: { type: Date, default: null },
   // Reminders are sent once (the scheduled job claims these atomically).
   dueSoonNotifiedAt: { type: Date, default: null },
@@ -34,5 +40,7 @@ taskSchema.__modelName = 'Task'
 tenantScope(taskSchema, { scope: 'project' })
 taskSchema.index({ projectId: 1, status: 1, deadline: 1 })
 taskSchema.index({ projectId: 1, relatedObjectType: 1, relatedObjectId: 1 })
+// One reprint task per change request, however often the approval runs.
+taskSchema.index({ projectId: 1, kind: 1, relatedObjectId: 1 }, { unique: true, partialFilterExpression: { kind: { $type: 'string' } } })
 
 export const Task = mongoose.models.Task || mongoose.model('Task', taskSchema)

@@ -289,23 +289,24 @@ describe('Renaming a planned panel once the design is frozen (PR #14 review)', (
     const link = expectStatus(await p.admin.agent.post(`${p.base}/change-requests/${cr.id}/send`).send({}), 201).body.shareLink
     expectStatus(await clientDecides(ctx, link, { comments: 'Approved' }), 200)
 
-    // Applied: the frozen LLD and what derives from it read the new label.
-    expect((await d.view()).devices.find((x) => x.id === panel.id)).toMatchObject({ label: after, isPanel: true })
+    // Applied: the frozen LLD and what derives from it read the new label —
+    // after the old one, "old → new" (M7b-2: a renamed device keeps its old
+    // name, addendum v2.3 Q5, DATA-MODEL §5.19).
+    const renamed = `${before} → ${after}`
+    expect((await d.view()).devices.find((x) => x.id === panel.id)).toMatchObject({ label: renamed, name: after, legacyHostname: before, isPanel: true })
     const ends = (await depView(p.fe, p)).connections.find((c) => c.id === ea.id).segments.flatMap((s) => [s.from.name, s.to.name])
-    expect(ends).toContain(after)
+    expect(ends).toContain(renamed)
     expect(ends).not.toContain(before)
     // Generated afterwards: new versions with the new label.
     const labels2 = await generate(ctx, p, p.fe, labelsBody)
     const lld2 = await generate(ctx, p, p.architect, { typeKey: 'lld-document', format: 'pdf' })
     const matrix2 = await generate(ctx, p, p.architect, { typeKey: 'cable-matrix', format: 'xlsx' })
     expect([labels2.version, lld2.version, matrix2.version]).toEqual([labels1.version + 1, lld1.version + 1, matrix1.version + 1])
-    for (const [doc, agent, old] of [[labels2, p.fe, beforeOnLabel], [lld2, p.architect, before]]) {
+    for (const [doc, agent] of [[labels2, p.fe], [lld2, p.architect]]) {
       const text = flat(await pdfPages(await download(p, agent, doc.id)))
-      has(text, after)
-      expect(text).not.toContain(old)
+      has(text, renamed)
     }
-    expect(await cellsOf(matrix2, p.architect)).toContain(after)
-    expect(await cellsOf(matrix2, p.architect)).not.toContain(before)
+    expect(await cellsOf(matrix2, p.architect)).toContain(renamed)
     // Generated before: the same version, the same bytes, the old label.
     for (const [doc, agent] of [[labels1, p.fe], [lld1, p.architect], [matrix1, p.architect]]) {
       const bytes = await download(p, agent, doc.id)
@@ -365,7 +366,7 @@ describe('Handover workflow (brief v2.3 §5.9)', () => {
     const docId = (key, format = 'pdf') => view.documents.find((d) => d.key === key).files.find((f) => f.format === format).document.id
     expect((await pdfPages(await download(p, p.admin.agent, docId('deployment-report')))).join('\n')).toContain('Installation records')
     expect((await pdfPages(await download(p, p.admin.agent, docId('as-built')))).join('\n')).toContain('The installation matches the frozen design field by field.')
-    expect((await download(p, p.admin.agent, docId('cmdb-extract', 'csv'))).toString()).toContain('Hostname,Role,Model')
+    expect((await download(p, p.admin.agent, docId('cmdb-extract', 'csv'))).toString()).toContain('Hostname,Legacy hostname,Role,Model')
     // Review (PM or Reviewer), then delivery (PM) with a share link.
     await p.fe.post(`${H}/review`).expect(403)
     expectStatus(await p.reviewer.post(`${H}/review`), 200)

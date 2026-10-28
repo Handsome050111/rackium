@@ -1,3 +1,4 @@
+import { withLegacyName } from './deviceName.js'
 import { deploymentLabel } from './deploymentModel.js'
 
 // Location tree for the deployment screen: Building -> Floor -> Room -> Rack -> Device.
@@ -48,8 +49,10 @@ function roomNode(room, racks, devices) {
 }
 
 // A device is named by its hostname, as on the canvas; label is the role name.
+// A renamed device reads "old → new" (DATA-MODEL §5.19): on site it carries
+// the old name until its labels are reprinted.
 function deviceNode(device) {
-  return { ...node('device', device.id, device.hostname ?? device.label ?? device.id, [device]), awaitingDelivery: !device.deliveryReady }
+  return { ...node('device', device.id, withLegacyName(device.hostname ?? device.name ?? device.label ?? device.id, device.legacyHostname), [device]), awaitingDelivery: !device.deliveryReady }
 }
 
 export function buildLocationTree({ building, floors, rooms, racks, devices }) {

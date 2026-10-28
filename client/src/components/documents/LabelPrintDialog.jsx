@@ -6,8 +6,10 @@ import { useDocumentJob } from './documentJob.js'
 
 // Printable QR cable labels (M6b): the chosen cables, both ends, on the
 // chosen label stock. connections: [{ id, title, cableIds: [] }].
-export default function LabelPrintDialog({ orgId, projectId, buildingId, connections, onClose }) {
-  const [chosen, setChosen] = useState(() => new Set(connections.map((c) => c.id)))
+// `preselected`: connection ids to start with (a reprint-label task, M7b-2);
+// default every connection.
+export default function LabelPrintDialog({ orgId, projectId, buildingId, connections, preselected = null, onClose }) {
+  const [chosen, setChosen] = useState(() => new Set(connections.map((c) => c.id).filter((id) => !preselected || preselected.includes(id))))
   const [size, setSize] = useState(LABEL_SIZES[0].key)
   const { job, start } = useDocumentJob(orgId, projectId)
   const busy = job && !['ready', 'failed'].includes(job.status)

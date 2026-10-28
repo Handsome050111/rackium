@@ -2,6 +2,8 @@
 // lib/lldExport.js / lib/bomExport.js.
 export const CMDB_COLUMNS = [
   { heading: 'Hostname', value: (r) => r.hostname },
+  // Renamed through a change request: the old name (DATA-MODEL §5.19).
+  { heading: 'Legacy hostname', value: (r) => r.legacyHostname ?? '' },
   { heading: 'Role', value: (r) => r.role },
   { heading: 'Model', value: (r) => r.model },
   { heading: 'Floor', value: (r) => r.floorName ?? '' },

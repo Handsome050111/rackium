@@ -31,7 +31,9 @@ export default function RealDeployment() {
   const [notice, setNotice] = useState(null)
   const [phoneView, setPhoneView] = useState('tree')
   const [logTarget, setLogTarget] = useState(null)
-  const [labels, setLabels] = useState(false)
+  // ?labels=<connection ids>: a reprint-label task opens the dialog with its cables chosen (M7b-2).
+  const reprint = search.get('labels')
+  const [labels, setLabels] = useState(() => Boolean(reprint))
   const selectedId = search.get('device')
   const select = useCallback((id) => setSearch(id ? { device: id } : {}, { replace: true }), [setSearch])
 
@@ -218,7 +220,11 @@ export default function RealDeployment() {
           orgId={orgId}
           projectId={projectId}
           buildingId={buildingId}
-          onClose={() => setLabels(false)}
+          preselected={reprint ? reprint.split(',') : null}
+          onClose={() => {
+            setLabels(false)
+            if (reprint) setSearch(selectedId ? { device: selectedId } : {}, { replace: true })
+          }}
           connections={view.connections.map((c) => ({ id: c.id, title: `${c.source.name} ${c.source.portId ?? ''} → ${c.dest.name} ${c.dest.portId ?? ''}`, cableIds: c.segments.map((s) => s.installed?.cableId ?? s.cableId).filter(Boolean) }))}
         />
       )}

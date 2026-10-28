@@ -30,7 +30,7 @@ export const DEMO_BUILDINGS = [
   { code: 'B002', name: 'Office South', salCode: 'ERL', campusCode: 'C01', stage: 'hld', stageLabel: 'HLD submitted, waiting for review' },
   { code: 'B003', name: 'Logistics Hall', salCode: 'ERL', campusCode: 'C01', stage: 'lld', stageLabel: 'LLD submitted, waiting for review' },
   { code: 'B004', name: 'Training Centre', salCode: 'MUC', campusCode: 'C02', stage: 'bom', stageLabel: 'Package approved by the client, BOM approved, half ordered' },
-  { code: 'B005', name: 'Lab Building', salCode: 'MUC', campusCode: 'C02', stage: 'deployment', stageLabel: 'Deployment under way: some devices installed, one link patched' },
+  { code: 'B005', name: 'Lab Building', salCode: 'MUC', campusCode: 'C02', stage: 'deployment', stageLabel: 'Deployment under way; an installed switch renamed by CR-1 (old → new), reprint task for Fiona Field' },
   { code: 'B006', name: 'Head Office', salCode: 'MUC', campusCode: 'C02', stage: 'handover', stageLabel: 'Handed over and accepted by the client (baseline v1.0)' },
 ]
 
@@ -72,10 +72,13 @@ export async function seedDemo({ agent, mailer, processDocuments, log = () => {}
   const rows = DEMO_BUILDINGS.map((b) => ({ countryCode: 'DE', countryName: 'Germany', salCode: b.salCode, campusCode: b.campusCode, buildingCode: b.code, buildingName: b.name, wingCode: '', wingName: '' }))
   await call(admin, 'post', `${base}/hierarchy/import`, { rows }, 201)
   const people = { admin }
+  const userIds = { admin: signedIn.body.user.id }
   for (const u of members) {
     await call(admin, 'post', `/api/v1/orgs/${orgId}/invitations`, { email: u.email, role: u.role, projectId: project.id, scopes: [] }, 201)
     await call(agent(), 'post', '/api/v1/auth/invitations/accept', { organisationId: orgId, token: tokenFor(u.email), name: u.name, password: DEMO_PASSWORD }, 201)
-    people[u.key] = (await signIn(u.email)).a
+    const member = await signIn(u.email)
+    people[u.key] = member.a
+    userIds[u.key] = member.body.user.id
   }
   log(`organisation, project and ${DEMO_USERS.length} users`)
   const { pm, architect, reviewer, fe } = people
@@ -90,6 +93,23 @@ export async function seedDemo({ agent, mailer, processDocuments, log = () => {}
     log(`${b.code} ${b.name}: ${b.stageLabel}`)
   }
   return { orgId, projectId: project.id, base, buildings }
+
+  // M7b-2: an installed switch renamed through a change request the client
+  // approved — shown "old → new", with a reprint-label task for the building's
+  // primary Field Engineer.
+  async function renameInstalledSwitch(id, code, installed) {
+    await send(admin, 'patch', `/schedule/buildings/${id}/assignees`, { primaryFieldEngineerId: userIds.fe }, 200)
+    const target = installed.find((d) => d.hostname && !d.isPanel)
+    const { changeRequest: cr } = await send(architect, 'post', '/change-requests', { buildingId: id, title: 'Rename to the client naming', reason: 'Client naming convention' }, 201)
+    const branch = await send(architect, 'get', `/lld/buildings/${id}?branchId=${cr.branchId}`, undefined, 200)
+    const copy = branch.devices.find((d) => d.inDesign && d.hostname === target.hostname)
+    const renamed = target.hostname.replace(/-\d{3}$/, '-901')
+    await send(architect, 'post', '/lld/rename', { buildingId: id, branchId: cr.branchId, renames: [{ deviceId: copy.id, hostname: renamed }], baseRevision: branch.design.revision }, 200)
+    await send(architect, 'post', `/change-requests/${cr.id}/submit`, undefined, 200)
+    const { shareLink } = await send(pm, 'post', `/change-requests/${cr.id}/send`, {}, 201)
+    await call(agent(), 'post', `/api/v1/public/share-links/${shareLink.token}/decision`, { password: shareLink.password, decision: 'approved', name: 'Clara Client', role: 'IT Director', comments: 'Approved', termsAccepted: true }, 200)
+    log(`${code}: ${target.hostname} → ${renamed} (CR-${cr.number}), reprint task for the Field Engineer`)
+  }
 
   // Takes one building from an empty survey to its demo stage.
   async function advance({ id, code, stage }) {
@@ -201,7 +221,10 @@ export async function seedDemo({ agent, mailer, processDocuments, log = () => {}
       await send(fe, 'put', `/deployment/connections/${c.id}/installation`, { segments: current.segments.map((s) => ({ index: s.index, cableId: s.cableId, installedM: s.effectiveM ?? 3, confirmed: true })), confirm: true, version: current.version ?? 0 }, 200)
       await send(fe, 'post', `/deployment/connections/${c.id}/test`, { result: 'pass' }, 200)
     }
-    if (!reached('deployment')) return
+    if (!reached('deployment')) {
+      await renameInstalledSwitch(id, code, devices)
+      return
+    }
 
     // Accepted, then the handover: compiled, reviewed, delivered, accepted by the client.
     dep = await send(fe, 'get', `/deployment/buildings/${id}`, undefined, 200)

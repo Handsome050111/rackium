@@ -53,6 +53,10 @@ function toTask(t, names, now = new Date(), tz = DEFAULT_TIME_ZONE) {
     overdue: isOverdue(t, now, tz),
     dueSoon: isDueSoon(t, now, tz),
     resourceTask: t.resourceTask ?? null,
+    // A reprint-label task (M7b-2): the renames and the cables to relabel.
+    kind: t.kind ?? null,
+    renames: t.renames ?? [],
+    connectionIds: t.connectionIds ?? [],
     completedAt: t.completedAt ?? null,
     createdAt: t.createdAt,
     updatedAt: t.updatedAt,
