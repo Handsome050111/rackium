@@ -2,12 +2,13 @@ import mongoose from 'mongoose'
 import { namePortConflict } from '../design/portConflict.js'
 import crypto from 'node:crypto'
 import { computeSuggestedLength } from '@rackium/shared/cableLength.js'
-import { findSurveyedDistance } from '@rackium/shared/pathway.js'
+import { findSurveyedDistance, routeDistance, routeLegs, findRoute } from '@rackium/shared/pathway.js'
+import { suggestNextCableId } from '@rackium/shared/cableId.js'
 import { expandPortMap } from '@rackium/shared/catalogue.js'
 import { computeFreeRU } from '@rackium/shared/rackValidation.js'
 import { HLD_ROLES, roleInfo, nextHostname, defaultModelFor, resolveRoleCodes, PROPOSED_ROLE_CODE_KEYS } from '@rackium/shared/hldRoles.js'
 import { generateFromBlueprint, BLUEPRINT_PRESETS, BLUEPRINT_VARIANTS, blueprintProblem, defaultVariantOf } from '@rackium/shared/hldBlueprints.js'
-import { validateHld, uplinkChecks, summariseFindings } from '@rackium/shared/hldRules.js'
+import { validateHld, uplinkChecks, summariseFindings, portSuitsMedia } from '@rackium/shared/hldRules.js'
 import { canApproveSubmission, rolesAllowed, ACTIONS } from '@rackium/shared/policy.js'
 import { deviceDisplayName } from '@rackium/shared/deviceName.js'
 import { DesignBranch } from '../models/designBranch.js'
@@ -82,12 +83,14 @@ async function loadDesign(buildingId, projectId, session = null, branchId = null
   const deviceFilter = branchId ? { buildingId, $or: [{ layer: hldLayerOf(branchId) }, { layer: null, origin: 'existing' }] } : { buildingId, layer: HLD_LAYER }
   const devices = await Device.find(deviceFilter).session(session).lean()
   const connections = await Connection.find({ buildingId, layer: layerFilter(branchId) }).sort({ createdAt: 1 }).session(session).lean()
+  // Links an HLD tool took out of the design (DATA-MODEL §5.20): the broken-uplink list and W-UPLINK-NEEDED.
+  const archived = await Connection.find({ buildingId, layer: layerFilter(branchId), archived: { $ne: null } }).sort({ 'archived.at': -1 }).session(session).lean()
   const positions = await CanvasPosition.find({ buildingId, designType: 'hld' }).session(session).lean()
   const pathwayRows = await Pathway.find().session(session).lean()
   const occupancy = await PortOccupancy.find({ layer: layerFilter(branchId), deviceId: { $in: devices.map((d) => d._id) } }, { deviceId: 1 }).session(session).lean()
   const catalogue = await projectCatalogue(projectId)
   const pathways = pathwayRows.map((p) => ({ fromRoomId: String(p.roomLowId), toRoomId: String(p.roomHighId), routeStatus: p.routeStatus, distanceM: p.distanceM ?? null }))
-  return { floors, rooms, racks, devices, connections, positions, pathways, catalogue, occupancy }
+  return { floors, rooms, racks, devices, connections, archived, positions, pathways, catalogue, occupancy }
 }
 
 function catalogueIndex(catalogue) {
@@ -116,7 +119,10 @@ function lengthOf(conn, deviceById, rackPos, pathways) {
   const b = deviceById.get(id(conn.dest.deviceId))
   if (!a?.roomId || !b?.roomId) return { lengthM: null, lengthEstimated: true, customLengthRequired: false, suggestedM: null, situation: null }
   const end = (d, extra = {}) => ({ rackId: id(d.rackId), roomId: id(d.roomId), ru: d.ru ?? 1, rackPosition: d.rackId ? rackPos.get(id(d.rackId)) ?? 1 : 1, ...extra })
-  const surveyed = findSurveyedDistance(id(a.roomId), id(b.roomId), pathways)
+  // A rerouted cable (DATA-MODEL §5.20): its pathways added up, surveyed ones only.
+  const via = (conn.route?.viaRoomIds ?? []).map(String)
+  const routed = via.length ? routeDistance(id(a.roomId), id(b.roomId), pathways, via) : null
+  const surveyed = routed ? (routed.reason ? null : routed.distanceM) : findSurveyedDistance(id(a.roomId), id(b.roomId), pathways)
   const r = computeSuggestedLength({ source: end(a), dest: end(b, { surveyedPathwayLength: surveyed }), media: conn.media })
   return { lengthM: r.rawMeters, lengthEstimated: r.estimated, customLengthRequired: r.customLengthRequired, suggestedM: r.suggested, situation: r.situation }
 }
@@ -178,6 +184,8 @@ const toConnectionView = (c, length) => ({
   sourceSfpCode: c.sourceSfpCode ?? null,
   destSfpCode: c.destSfpCode ?? null,
   viaPatchPanel: Boolean(c.viaPatchPanel),
+  // Rerouted through other rooms (DATA-MODEL §5.20).
+  route: c.route?.viaRoomIds?.length ? { viaRoomIds: c.route.viaRoomIds.map(String) } : null,
   cableId: c.cableId ?? null,
   hops: c.hops ?? [],
   lengths: { suggestedM: length.suggestedM, engineerSelectedM: c.lengths?.engineerSelectedM ?? null },
@@ -205,7 +213,9 @@ function runValidation(data) {
   const { deviceViews, connections, ctx } = ruleInputs(data)
   const racks = data.racks.map((r) => ({ id: String(r._id), code: r.code, heightU: r.heightU, maxLoadKg: r.details?.maxLoadKg ?? null }))
   const cmoUnplaced = data.devices.filter((d) => d.origin === 'existing' && d.importBatchId && !d.rackId).map((d) => ({ id: String(d._id), label: d.hostname ?? d.installation?.serial ?? 'device' }))
-  const findings = validateHld({ devices: deviceViews, connections: connections.map((c) => ({ ...c, ...c.length })), racks, cmoUnplaced }, ctx)
+  const createdAt = new Map(data.connections.map((c) => [String(c._id), c.createdAt]))
+  const broken = (data.archived ?? []).filter((c) => c.archived.tool === 'break').map((c) => ({ id: String(c._id), sourceDeviceId: String(c.source.deviceId), destDeviceId: String(c.dest.deviceId), sourceName: c.archived.sourceName, destName: c.archived.destName, reason: c.archived.reason, at: c.archived.at }))
+  const findings = validateHld({ devices: deviceViews, connections: connections.map((c) => ({ ...c, ...c.length, createdAt: createdAt.get(c.id) })), racks, cmoUnplaced, broken }, ctx)
   return { findings, summary: summariseFindings(findings) }
 }
 
@@ -591,6 +601,8 @@ export function createHldService({ storage }) {
       versions: versions.map((v) => ({ id: String(v._id), number: v.number, frozen: v.frozen, createdAt: v.createdAt, counts: v.counts, snapshotFileId: String(v.snapshotFileId) })),
       surveyChanges: await surveyChanges(building),
       surveyInputs: surveyInputs(data, cat),
+      // Links an HLD tool took out of the design, newest first (DATA-MODEL §5.20).
+      archivedUplinks: (data.archived ?? []).map((c) => ({ id: String(c._id), tool: c.archived.tool, reason: c.archived.reason ?? null, at: c.archived.at, by: c.archived.byName ?? null, sourceName: c.archived.sourceName, destName: c.archived.destName, media: c.media, speed: c.speed, cableId: c.cableId ?? null })),
     }
   }
 
@@ -657,6 +669,31 @@ export function createHldService({ storage }) {
     if (!device || device.origin !== 'planned' || !inHld(device)) throw notFound('Device not found')
     await requireBuilding(req, device.buildingId)
     return device
+  }
+
+  // --- For the design tools (DATA-MODEL §5.20) ------------------------------
+  const nameOf = (data, deviceId) => {
+    const d = data.devices.find((x) => String(x._id) === String(deviceId))
+    return d ? deviceDisplayName(d, roleInfo(d.role)?.label ?? 'device') : 'device'
+  }
+  const auditBase = (req, record, actor) => ({ organisationId: req.org.id, projectId: req.project.id, buildingId: String(record.buildingId), phaseKey: 'hld', actor: userActor(actor.userId, actor.role), changeType: 'design_intent', source: 'ui' })
+  // The link as it is now, inside the transaction (not archived meanwhile).
+  async function liveConnection(connectionId, session) {
+    const conn = await Connection.findById(connectionId).session(session).lean()
+    if (!conn) throw notFound('Uplink not found')
+    return conn
+  }
+  // Takes a link out of the design but keeps it (Q1): ports released, cable
+  // ID retired, the record archived with the tool, reason, who and the ends.
+  async function archive(conn, { tool, reason, data, actor, session }) {
+    await releaseConnection(conn._id, session)
+    const byName = (await namesOf([actor.userId])).get(String(actor.userId)) ?? null
+    await Connection.updateOne({ _id: conn._id }, { $set: { archived: { tool, reason: reason ?? null, at: new Date(), by: actor.userId, byName, sourceName: nameOf(data, conn.source.deviceId), destName: nameOf(data, conn.dest.deviceId) } } }, { session })
+    data.connections = data.connections.filter((c) => String(c._id) !== String(conn._id))
+  }
+  // The next cable ID of the project (retired ones count: never reused, F4).
+  async function nextCableId(session) {
+    return suggestNextCableId((await CableIdRegistry.find({}, { cableKey: 1 }).session(session).lean()).map((r) => r.cableKey))
   }
 
   async function connectionInScope(req, connectionId) {
@@ -848,6 +885,180 @@ export function createHldService({ storage }) {
         return { deleted: String(existing._id) }
       }, { branchId: branchOfHldLayer(existing.layer) }).catch(async (err) => {
         throw await namePortConflict(err, { layer: existing.layer, baseRevision, connectionId })
+      })
+    },
+
+    // --- The design tools (DATA-MODEL §5.20; addendum v2.3 Q1) -----------------
+
+    // Break Uplink: ports released, cable ID retired, the link archived (not
+    // deleted) with its reason; both devices get W-UPLINK-NEEDED (a warning).
+    async breakUplink(req, connectionId, { reason, baseRevision }, actor) {
+      const existing = await connectionInScope(req, connectionId)
+      return write(req, existing.buildingId, baseRevision, actor, async ({ data, session }) => {
+        const conn = await liveConnection(existing._id, session)
+        await archive(conn, { tool: 'break', reason, data, actor, session })
+        await recordAudit({ ...auditBase(req, existing, actor), action: 'hld.uplink.broken', objectType: 'Connection', objectId: conn._id, comment: `${nameOf(data, conn.source.deviceId)} — ${nameOf(data, conn.dest.deviceId)}: ${reason}`, changes: [{ objectType: 'Connection', objectId: String(conn._id), field: 'archived', before: null, after: `break: ${reason}` }], session })
+        return { broken: String(conn._id) }
+      }, { branchId: branchOfHldLayer(existing.layer) }).catch(async (err) => {
+        throw await namePortConflict(err, { layer: existing.layer, baseRevision, connectionId })
+      })
+    },
+
+    // Reroute: the same ends, another route; the length (and so the BOM) follows.
+    async rerouteUplink(req, connectionId, body, actor) {
+      const existing = await connectionInScope(req, connectionId)
+      return write(req, existing.buildingId, body.baseRevision, actor, async ({ data, session, layer, design }) => {
+        const conn = await Connection.findById(existing._id).session(session)
+        if (!conn) throw notFound('Uplink not found')
+        const before = withLengths(data, conn)
+        const devices = new Map(data.devices.map((d) => [String(d._id), d]))
+        const a = devices.get(String(conn.source.deviceId))
+        const b = devices.get(String(conn.dest.deviceId))
+        const code = (roomId) => data.rooms.find((r) => String(r._id) === String(roomId))?.code ?? 'a room'
+        const routeText = (via) => (via?.length ? via.map(code).join(' → ') : 'direct')
+        if (body.viaRoomIds !== undefined) {
+          const via = body.viaRoomIds.map(String)
+          if (via.length) {
+            if (!a?.roomId || !b?.roomId || String(a.roomId) === String(b.roomId)) throw badRequest('Only an uplink between two rooms can be routed through other rooms')
+            const rooms = new Set(data.rooms.map((r) => String(r._id)))
+            if (via.some((r) => !rooms.has(r))) throw notFound('A room of the route is not in this building')
+            if (new Set(via).size !== via.length || via.includes(String(a.roomId)) || via.includes(String(b.roomId))) throw badRequest("Name each room of the route once, and not the uplink's own rooms")
+            for (const [x, y] of routeLegs(String(a.roomId), String(b.roomId), via)) if (!findRoute(x, y, data.pathways)) throw badRequest(`No pathway between ${code(x)} and ${code(y)} — record it in the survey first`)
+          }
+          conn.route = via.length ? { viaRoomIds: via.map(oid) } : null
+        }
+        if (body.viaPatchPanel !== undefined) conn.viaPatchPanel = body.viaPatchPanel
+        conn.edited = { layer, revision: design.revision }
+        conn.updatedBy = actor.userId
+        conn.updatedAt = new Date()
+        await conn.save({ session })
+        const after = withLengths(data, conn)
+        const changes = [
+          ['route', routeText(before.route?.viaRoomIds), routeText(after.route?.viaRoomIds)],
+          ['viaPatchPanel', before.viaPatchPanel, after.viaPatchPanel],
+          ['length', before.length.suggestedM, after.length.suggestedM],
+        ]
+          .filter(([, x, y]) => x !== y)
+          .map(([field, x, y]) => ({ objectType: 'Connection', objectId: String(conn._id), field, before: x, after: y }))
+        await recordAudit({ ...auditBase(req, existing, actor), action: 'hld.uplink.rerouted', objectType: 'Connection', objectId: conn._id, comment: `${routeText(after.route?.viaRoomIds)}${after.viaPatchPanel ? ', via the patch panel' : ''}`, changes, session })
+        return { uplink: after, length: { before: before.length.suggestedM, after: after.length.suggestedM } }
+      }, { branchId: branchOfHldLayer(existing.layer) }).catch(async (err) => {
+        throw await namePortConflict(err, { layer: existing.layer, baseRevision: body.baseRevision, connectionId })
+      })
+    },
+
+    // Replace Endpoint: one end to another device; a new cable ID unless kept.
+    async replaceEndpoint(req, connectionId, body, actor) {
+      const existing = await connectionInScope(req, connectionId)
+      return write(req, existing.buildingId, body.baseRevision, actor, async ({ data, session, layer, design }) => {
+        const conn = await Connection.findById(existing._id).session(session)
+        if (!conn) throw notFound('Uplink not found')
+        const cat = catalogueIndex(data.catalogue)
+        const devices = new Map(data.devices.map((d) => [String(d._id), d]))
+        const device = devices.get(String(body.deviceId))
+        if (!device) throw notFound('The new device is not in this building')
+        const other = body.end === 'source' ? 'dest' : 'source'
+        if (String(conn[other].deviceId) === String(device._id)) throw badRequest('An uplink joins two different devices')
+        const port = portOf(device, body.portId ?? null, cat)
+        if (String(conn[body.end].deviceId) === String(device._id) && (conn[body.end].portId ?? null) === (port ?? null)) throw badRequest('That is already this end of the uplink')
+        const endText = (deviceId, portId) => `${nameOf(data, deviceId)}${portId ? ` ${portId}` : ''}`
+        const beforeEnd = endText(conn[body.end].deviceId, conn[body.end].portId)
+        const beforeCableId = conn.cableId ?? null
+        conn[body.end] = { deviceId: device._id, portId: port }
+        await PortOccupancy.deleteMany({ connectionId: conn._id }, { session })
+        await takePorts(conn, devices, session, layer)
+        // A re-terminated run is physically a new cable (Q1).
+        if (!body.keepCableId && conn.cableId) {
+          await CableIdRegistry.updateMany({ connectionId: conn._id, ownerType: 'connection', status: 'reserved' }, { $set: { status: 'retired' } }, { session })
+          conn.cableId = await nextCableId(session)
+          await registerCableId(conn, session, layer)
+        }
+        conn.edited = { layer, revision: design.revision }
+        conn.updatedBy = actor.userId
+        conn.updatedAt = new Date()
+        await conn.save({ session })
+        const afterEnd = endText(device._id, port)
+        const changes = [{ objectType: 'Connection', objectId: String(conn._id), field: `${body.end} end`, before: beforeEnd, after: afterEnd }]
+        if (beforeCableId !== (conn.cableId ?? null)) changes.push({ objectType: 'Connection', objectId: String(conn._id), field: 'cableId', before: beforeCableId, after: conn.cableId })
+        await recordAudit({ ...auditBase(req, existing, actor), action: 'hld.uplink.endpoint_replaced', objectType: 'Connection', objectId: conn._id, comment: `${beforeEnd} → ${afterEnd}`, changes, session })
+        data.connections = data.connections.map((c) => (String(c._id) === String(conn._id) ? conn.toObject() : c))
+        return { uplink: withLengths(data, conn), cableId: { before: beforeCableId, after: conn.cableId ?? null } }
+      }, { branchId: branchOfHldLayer(existing.layer) }).catch(async (err) => {
+        throw await namePortConflict(err, { layer: existing.layer, baseRevision: body.baseRevision, connectionId, ends: [{ deviceId: body.deviceId, portId: body.portId ?? null }] })
+      })
+    },
+
+    // Split: A–B becomes A–X–B. X's ports are checked before anything is written.
+    async splitUplink(req, connectionId, body, actor) {
+      const existing = await connectionInScope(req, connectionId)
+      return write(req, existing.buildingId, body.baseRevision, actor, async ({ building, data, session, layer }) => {
+        const conn = await liveConnection(existing._id, session)
+        const cat = catalogueIndex(data.catalogue)
+        let x = null
+        if (body.deviceId) {
+          x = data.devices.find((d) => String(d._id) === String(body.deviceId))
+          if (!x) throw notFound('The device to insert is not in this building')
+          if ([String(conn.source.deviceId), String(conn.dest.deviceId)].includes(String(x._id))) throw badRequest('That device is already an end of this uplink')
+        }
+        // The free-port check (Q1), before any write. A new device starts with every port free.
+        const model = x ? x.catalogueKey : body.newDevice.catalogueKey ?? defaultModelFor(body.newDevice.role, data.catalogue)?.key ?? null
+        const who = x ? nameOf(data, x._id) : `The new ${roleInfo(body.newDevice.role)?.label ?? 'device'}`
+        const item = cat.item(model)
+        const ports = item?.portMap ? expandPortMap(item.portMap) : []
+        const taken = x ? new Set((await PortOccupancy.find({ layer: layer === 'hld' ? HLD_LAYER : layer, deviceId: x._id }).session(session).lean()).map((o) => o.portKey)) : new Set()
+        const usable = (p) => portSuitsMedia(p.type, conn.media) && !taken.has(lower(p.id))
+        const free = ports.filter(usable).map((q) => q.id)
+        const named = [body.ports?.towardSource, body.ports?.towardDest].filter(Boolean)
+        if (named.length) {
+          if (new Set(named.map(lower)).size !== named.length) throw badRequest('Choose two different ports')
+          for (const wanted of named) {
+            const p = ports.find((q) => lower(q.id) === lower(wanted))
+            if (!p) throw badRequest(`${wanted} is not a port of ${who}`)
+            if (!usable(p)) throw new AppError(409, 'no_free_ports', `${p.id} on ${who} is ${taken.has(lower(p.id)) ? 'already in use' : `not a port for ${conn.media.toUpperCase()}`} — choose another, or leave the ports to the LLD`, { freePorts: free })
+          }
+        } else if (free.length < 2) {
+          throw new AppError(409, 'no_free_ports', `${who} has ${free.length} free port(s) for ${conn.media.toUpperCase()}; splitting an uplink needs two`, { freePorts: free })
+        }
+        let created = false
+        if (!x) {
+          x = (await createDevice({ building, role: body.newDevice.role, roomId: body.newDevice.roomId, catalogueKey: body.newDevice.catalogueKey, floors: data.floors, rooms: data.rooms, catalogue: data.catalogue, takenHostnames: await projectHostnames(session), session, layer })).toObject()
+          data.devices.push(x)
+          created = true
+        }
+        const name = nameOf(data, x._id)
+        await archive(conn, { tool: 'split', reason: `Split: ${name} inserted`, data, actor, session })
+        const base = { media: conn.media, speed: conn.speed, sourceSfpCode: conn.sourceSfpCode ?? null, destSfpCode: conn.destSfpCode ?? null }
+        // Re-terminated runs: new cable IDs when the link had one.
+        const ax = await createConnection({ building, body: { ...base, source: conn.source, dest: { deviceId: x._id, portId: body.ports?.towardSource ?? null }, viaPatchPanel: false, cableId: conn.cableId ? await nextCableId(session) : null }, data, actor, session, layer })
+        const xb = await createConnection({ building, body: { ...base, source: { deviceId: x._id, portId: body.ports?.towardDest ?? null }, dest: conn.dest, viaPatchPanel: Boolean(conn.viaPatchPanel), cableId: conn.cableId ? await nextCableId(session) : null }, data, actor, session, layer })
+        if (conn.route) await Connection.updateOne({ _id: xb._id }, { $set: { route: conn.route } }, { session })
+        const xbView = { ...xb.toObject(), route: conn.route ?? null }
+        data.connections.push(ax.toObject(), xbView)
+        await recordAudit({ ...auditBase(req, existing, actor), action: 'hld.uplink.split', objectType: 'Connection', objectId: conn._id, comment: `${nameOf(data, conn.source.deviceId)} — ${name} — ${nameOf(data, conn.dest.deviceId)}${created ? ` (${name} added)` : ''}`, changes: [{ objectType: 'Connection', objectId: String(conn._id), field: 'archived', before: null, after: `split: ${name} inserted` }], session })
+        return { device: { id: String(x._id), created }, archived: String(conn._id), uplinks: [withLengths(data, ax), withLengths(data, xbView)] }
+      }, { branchId: branchOfHldLayer(existing.layer) }).catch(async (err) => {
+        throw await namePortConflict(err, { layer: existing.layer, baseRevision: body.baseRevision, connectionId })
+      })
+    },
+
+    // Merge: A–X–B becomes A–B with a new cable ID; X stays, unlinked.
+    async mergeAt(req, deviceId, body, actor) {
+      const existing = await deviceInScope(req, deviceId)
+      return write(req, existing.buildingId, body.baseRevision, actor, async ({ building, data, session, layer }) => {
+        const xId = String(existing._id)
+        const name = nameOf(data, xId)
+        const links = data.connections.filter((c) => [String(c.source.deviceId), String(c.dest.deviceId)].includes(xId)).sort((p, q) => new Date(p.createdAt) - new Date(q.createdAt))
+        if (links.length !== 2) throw conflict('merge_needs_two_uplinks', `${name} has ${links.length} uplink(s) — Merge joins the two devices either side of a device with exactly two`)
+        const far = (l) => (String(l.source.deviceId) === xId ? { end: l.dest, sfp: l.destSfpCode ?? null } : { end: l.source, sfp: l.sourceSfpCode ?? null })
+        const [a, b] = links.map(far)
+        if (String(a.end.deviceId) === String(b.end.deviceId)) throw conflict('merge_same_device', `Both uplinks of ${name} go to ${nameOf(data, a.end.deviceId)} — nothing to join`)
+        for (const l of links) await archive(l, { tool: 'merge', reason: `Merge: ${name} taken out of the path`, data, actor, session })
+        const ab = await createConnection({ building, body: { source: { deviceId: a.end.deviceId, portId: a.end.portId ?? null }, dest: { deviceId: b.end.deviceId, portId: b.end.portId ?? null }, media: body.media ?? links[0].media, speed: body.speed ?? links[0].speed, sourceSfpCode: a.sfp, destSfpCode: b.sfp, viaPatchPanel: Boolean(links[1].viaPatchPanel), cableId: await nextCableId(session) }, data, actor, session, layer })
+        data.connections.push(ab.toObject())
+        await recordAudit({ ...auditBase(req, existing, actor), action: 'hld.device.merged', objectType: 'Device', objectId: existing._id, comment: `${nameOf(data, a.end.deviceId)} — ${nameOf(data, b.end.deviceId)} joined (${ab.cableId}); ${name} stays, unlinked`, changes: links.map((l) => ({ objectType: 'Connection', objectId: String(l._id), field: 'archived', before: null, after: `merge: ${name} taken out` })), session })
+        return { uplink: withLengths(data, ab), archived: links.map((l) => String(l._id)), device: xId }
+      }, { branchId: branchOfHldLayer(existing.layer) }).catch(async (err) => {
+        throw await namePortConflict(err, { layer: existing.layer, baseRevision: body.baseRevision })
       })
     },
 

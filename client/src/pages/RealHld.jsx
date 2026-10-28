@@ -13,12 +13,18 @@ import HldStatusBar from '../components/hld/HldStatusBar.jsx'
 import HldWorkflowControls from '../components/hld/HldWorkflowControls.jsx'
 import HldValidationPanel from '../components/hld/HldValidationPanel.jsx'
 import HldDeviceDetails from '../components/hld/HldDeviceDetails.jsx'
+import HldToolPanel from '../components/hld/HldToolPanel.jsx'
+import { TOOL_TITLES } from '../components/hld/hldTools.js'
+import ArchivedUplinks from '../components/hld/ArchivedUplinks.jsx'
 import DragPreviewCard from '../components/DragPreviewCard.jsx'
 import { hldApi, draftToUplinkBody, uplinkToDraft, libraryCategories, connectionStatus } from '../api/hldApi.js'
 import { useDragSensors } from '../lib/useDragSensors.js'
 import { useMediaQuery } from '../lib/useMediaQuery.js'
 import { useProjectRoles } from '../lib/useProjectRoles.js'
 import { useAuth } from '../lib/AuthContext.jsx'
+
+// The design tools (M7b-3, DATA-MODEL §5.20): Merge acts on a device, the others on an uplink.
+const TOOL_IDS = Object.keys(TOOL_TITLES)
 
 const EMPTY_DRAFT = { sourceDeviceId: null, sourcePort: null, destDeviceId: null, destPort: null, media: 'os2', speed: '10G', sourceSfp: null, destSfp: null, usePatchPanel: false }
 
@@ -51,6 +57,9 @@ export default function RealHld() {
   const [showValidation, setShowValidation] = useState(false)
   const [activeDragData, setActiveDragData] = useState(null)
   const [history, setHistory] = useState({ actions: [], index: -1 })
+  // The design tool's uplink or device ({ connectionId } | { deviceId }).
+  const [toolTarget, setToolTarget] = useState(null)
+  const [toolBusy, setToolBusy] = useState(false)
   const flowInstanceRef = useRef(null)
   const sensors = useDragSensors()
 
@@ -142,6 +151,11 @@ export default function RealHld() {
   }
 
   function handleSelectDevice(deviceId) {
+    if (mode === 'merge') {
+      setToolTarget({ deviceId })
+      setSelectedDeviceId(deviceId)
+      return
+    }
     if (draft && !selectedConnectionId && wizardStep === 1 && draft.sourceDeviceId && !draft.destDeviceId && draft.sourceDeviceId !== deviceId) {
       setDraft((d) => ({ ...d, destDeviceId: deviceId }))
       return
@@ -237,6 +251,14 @@ export default function RealHld() {
 
   function selectTool(id) {
     if (id === 'validate') return runValidation()
+    if (TOOL_IDS.includes(id)) {
+      // The selected uplink (or device, for Merge) is the target; else pick one on the canvas.
+      setDraft(null)
+      setShowValidation(false)
+      setToolTarget(id === 'merge' ? (selectedDeviceId ? { deviceId: selectedDeviceId } : null) : selectedConnectionId ? { connectionId: selectedConnectionId } : null)
+      setMode(id)
+      return undefined
+    }
     if (id === 'create-uplink') return openCreate(selectedDeviceId)
     if (id === 'change-medium') {
       if (selectedConnectionId) openEdit(selectedConnectionId, 3)
@@ -245,6 +267,96 @@ export default function RealHld() {
     }
     setMode(id)
     return undefined
+  }
+
+  // Applies a design tool; each records its inverse for Undo (DATA-MODEL §5.20).
+  async function applyTool(body) {
+    const o = orgId
+    const p = projectId
+    const conn = connections.find((c) => c.id === toolTarget?.connectionId)
+    setToolBusy(true)
+    let done = null
+    if (mode === 'break-uplink') {
+      const recreate = draftToUplinkBody(uplinkToDraft(conn))
+      let currentId = conn.id
+      done = await write((rev) => hldApi.breakUplink(o, p, currentId, { ...body, baseRevision: rev }), {
+        record: () => ({
+          // A broken uplink stays archived: undo draws a new one (its old cable ID is never reused).
+          apply: (rev) => hldApi.breakUplink(o, p, currentId, { ...body, baseRevision: rev }),
+          revert: async (rev) => {
+            const again = await hldApi.createUplink(o, p, { buildingId, ...onBranch, ...recreate, baseRevision: rev })
+            currentId = again.uplink.id
+            return again
+          },
+        }),
+      })
+    } else if (mode === 'reroute') {
+      const id = conn.id
+      const prev = { viaPatchPanel: Boolean(conn.viaPatchPanel), viaRoomIds: conn.route?.viaRoomIds ?? [] }
+      done = await write((rev) => hldApi.rerouteUplink(o, p, id, { ...body, baseRevision: rev }), {
+        record: () => ({ apply: (rev) => hldApi.rerouteUplink(o, p, id, { ...body, baseRevision: rev }), revert: (rev) => hldApi.rerouteUplink(o, p, id, { ...prev, baseRevision: rev }) }),
+      })
+    } else if (mode === 'replace-endpoint') {
+      const id = conn.id
+      const prev = conn[body.end]
+      done = await write((rev) => hldApi.replaceEndpoint(o, p, id, { ...body, baseRevision: rev }), {
+        record: () => ({
+          apply: (rev) => hldApi.replaceEndpoint(o, p, id, { ...body, keepCableId: true, baseRevision: rev }),
+          revert: (rev) => hldApi.replaceEndpoint(o, p, id, { end: body.end, deviceId: prev.deviceId, ...(prev.portId ? { portId: prev.portId } : {}), keepCableId: true, baseRevision: rev }),
+        }),
+      })
+    } else if (mode === 'split') {
+      let linkId = conn.id
+      let inserted = null
+      done = await write(
+        async (rev) => {
+          const res = await hldApi.splitUplink(o, p, linkId, { ...body, baseRevision: rev })
+          inserted = res.device.id
+          return res
+        },
+        {
+          record: () => ({
+            apply: (rev) => hldApi.splitUplink(o, p, linkId, { deviceId: inserted, baseRevision: rev }),
+            revert: async (rev) => {
+              const res = await hldApi.mergeAt(o, p, inserted, { baseRevision: rev })
+              linkId = res.uplink.id
+              return res
+            },
+          }),
+        }
+      )
+    } else if (mode === 'merge') {
+      const xId = toolTarget.deviceId
+      let joined = null
+      done = await write(
+        async (rev) => {
+          const res = await hldApi.mergeAt(o, p, xId, { ...body, baseRevision: rev })
+          joined = res.uplink.id
+          return res
+        },
+        {
+          record: () => ({
+            apply: async (rev) => {
+              const res = await hldApi.mergeAt(o, p, xId, { baseRevision: rev })
+              joined = res.uplink.id
+              return res
+            },
+            revert: (rev) => hldApi.splitUplink(o, p, joined, { deviceId: xId, baseRevision: rev }),
+          }),
+        }
+      )
+    }
+    setToolBusy(false)
+    if (done) {
+      setMode('select')
+      setToolTarget(null)
+      setSelectedConnectionId(null)
+      setSelectedDeviceId(null)
+    }
+  }
+  function closeTool() {
+    setMode('select')
+    setToolTarget(null)
   }
 
   function handleSelectFinding(f) {
@@ -493,7 +605,7 @@ export default function RealHld() {
         )}
         {ownSubmission && (has('pm') || has('reviewer') || has('external_reviewer')) && <p className="text-xs text-text-secondary">You submitted this HLD — another PM or Reviewer decides on it.</p>}
 
-        {canEdit && <HldToolbar mode={draft ? (selectedConnectionId ? 'change-medium' : 'create-uplink') : mode} onSelectTool={selectTool} onUndo={undo} canUndo={history.index >= 0} onRedo={redo} canRedo={history.index < history.actions.length - 1} onDelete={deleteSelected} canDelete={Boolean(selectedConnectionId || selectedDeviceId)} disabled={!editable} />}
+        {canEdit && <HldToolbar mode={draft ? (selectedConnectionId ? 'change-medium' : 'create-uplink') : mode} onSelectTool={selectTool} onUndo={undo} canUndo={history.index >= 0} onRedo={redo} canRedo={history.index < history.actions.length - 1} onDelete={deleteSelected} canDelete={Boolean(selectedConnectionId || selectedDeviceId)} disabled={!editable} designTools />}
         {canEdit && mode === 'move' && !draft && <p className="text-xs text-text-secondary">Move: drag devices inside their room. Positions are saved separately from the design.</p>}
 
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
@@ -504,7 +616,7 @@ export default function RealHld() {
                 flow={flow}
                 onInit={(inst) => (flowInstanceRef.current = inst)}
                 viewOnly={isPhone}
-                onEdgeClick={(id) => openEdit(id)}
+                onEdgeClick={(id) => (TOOL_IDS.includes(mode) && mode !== 'merge' ? setToolTarget({ connectionId: id }) : openEdit(id))}
                 nodesDraggable={editable && mode === 'move'}
                 onNodeDragStop={editable && mode === 'move' ? moveDevice : undefined}
               />
@@ -512,7 +624,20 @@ export default function RealHld() {
           </div>
           <div className="w-full shrink-0 space-y-4 xl:w-80">
             {editable && <HldObjectLibrary enabled categories={libraryCategories(library.roles)} />}
-            {showValidation && validation ? (
+            {editable && TOOL_IDS.includes(mode) ? (
+              <HldToolPanel
+                tool={mode}
+                connection={connections.find((c) => c.id === toolTarget?.connectionId) ?? null}
+                device={devices.find((d) => d.id === toolTarget?.deviceId) ?? null}
+                devices={devices}
+                connections={connections}
+                rooms={view.rooms}
+                roles={library.roles ?? []}
+                busy={toolBusy}
+                onApply={applyTool}
+                onCancel={closeTool}
+              />
+            ) : showValidation && validation ? (
               <HldValidationPanel result={validation} onSelectFinding={handleSelectFinding} onClose={() => setShowValidation(false)} />
             ) : draft ? (
               <EditUplinkPanel
@@ -554,6 +679,7 @@ export default function RealHld() {
                 {editable ? 'Select a device or an uplink, drag a device from the library into a room, or use Create Uplink.' : 'Select a device or an uplink to see it.'}
               </div>
             )}
+            <ArchivedUplinks list={view.archivedUplinks} />
           </div>
         </div>
 

@@ -51,7 +51,7 @@ export async function computeBom(lld, req, building, { branchId = null, session 
   // The catalogue with prices (design data carries it without).
   const [settings, org, countryCode, catalogue] = await Promise.all([projectSettings(session), organisationCommercial(session), countryCodeOf(building, session), projectCatalogue(currentScope().projectId, { showPrices: true })])
   const bom = buildBom(
-    { devices: design.devices, connections: design.connections },
+    { devices: design.devices, connections: design.connections, panelNeeds: design.panelNeeds ?? [] },
     {
       stage: design.stage,
       racks: design.racks,

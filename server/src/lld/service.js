@@ -3,7 +3,7 @@ import { namePortConflict } from '../design/portConflict.js'
 import crypto from 'node:crypto'
 import { DEFAULT_STOCK_LENGTHS } from '@rackium/shared/cableLength.js'
 import { connectionSegments, lengthBetween } from '@rackium/shared/cableSegments.js'
-import { findRoute } from '@rackium/shared/pathway.js'
+import { routeDistance } from '@rackium/shared/pathway.js'
 import { findConflicts, computeFreeRU } from '@rackium/shared/rackValidation.js'
 import { suggestNextCableId } from '@rackium/shared/cableId.js'
 import { roleInfo, resolveRoleCodes } from '@rackium/shared/hldRoles.js'
@@ -140,29 +140,42 @@ function deviceView(d, cat, racks, rooms = []) {
 // Brief §6.3 lengths for a connection, from where its ends now are: same
 // rack (RU), same room (rack positions) or across rooms (pathway); rounded
 // up to the organisation's stock table. Estimated when the route is.
-function lengthOptions(rackPos, pathways, stockLengths) {
+// `conn`: a rerouted connection's rooms (route.viaRoomIds, DATA-MODEL §5.20)
+// apply to its cross-room cable — the one between two rooms off its route.
+function lengthOptions(rackPos, pathways, stockLengths, conn = null) {
+  const via = (conn?.route?.viaRoomIds ?? []).map(String)
   return {
     rackPositionOf: (rackId) => rackPos.get(String(rackId)) ?? 1,
-    routeOf: (roomA, roomB) => {
-      const route = findRoute(String(roomA), String(roomB), pathways)
-      if (!route) return { distanceM: null, reason: 'No pathway recorded between these rooms' }
-      if (route.routeStatus !== 'surveyed') return { distanceM: route.distanceM ?? null, reason: 'Pathway route is marked Estimated' }
-      if (route.distanceM == null) return { distanceM: null, reason: 'Surveyed pathway has no distance' }
-      return { distanceM: route.distanceM, reason: null }
-    },
+    routeOf: (roomA, roomB) => routeDistance(String(roomA), String(roomB), pathways, via.length && !via.includes(String(roomA)) && !via.includes(String(roomB)) ? via : []),
     stockLengths,
   }
 }
 
 // The end-to-end run (source → destination), for the channel checks.
 function lengthOf(conn, deviceById, rackPos, pathways, stockLengths) {
-  const length = lengthBetween(deviceById.get(id(conn.source.deviceId)), deviceById.get(id(conn.dest.deviceId)), conn.media, lengthOptions(rackPos, pathways, stockLengths))
+  const length = lengthBetween(deviceById.get(id(conn.source.deviceId)), deviceById.get(id(conn.dest.deviceId)), conn.media, lengthOptions(rackPos, pathways, stockLengths, conn))
   return length.placementPending && length.situation ? { ...length, estimateReason: 'Place both devices to calculate the length' } : length
+}
+
+// HLD stage (Reroute, DATA-MODEL §5.20): an uplink routed via the destination
+// room's patch panel is two cables — to the panel (in the destination's rack),
+// then a patch cord to the device. The LLD designs the panel and its hops.
+function viaPanelSegments(c, deviceById, rackPos, pathways, stockLengths) {
+  const a = deviceById.get(String(c.source.deviceId))
+  const b = deviceById.get(String(c.dest.deviceId))
+  if (!a || !b) return c.segments
+  const panel = { roomId: b.roomId, rackId: b.rackId, ru: null }
+  const opts = lengthOptions(rackPos, pathways, stockLengths, c)
+  const cable = (index, from, to, length, cableId) => ({ index, kind: 'patch_cord', from, to, cableId, ...length, engineerSelectedM: null, installedM: null, effectiveM: length.suggestedM })
+  return [
+    cable(0, { deviceId: String(a.id), portId: c.source.portId ?? null }, { deviceId: null, portId: null }, lengthBetween(a, panel, c.media, opts), c.cableId ?? null),
+    cable(1, { deviceId: null, portId: null }, { deviceId: String(b.id), portId: c.dest.portId ?? null }, lengthBetween(panel, b, c.media, opts), null),
+  ]
 }
 
 // Every cable of the route with its own lengths (shared/cableSegments.js).
 function segmentsOf(conn, deviceById, rackPos, pathways, stockLengths) {
-  return connectionSegments(conn, { nodeOf: (deviceId) => deviceById.get(String(deviceId)) ?? null, isPanel: (deviceId) => Boolean(deviceById.get(String(deviceId))?.isPanel), ...lengthOptions(rackPos, pathways, stockLengths) })
+  return connectionSegments(conn, { nodeOf: (deviceId) => deviceById.get(String(deviceId)) ?? null, isPanel: (deviceId) => Boolean(deviceById.get(String(deviceId))?.isPanel), ...lengthOptions(rackPos, pathways, stockLengths, conn) })
 }
 
 function rackPositions(racks) {
@@ -189,6 +202,8 @@ function connectionView(c, length, segments = []) {
     sourceSfpCode: c.sourceSfpCode ?? null,
     destSfpCode: c.destSfpCode ?? null,
     viaPatchPanel: Boolean(c.viaPatchPanel),
+    // Rerouted through other rooms (DATA-MODEL §5.20).
+    route: c.route?.viaRoomIds?.length ? { viaRoomIds: c.route.viaRoomIds.map(String) } : null,
     cableId: c.cableId ?? null,
     hops: (c.hops ?? []).map((h) => ({ seq: h.seq, patchPanelId: String(h.patchPanelId), inPort: h.inPort, inSide: h.inSide ?? null, outPort: h.outPort, outSide: h.outSide ?? null, segmentCableId: h.segmentCableId ?? null, roomId: id(h.roomId), rackId: id(h.rackId), ru: h.ru ?? null, lengths: { engineerSelectedM: h.lengths?.engineerSelectedM ?? null, installedM: h.lengths?.installedM ?? null } })),
     lengths: { suggestedM: segments[0]?.suggestedM ?? length.suggestedM, engineerSelectedM: engineer, effectiveM: engineer ?? segments[0]?.suggestedM ?? length.suggestedM, installedM: c.lengths?.installedM ?? null },
@@ -248,6 +263,7 @@ function snapshotOf(data) {
         sourceSfpCode: c.sourceSfpCode ?? null,
         destSfpCode: c.destSfpCode ?? null,
         viaPatchPanel: Boolean(c.viaPatchPanel),
+        route: c.route?.viaRoomIds?.length ? { viaRoomIds: c.route.viaRoomIds.map(String) } : null,
         cableId: c.cableId ?? null,
         hops: (c.hops ?? []).map((h) => ({ seq: h.seq, patchPanelId: String(h.patchPanelId), inPort: h.inPort, inSide: h.inSide ?? null, outPort: h.outPort, outSide: h.outSide ?? null, segmentCableId: h.segmentCableId ?? null, roomId: id(h.roomId), rackId: id(h.rackId), ru: h.ru ?? null, lengths: { engineerSelectedM: h.lengths?.engineerSelectedM ?? null, installedM: h.lengths?.installedM ?? null } })),
         lengths: { engineerSelectedM: c.lengths?.engineerSelectedM ?? null, installedM: c.lengths?.installedM ?? null },
@@ -556,7 +572,7 @@ async function copyIntoLayer({ devices, connections }, { layer, building, keepId
   for (const c of connections) {
     // A copy into a branch remembers the main connection it came from.
     const originId = layer === MAIN || asNew ? null : keepIds ? c.originId ?? null : c.originId ?? c._id ?? c.id ?? null
-    const doc = new Connection({ _id: keepIds ? oid(c._id ?? c.id) : new mongoose.Types.ObjectId(), buildingId: building.id, layer, hldRef: c.hldRef ?? null, originId: originId ? oid(originId) : null, source: { deviceId: map(c.source.deviceId), portId: c.source.portId ?? null }, dest: { deviceId: map(c.dest.deviceId), portId: c.dest.portId ?? null }, media: c.media, speed: c.speed, lengths: { installedM: c.lengths?.installedM ?? null }, createdBy: actor.userId, updatedBy: actor.userId })
+    const doc = new Connection({ _id: keepIds ? oid(c._id ?? c.id) : new mongoose.Types.ObjectId(), buildingId: building.id, layer, hldRef: c.hldRef ?? null, originId: originId ? oid(originId) : null, source: { deviceId: map(c.source.deviceId), portId: c.source.portId ?? null }, dest: { deviceId: map(c.dest.deviceId), portId: c.dest.portId ?? null }, media: c.media, speed: c.speed, route: c.route?.viaRoomIds?.length ? { viaRoomIds: c.route.viaRoomIds.map(oid) } : null, lengths: { installedM: c.lengths?.installedM ?? null }, createdBy: actor.userId, updatedBy: actor.userId })
     await writeConnection(
       doc,
       {
@@ -795,7 +811,22 @@ export function createLldService({ storage }) {
       pduSocketType: r.mountingPower?.pduA?.socketType ?? r.mountingPower?.pduB?.socketType ?? null,
     }))
     const { summary } = runValidation(data)
-    return { stage, lld, devices, connections, racks, rooms: data.rooms, catalogue: data.catalogue, settings: data.settings, findings: summary }
+    // HLD stage (Reroute, DATA-MODEL §5.20): links via a patch panel are two
+    // cables, and each room's panels must take them — the BOM adds panels for
+    // what its surveyed panels' free ports cannot.
+    const routed = stage === 'hld' ? connections.filter((c) => c.viaPatchPanel && !(c.hops ?? []).length && ['cat6a', 'os2', 'om4'].includes(c.media)) : []
+    const routedIds = new Set(routed.map((c) => c.id))
+    const designConnections = connections.map((c) => (routedIds.has(c.id) ? { ...c, segments: viaPanelSegments(c, computed.deviceById, computed.rackPos, data.pathways, data.settings.stockLengths) } : c))
+    const needs = new Map()
+    for (const c of routed) {
+      const roomId = computed.deviceById.get(String(c.dest.deviceId))?.roomId
+      if (!roomId) continue
+      const kind = c.media === 'cat6a' ? 'copper' : 'fibre'
+      const key = `${roomId}|${kind}`
+      if (!needs.has(key)) needs.set(key, { roomId, roomCode: roomCode.get(String(roomId)) ?? null, kind, links: 0, freePorts: computed.ctx.patchPanelFreePorts(roomId, kind) ?? 0 })
+      needs.get(key).links += 1
+    }
+    return { stage, lld, devices, connections: designConnections, panelNeeds: [...needs.values()], racks, rooms: data.rooms, catalogue: data.catalogue, settings: data.settings, findings: summary }
   }
 
   // The main LLD as deployment and the CMDB read it (M6a): every device of

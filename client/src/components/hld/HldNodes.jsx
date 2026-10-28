@@ -24,8 +24,9 @@ export function DeviceNode({ data, selected }) {
       <Handle type="source" position={Position.Bottom} className="!h-2 !w-2 !bg-brand" />
       <TopologyIcon role={data.role} size={16} className="text-brand" />
       <div className="min-w-0 flex-1">
-        <div className="truncate text-[11px] font-semibold text-text">{data.label}</div>
-        {data.sublabel && <div className="truncate text-[10px] text-text-secondary">{data.sublabel}</div>}
+        {/* The whole name, wrapped — never cut (M7b-3); the layout sizes the node for it. */}
+        <div className="break-all text-[11px] font-semibold leading-[14px] text-text">{data.label}</div>
+        {data.sublabel && <div className="break-all text-[10px] leading-[13px] text-text-secondary">{data.sublabel}</div>}
       </div>
       {DeploymentIcon && (
         <DeploymentIcon size={14} strokeWidth={2} className={`absolute -right-1.5 -top-1.5 rounded-full bg-surface ${DEPLOYMENT_COLOR[data.deploymentLabel]}`} title={data.deploymentLabel} />
