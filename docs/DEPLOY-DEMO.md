@@ -87,7 +87,7 @@ If the server is lost, this is what makes the off-server copies usable.
 sudo rackium-deploy
 ```
 
-It pulls `DEPLOY_REF` from `/etc/rackium/deploy.conf` (`develop`), installs, builds the release client (which refuses to contain mock mode), runs the migrations, switches, restarts and checks health directly and through Nginx. To deploy something else: `sudo rackium-deploy <branch, tag or commit>`.
+It pulls `DEPLOY_REF` from `/etc/rackium/deploy.conf` (`develop`), installs, builds the release client (which refuses to contain mock mode), checks that a PDF can be made, runs the migrations, switches, restarts and checks health directly and through Nginx. To deploy something else: `sudo rackium-deploy <branch, tag or commit>`.
 
 Check from your own computer:
 
@@ -202,7 +202,7 @@ It ends healthy or says it is not. Sign in, check, then delete the `replaced-<ti
 sudo rackium-deploy
 ```
 
-That is all. Each release gets its own folder, so the old one stays intact. Order: pull, install, build, backup, migrate, switch, restart, health check. If the health check fails, **it goes back to the previous release by itself** and exits with an error. The newest four releases are kept.
+That is all. Each release gets its own folder, so the old one stays intact. Order: pull, install, build, PDF check, backup, migrate, switch, restart, health check. If the health check fails, **it goes back to the previous release by itself** and exits with an error. The newest four releases are kept.
 
 ## 11. Roll back
 
@@ -225,7 +225,7 @@ This changes the code only. Migrations only add, so an earlier release runs on a
 | The app refuses to start | The first error line names the setting in `/etc/rackium/rackium.env` that is missing or wrong |
 | 502 from the site | The app is down: see the first row |
 | Invitations do not arrive | The Resend dashboard (domain verified?), then the app log. Retries are automatic |
-| PDFs fail | `/usr/bin/google-chrome-stable --version`, then the app log. People see only "could not be generated"; the reason is in the log |
+| PDFs fail | `cd /opt/rackium/current && sudo -u rackium env HOME=/opt/rackium node server/scripts/check-pdf.mjs` prints the browser's own output. People see only "could not be generated"; the reason is in the app log |
 | Certificate | `sudo certbot certificates`, `sudo certbot renew --dry-run`. Renewal is automatic |
 | "Another deploy is running" | Wait for it. Only one runs at a time |
 | Backup failed | `journalctl -u rackium-backup -n 50`. An empty `BACKUP_REMOTE` or an unreachable off-server target fails on purpose |

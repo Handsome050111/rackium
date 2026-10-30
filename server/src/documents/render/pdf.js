@@ -23,6 +23,17 @@ export async function closePdfBrowser() {
   if (b) await (await b).close().catch(() => {})
 }
 
+// One page, through the same browser: server/scripts/check-pdf.mjs.
+export async function checkPdfRendering() {
+  const page = await (await browser()).newPage()
+  try {
+    await page.setContent('<p>Rackium</p>')
+    return (await page.pdf()).length
+  } finally {
+    await page.close().catch(() => {})
+  }
+}
+
 // The text of each page (PDF text extraction) — the table of contents pass
 // and the tests read it.
 export async function pdfPages(buffer) {

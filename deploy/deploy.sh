@@ -36,6 +36,9 @@ step "Install"
 step "Build (real mode only; refused otherwise)"
 (cd "$RELEASE" && as_rackium npm run --silent build:release)
 
+step "PDFs: the browser starts, as the app will start it"
+(cd "$RELEASE" && as_rackium node server/scripts/check-pdf.mjs)
+
 PREVIOUS="$(readlink -f "$HOME_DIR/current" 2>/dev/null || true)"
 if [ -n "$PREVIOUS" ]; then
   step "Backup before migrating (kept on this server)"
