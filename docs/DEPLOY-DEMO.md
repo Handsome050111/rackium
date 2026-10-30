@@ -1,6 +1,6 @@
 # Rackium test server: the runbook
 
-How to put Rackium on a clean Ubuntu 24.04 server, keep it backed up, update it and go back. The scripts are run for real by CI on a clean Ubuntu 24.04 (`.github/workflows/deploy-smoke.yml`, `deploy/smoke-test.sh`). Three things differ there: a self-signed certificate, a local folder as the off-server copy, and a workaround setting for the kernel of GitHub's machines (see "Before you start").
+How to put Rackium on a clean Ubuntu 24.04 server, keep it backed up, update it and go back. The scripts are run for real by CI on a clean Ubuntu 24.04 (`.github/workflows/deploy-smoke.yml`, `deploy/smoke-test.sh`). Four things differ there: a self-signed certificate, a local folder as the off-server copy, a workaround setting for the kernel of GitHub's machines (see "Before you start"), and a restart of the services in place of a real reboot. So Let's Encrypt and your rclone remote get their first real test on the server: step 2 and step 8.
 
 **Secrets stay on the server.** The scripts generate them there and never print them. Do not paste a password, API key or the backup passphrase into a chat, a ticket or the repo.
 

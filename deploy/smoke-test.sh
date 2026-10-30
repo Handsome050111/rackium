@@ -61,6 +61,15 @@ FIRST_JWT="$(grep -c JWT_SECRET /etc/rackium/rackium.env)"
 [ "$(stat -c %a /etc/rackium/backup.passphrase)" = 600 ] || fail "passphrase mode"
 ok "secrets are private"
 
+step "The first-certificate Nginx config (Let's Encrypt itself needs a public domain)"
+ACTIVE=/etc/nginx/sites-available/rackium
+cp "$ACTIVE" /tmp/rackium-site
+sed "s|@DOMAIN@|$DOMAIN|g" "$CHECKOUT/deploy/nginx/rackium-bootstrap.conf.template" >"$ACTIVE"
+nginx -t 2>/dev/null || fail "the bootstrap config"
+cp /tmp/rackium-site "$ACTIVE"
+nginx -t 2>/dev/null || fail "the site config"
+ok "both Nginx configs are valid"
+
 step "Refused until configured"
 if rackium-deploy smoke; then fail "deploy with the placeholder Resend key should fail"; fi
 ok "a deploy with the placeholder key is refused"
@@ -77,8 +86,10 @@ ok "deployed $FIRST_RELEASE"
 step "What is listening, and the process"
 ss -ltn | grep -q '127.0.0.1:27017' || fail "mongod is not on localhost"
 if ss -ltn | grep -E ':27017' | grep -qv '127.0.0.1'; then fail "mongod is listening beyond localhost"; fi
-if ss -ltn | grep -E ':4000' | grep -qvE '(\*|0\.0\.0\.0|\[::\]):4000'; then :; fi
 ok "mongod on localhost only"
+ss -ltn | grep -q '127.0.0.1:4000' || fail "the app is not on localhost"
+if ss -ltn | grep -E ':4000\b' | grep -qv '127.0.0.1:4000'; then fail "the app is listening beyond localhost"; fi
+ok "the app on localhost only"
 ufw status | grep -E '^(22|80|443)/tcp' >/dev/null || fail "firewall rules"
 if ufw status | grep -E 'ALLOW' | grep -vE '^(22|80|443)/tcp' | grep -q .; then fail "a port other than 22, 80, 443 is open"; fi
 ok "firewall: 22, 80, 443 only"
@@ -222,7 +233,6 @@ ok "second release: $SECOND_RELEASE"
 find "$BACKUPS" -name '*-pre-deploy.tar.gpg' | grep -q . || fail "no backup before migrating"
 ok "a backup was taken before migrating"
 
-printf '\nprocess.exit(1)\n' >"$TMP/first-line"
 sed -i '1i process.exit(1)' "$TMP/w/server/src/index.js"
 git -C "$TMP/w" -c user.name=smoke -c user.email=smoke@example.com commit --quiet -am 'a release that does not start'
 git -C "$TMP/w" push --quiet origin smoke

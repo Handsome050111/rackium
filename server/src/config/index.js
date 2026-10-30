@@ -17,6 +17,9 @@ const schema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     PORT: z.coerce.number().int().min(1).max(65535).default(4000),
+    // The address to listen on. In production, localhost by default: only Nginx
+    // reaches the app, so nobody can send it a forged client address.
+    LISTEN_HOST: z.string().trim().min(1).optional(),
     MONGODB_URI: z.string({ error: 'MONGODB_URI is required' }).min(1, 'MONGODB_URI is required'),
     JWT_SECRET: z.string({ error: 'JWT_SECRET is required' }).min(32, 'JWT_SECRET must be at least 32 characters'),
     CLIENT_ORIGIN: z.url({ error: 'CLIENT_ORIGIN must be a URL' }).default('http://localhost:5173'),
@@ -95,5 +98,6 @@ export function loadConfig(env = process.env) {
   if (!parsed.success) throw new ConfigError(parsed.error.issues)
   const IS_PRODUCTION = parsed.data.NODE_ENV === 'production'
   const SIGNUP_ENABLED = parsed.data.SIGNUP_ENABLED ? parsed.data.SIGNUP_ENABLED === 'true' : !IS_PRODUCTION
-  return Object.freeze({ ...parsed.data, IS_PRODUCTION, SIGNUP_ENABLED, ENV_BANNER: parsed.data.ENV_BANNER || null })
+  const LISTEN_HOST = parsed.data.LISTEN_HOST ?? (IS_PRODUCTION ? '127.0.0.1' : undefined)
+  return Object.freeze({ ...parsed.data, IS_PRODUCTION, SIGNUP_ENABLED, LISTEN_HOST, ENV_BANNER: parsed.data.ENV_BANNER || null })
 }

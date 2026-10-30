@@ -89,6 +89,12 @@ describe('config', () => {
     expect(loadConfig({ ...prod, ENV_BANNER: ' Test environment ' }).ENV_BANNER).toBe('Test environment')
   })
 
+  it('in production the app listens on localhost unless told otherwise; in development, as before', () => {
+    expect(loadConfig(prod).LISTEN_HOST).toBe('127.0.0.1')
+    expect(loadConfig({ ...prod, LISTEN_HOST: '10.0.0.5' }).LISTEN_HOST).toBe('10.0.0.5')
+    expect(loadConfig(base).LISTEN_HOST).toBeUndefined()
+  })
+
   it('rejects a CLIENT_ORIGIN that is not a URL', () => {
     expect(issuesFor({ ...base, CLIENT_ORIGIN: 'not a url' })).toContain('CLIENT_ORIGIN')
   })
