@@ -453,6 +453,21 @@ export function buildRegistry() {
   route('patch', `${PR}/commercial-settings`, 'Set margin %, resource minutes or the customer power-cord standard (PM)', { body: C.commercialSettingsBody })
   route('get', `${PR}/mode-labels`, 'The state labels in force (M7b-4a): the client’s words for current / interim / future (default CMO / IMO / FMO), the organisation’s and the project’s own')
   route('patch', `${PR}/mode-labels`, 'Set or clear (null) the project’s state labels (Org Admin or PM)', { body: C.projectModeLabelsBody })
+  // M7b-5: custom validation rules (DATA-MODEL §3.11).
+  const VR = `${PR}/validation-rules`
+  const OVR = '/api/v1/orgs/{orgId}/validation-rules'
+  const ruleErrors = { 409: err('A rule of that name exists at this level') }
+  route('get', OVR, 'The organisation’s custom validation rules (any member)')
+  route('post', OVR, 'Add an organisation rule (Org Admin): one condition on an allowlisted field; no expression language', { body: C.validationRuleBody, status: 201, errors: ruleErrors })
+  route('put', `${OVR}/{id}`, 'Replace an organisation rule (Org Admin); applies from the next validation', { params: p({ id: 1 }), body: C.validationRuleBody, errors: ruleErrors })
+  route('patch', `${OVR}/{id}/enabled`, 'Enable or disable an organisation rule (Org Admin)', { params: p({ id: 1 }), body: C.validationRuleEnabledBody })
+  route('delete', `${OVR}/{id}`, 'Delete an organisation rule (Org Admin)', { params: p({ id: 1 }) })
+  route('get', VR, 'What applies to a project: the organisation’s rules and its own (any member)')
+  route('post', `${VR}/preview`, 'What a draft rule would flag on one building’s design now (Org Admin or Architect); nothing is stored', { body: C.validationRulePreviewBody })
+  route('post', VR, 'Add a project rule (an Architect covering the whole project)', { body: C.validationRuleBody, status: 201, errors: ruleErrors })
+  route('put', `${VR}/{id}`, 'Replace a project rule; applies from the next validation', { params: p({ id: 1 }), body: C.validationRuleBody, errors: ruleErrors })
+  route('patch', `${VR}/{id}/enabled`, 'Enable or disable a project rule', { params: p({ id: 1 }), body: C.validationRuleEnabledBody })
+  route('delete', `${VR}/{id}`, 'Delete a project rule', { params: p({ id: 1 }) })
   route('get', `${PR}/bom/buildings/{buildingId}`, 'The BOM: lines with source tag and reason, quantities, reconciliation, prices (when allowed), procurement facts; Draft until the Solution Package is approved', { params: p({ buildingId: 1 }) })
   route('post', `${PR}/bom/approve`, 'Approve the procurement BOM (PM) after the Solution Package approval; again after a change', { body: C.bomApproveBody, status: 201, errors: locked })
   route('patch', `${PR}/bom/lines`, 'Update a procurement line (PM): status by allowed transition, vendor, PO, expected/actual delivery; optimistic version', { body: C.procurementLineBody, errors: { 400: err('Transition not allowed'), 409: err('Locked or stale') } })

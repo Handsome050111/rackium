@@ -1157,6 +1157,22 @@ Found and fixed (each with a test):
 Also: this log's "Backlog for the final cleanup" heading, lost when Part 18
 was added (PR 4a), is back.
 
+## Part 20: M7b-5 — custom validation rules builder
+
+Built (DATA-MODEL §3.11): organisation and project rules with one condition on
+an allowlisted field, messages filled as plain text, a Critical rule blocking
+HLD and LLD submit, a Custom badge on the findings, and a builder with a live
+preview on a chosen building.
+
+Found and fixed (each with a test):
+
+- **The allowlist accepted JavaScript's own property names** (caught by
+  `api.m7b5.test.js` writing the refusals): `RULE_OBJECTS['constructor']` is
+  truthy, so an object named "constructor" would have crashed the save with a
+  500 and a field of that name passed the "known field" check. Lookups use own
+  keys now. Tests: `api.m7b5.test.js` "refuses unknown objects…",
+  `shared/src/m7b5.test.js` "own keys only…".
+
 ## Backlog for the final cleanup
 
 Known, harmless today, left for one cleanup pass before release:

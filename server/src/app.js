@@ -21,6 +21,7 @@ import { createFileService } from './files/service.js'
 import { createDiskStorage } from './files/storage.js'
 import { createHldService } from './hld/service.js'
 import { createLldService } from './lld/service.js'
+import { createValidationRuleService } from './validation/rules.js'
 import { createBomService } from './delivery/bom.js'
 import { createSolutionPackageService } from './delivery/solutionPackage.js'
 import { createChangeRequestService } from './delivery/changeRequests.js'
@@ -119,6 +120,7 @@ export function createApp({ config, logger, mailer, rateLimits = DEFAULT_RATE_LI
   const files = createFileService({ storage })
   const hld = createHldService({ storage })
   const lld = createLldService({ storage })
+  const validationRules = createValidationRuleService({ hld, lld })
   const delivery = {
     bom: createBomService({ storage, lld }),
     solutionPackage: createSolutionPackageService({ storage, lld }),
@@ -152,7 +154,7 @@ export function createApp({ config, logger, mailer, rateLimits = DEFAULT_RATE_LI
   docServices.handover = handover
   const insights = createInsightsService({ lld, storage })
   const reportSchedules = createReportScheduleService()
-  const api = apiRouter({ config, auth, org, auditLog, hierarchy, blockers, viewAs, dashboard, catalogue, cmo, survey, files, hld, lld, delivery, tasks, notifications, deployment, cmdb, documents, handover, schedule, search, dguv, fieldHelp, insights, reportSchedules, rateLimits, openapiDocument, version: VERSION })
+  const api = apiRouter({ config, validationRules, auth, org, auditLog, hierarchy, blockers, viewAs, dashboard, catalogue, cmo, survey, files, hld, lld, delivery, tasks, notifications, deployment, cmdb, documents, handover, schedule, search, dguv, fieldHelp, insights, reportSchedules, rateLimits, openapiDocument, version: VERSION })
   api.get('/me', requireUser(config), async (req, res) => {
     const memberships = await membershipsForUser(req.user._id)
     res.json({ user: userSummary(req.user), memberships: memberships.map(membershipSummary) })

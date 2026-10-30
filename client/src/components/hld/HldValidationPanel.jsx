@@ -48,7 +48,18 @@ export default function HldValidationPanel({ result, onSelectFinding, onClose, d
                   <button type="button" onClick={() => onSelectFinding?.(f)} className="flex w-full items-start gap-2 rounded-lg px-1.5 py-1 text-left text-xs hover:bg-surface-muted">
                     <s.icon size={13} strokeWidth={2} className={`mt-0.5 shrink-0 ${s.color}`} />
                     <span>
-                      <span className="font-semibold text-text">{f.rule}</span> <span className="text-text-secondary">{f.message}</span>
+                      {/* A custom rule (M7b-5) shows its badge and its name in place of a rule ID. */}
+                      {f.custom ? (
+                        <>
+                          <span data-testid="custom-badge" className="rounded border border-brand/40 px-1 text-[10px] font-semibold text-brand">
+                            Custom
+                          </span>{' '}
+                          <span className="font-semibold text-text">{f.title}</span>
+                        </>
+                      ) : (
+                        <span className="font-semibold text-text">{f.rule}</span>
+                      )}{' '}
+                      <span className="text-text-secondary">{f.message}</span>
                     </span>
                   </button>
                 </li>

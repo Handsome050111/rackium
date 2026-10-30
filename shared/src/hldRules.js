@@ -11,6 +11,7 @@ import { findConflicts } from './rackValidation.js'
 import { expandPortMap } from './catalogue.js'
 import { roleInfo } from './hldRoles.js'
 import { DEFAULT_MODE_LABELS, inFuture, isCmoDevice, modeOf } from './modeState.js'
+import { customRuleFindings } from './customRules.js'
 
 export const SEVERITIES = ['critical', 'warning', 'info']
 export const SEVERITY_LABEL = { critical: 'Critical', warning: 'Warning', info: 'Info' }
@@ -169,7 +170,7 @@ function speedValue(s) {
 // Devices: { id, hostname, role, origin, roomId, rackId, ru, heightU, face, fullDepth, label, psuConfigured }
 export function validateHld(design, ctx) {
   const out = []
-  const { devices = [], connections = [], racks = [], cmoUnplaced = [], broken = [], cmoDevices = null } = design
+  const { devices = [], connections = [], racks = [], cmoUnplaced = [], broken = [], cmoDevices = null, rooms = [], pathways = [], customRules = [] } = design
   const deviceById = ctx.deviceById ?? new Map(devices.map((d) => [String(d.id), d]))
   const full = { ...ctx, deviceById }
 
@@ -272,6 +273,8 @@ export function validateHld(design, ctx) {
 
   out.push(...uplinkNeededFindings({ broken, connections, deviceById }))
   out.push(...modeFindings({ connections, deviceById, cmoDevices, labels: ctx.modeLabels }))
+  // The organisation's and the project's own rules (M7b-5, DATA-MODEL §3.11).
+  out.push(...customRuleFindings(customRules, { devices, connections, racks, rooms, pathways }, ctx))
 
   return sortFindings(dedupe(out))
 }
