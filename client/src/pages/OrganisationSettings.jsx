@@ -13,6 +13,9 @@ import { LogoField } from '../components/documents/BrandingSettings.jsx'
 import { documentsApi } from '../api/documentsApi.js'
 import { canIn } from '../lib/realRoles.js'
 import ModeLabelsForm from '../components/ModeLabelsForm.jsx'
+import RulesPanel from '../components/validationRules/RulesPanel.jsx'
+import { validationRulesApi } from '../api/validationRulesApi.js'
+import { projectsApi } from '../api/projectsApi.js'
 
 function Section({ title, description, children }) {
   return (
@@ -48,6 +51,9 @@ export default function OrganisationSettings() {
   const [members, setMembers] = useState(null)
   const [settings, setSettings] = useState(null)
   const [busy, setBusy] = useState(null)
+  // Custom validation rules (M7b-5) and the buildings a draft can be tried on.
+  const [rules, setRules] = useState(null)
+  const [ruleTargets, setRuleTargets] = useState([])
   const [error, setError] = useState(null)
 
   const load = useCallback(() => {
@@ -62,6 +68,16 @@ export default function OrganisationSettings() {
   useEffect(() => {
     if (isOrgAdmin) load()
   }, [isOrgAdmin, load])
+
+  const loadRules = useCallback(() => validationRulesApi.organisation(orgId).list().then((r) => setRules(r.rules)), [orgId])
+  useEffect(() => {
+    if (!isOrgAdmin) return
+    loadRules().catch(() => {})
+    projectsApi
+      .list(orgId)
+      .then((r) => setRuleTargets(r.projects.flatMap((p) => p.buildings.map((b) => ({ key: b.id, label: `${p.name} · ${b.code}`, projectId: p.id, buildingId: b.id })))))
+      .catch(() => {})
+  }, [isOrgAdmin, orgId, loadRules])
 
   const people = useMemo(() => (members ? groupByUser(members) : []), [members])
 
@@ -152,6 +168,10 @@ export default function OrganisationSettings() {
           }}
         />
       )}
+
+      <Section title="Validation rules" description="Your organisation's own checks, for every project, alongside the built-in rules. A Critical rule blocks submitting an HLD or LLD. A change applies from the next validation; anything already approved stays approved.">
+        {rules && <RulesPanel testId="org-rules" rules={rules} labels={settings?.modeLabels} canEdit api={validationRulesApi.organisation(orgId)} targets={ruleTargets} onPreview={(t, rule) => validationRulesApi.preview(orgId, t.projectId, { buildingId: t.buildingId, rule })} onChanged={loadRules} empty="No organisation rules yet." />}
+      </Section>
 
       <Section title="Cable stock lengths" description="Suggested cable lengths in the LLD round up to the next stock length; longer runs need a custom length.">
         {settings?.stockLengths && (

@@ -11,6 +11,7 @@ import { catalogueRoutes } from './catalogue.js'
 import { cmoRoutes } from './cmo.js'
 import { surveyRoutes } from './survey.js'
 import { hldRoutes } from './hld.js'
+import { orgValidationRuleRoutes, projectValidationRuleRoutes } from './validationRules.js'
 import { taskRoutes, meRoutes } from './tasks.js'
 import { scheduleRoutes } from './schedule.js'
 import { searchRoutes } from './search.js'
@@ -33,7 +34,7 @@ export async function healthHandler(req, res) {
   res.status(up ? 200 : 503).json(healthResponse.parse({ status: up ? 'ok' : 'degraded', app: 'up', database: up ? 'up' : 'down' }))
 }
 
-export function apiRouter({ config, auth, org, auditLog, hierarchy, blockers, viewAs, dashboard, catalogue, cmo, survey, files, hld, lld, delivery, tasks, notifications, deployment, cmdb, documents, handover, schedule, search, dguv, fieldHelp, insights, reportSchedules, rateLimits, openapiDocument }) {
+export function apiRouter({ config, validationRules, auth, org, auditLog, hierarchy, blockers, viewAs, dashboard, catalogue, cmo, survey, files, hld, lld, delivery, tasks, notifications, deployment, cmdb, documents, handover, schedule, search, dguv, fieldHelp, insights, reportSchedules, rateLimits, openapiDocument }) {
   const r = recordingRouter()
 
   r.get('/health', healthHandler)
@@ -69,6 +70,9 @@ export function apiRouter({ config, auth, org, auditLog, hierarchy, blockers, vi
     ['/orgs/:orgId/projects/:projectId/cmo', cmoRoutes({ config, cmo })],
     ['/orgs/:orgId/projects/:projectId/survey', surveyRoutes({ config, survey })],
     ['/orgs/:orgId/projects/:projectId/hld', hldRoutes({ config, hld })],
+    // M7b-5: custom validation rules.
+    ['/orgs/:orgId/validation-rules', orgValidationRuleRoutes({ config, validationRules })],
+    ['/orgs/:orgId/projects/:projectId/validation-rules', projectValidationRuleRoutes({ config, validationRules })],
     ['/orgs/:orgId/projects/:projectId/lld', lldRoutes({ config, lld })],
     ['/orgs/:orgId/projects/:projectId', deliveryRoutes({ config, ...delivery })],
     ['/public', publicRoutes({ publicApproval: delivery.publicApproval, rateLimits })],

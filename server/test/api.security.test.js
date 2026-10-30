@@ -59,6 +59,7 @@ const VALIDATE_FIRST = [
   'put /deployment/devices/{deviceId}/dguv-override', // MANAGE_DGUV_EXEMPTIONS
   'put /deployment/devices/{deviceId}/installation', // Field Engineer
   'put /handover/buildings/{buildingId}/old-gear', // PM
+  'post /validation-rules/preview', // Org Admin or Architect; reads only
 ].sort()
 
 describe('Every route is guarded', () => {

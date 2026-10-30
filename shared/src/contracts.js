@@ -11,6 +11,7 @@ import { isLocalDate, STANDARD_MILESTONE_KEYS } from './schedule.js'
 import { catalogueItemSchema, CATEGORY_GROUPS, CATALOGUE_CATEGORIES, OPTIC_MEDIA } from './catalogue.js'
 import { REPORT_KEYS, REPORT_FORMATS, SCHEDULE_FREQUENCIES } from './reports.js'
 import { CMO_DECISIONS, MODE_LABEL_MAX } from './modeState.js'
+import { RULE_OPERATORS, RULE_SEVERITIES, ruleProblems } from './customRules.js'
 
 export const PASSWORD_MIN = 12
 export const PASSWORD_MAX = 128
@@ -645,6 +646,28 @@ export const hldSplitBody = z
   .refine((b) => Boolean(b.deviceId) !== Boolean(b.newDevice), { message: 'Name the device to insert, or describe a new one — one of the two' })
 // Merge: the joined link's medium and speed default to the first link's.
 export const hldMergeBody = z.object({ media: z.enum(OPTIC_MEDIA).optional(), speed: z.enum(HLD_SPEEDS).optional(), baseRevision }).strict()
+
+// --- M7b-5: custom validation rules (DATA-MODEL §3.11) -------------------------
+// The allowlists and the typed value are checked by ruleProblems, the builder's own check.
+const validationRuleFields = z
+  .object({
+    name: z.string().trim().min(1, 'Name the rule').max(120),
+    object: z.string(),
+    subjectRole: z.string().nullable().optional(),
+    field: z.string(),
+    operator: z.enum(RULE_OPERATORS),
+    value: z.union([z.string().trim().max(200), z.number(), z.boolean(), z.array(z.string().trim().max(200)).max(50)]).nullable().optional(),
+    severity: z.enum(RULE_SEVERITIES),
+    message: z.string().trim().max(300).nullable().optional(),
+    enabled: z.boolean().optional(),
+  })
+  .strict()
+const checkRule = (rule, ctx, prefix = []) => {
+  for (const { path, message } of ruleProblems(rule)) ctx.addIssue({ code: 'custom', path: [...prefix, path], message })
+}
+export const validationRuleBody = validationRuleFields.superRefine((rule, ctx) => checkRule(rule, ctx))
+export const validationRuleEnabledBody = z.object({ enabled: z.boolean() }).strict()
+export const validationRulePreviewBody = z.object({ buildingId: objectId, rule: validationRuleFields }).strict().superRefine((b, ctx) => checkRule(b.rule, ctx, ['rule']))
 
 // --- M7b-4b: after cutover (DATA-MODEL §5.22) ----------------------------------
 // Removing interim kit or replaced/removed CMO gear; the PM keeping CMO gear on

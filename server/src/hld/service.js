@@ -14,6 +14,7 @@ import { deviceDisplayName } from '@rackium/shared/deviceName.js'
 import { modeOf, isCmoDevice } from '@rackium/shared/modeState.js'
 import { CmoDecision } from '../models/cmoDecision.js'
 import { modeLabelsOf, decisionsOf, decisionView, copyDecisions, dropDecisions } from './cmoDecisions.js'
+import { rulesInForce } from '../validation/rules.js'
 import { DesignBranch } from '../models/designBranch.js'
 import { ChangeRequest } from '../models/changeRequest.js'
 import { assertChangeRequestEditable, claimBranchRevision } from '../design/branchClaim.js'
@@ -96,7 +97,8 @@ async function loadDesign(buildingId, projectId, session = null, branchId = null
   // What this layer decides for the existing (CMO) gear, and the state labels (DATA-MODEL §5.21).
   const decisions = await decisionsOf(buildingId, hldLayerOf(branchId), session)
   const modeLabels = await modeLabelsOf(session)
-  return { floors, rooms, racks, devices, connections, archived, positions, pathways, catalogue, occupancy, decisions, modeLabels }
+  const customRules = await rulesInForce(session)
+  return { floors, rooms, racks, devices, connections, archived, positions, pathways, catalogue, occupancy, decisions, modeLabels, customRules }
 }
 
 function catalogueIndex(catalogue) {
@@ -231,14 +233,25 @@ function decisionsByDevice(data) {
   return new Map((data.decisions ?? []).map((x) => [String(x.deviceId), decisionView(x, nameOfDevice)]))
 }
 
-function runValidation(data) {
+// The design as the rules read it; custom rules (DATA-MODEL §3.11) also read
+// its rooms, and the pathways of those rooms.
+function ruleDesignOf(data) {
   const { deviceViews, connections, ctx } = ruleInputs(data)
-  const racks = data.racks.map((r) => ({ id: String(r._id), code: r.code, heightU: r.heightU, maxLoadKg: r.details?.maxLoadKg ?? null }))
+  const racks = data.racks.map((r) => ({ id: String(r._id), roomId: String(r.roomId), code: r.code, heightU: r.heightU, maxLoadKg: r.details?.maxLoadKg ?? null }))
+  const rooms = data.rooms.map((r) => ({ id: String(r._id), code: r.code, isMainRoom: Boolean(r.isMainRoom) }))
+  const inBuilding = new Set(rooms.map((r) => r.id))
+  const pathways = data.pathways.filter((p) => inBuilding.has(p.fromRoomId) || inBuilding.has(p.toRoomId))
+  return { design: { devices: deviceViews, connections: connections.map((c) => ({ ...c, ...c.length })), racks, rooms, pathways }, ctx, connections }
+}
+
+function runValidation(data) {
+  const { design, connections, ctx } = ruleDesignOf(data)
+  const { devices: deviceViews, racks, rooms, pathways } = design
   const cmoDevices = deviceViews.filter((d) => d.cmo)
   const cmoUnplaced = data.devices.filter((d) => d.origin === 'existing' && d.importBatchId && !d.rackId).map((d) => ({ id: String(d._id), label: d.hostname ?? d.installation?.serial ?? 'device' }))
   const createdAt = new Map(data.connections.map((c) => [String(c._id), c.createdAt]))
   const broken = (data.archived ?? []).filter((c) => c.archived.tool === 'break').map((c) => ({ id: String(c._id), sourceDeviceId: String(c.source.deviceId), destDeviceId: String(c.dest.deviceId), sourceName: c.archived.sourceName, destName: c.archived.destName, reason: c.archived.reason, at: c.archived.at }))
-  const findings = validateHld({ devices: deviceViews, connections: connections.map((c) => ({ ...c, ...c.length, createdAt: createdAt.get(c.id) })), racks, cmoUnplaced, broken, cmoDevices }, ctx)
+  const findings = validateHld({ devices: deviceViews, connections: connections.map((c) => ({ ...c, ...c.length, createdAt: createdAt.get(c.id) })), racks, cmoUnplaced, broken, cmoDevices, rooms, pathways, customRules: data.customRules }, ctx)
   return { findings, summary: summariseFindings(findings) }
 }
 
@@ -1197,6 +1210,12 @@ export function createHldService({ storage }) {
       const portsFree = { source: !(await occupied(draft.source)), dest: !(await occupied(draft.dest)) }
       const result = uplinkChecks({ ...draft, ...length }, ctx, { portsFree })
       return { ...result, length }
+    },
+
+    // The design as custom rules read it (the builder's preview, DATA-MODEL §3.11).
+    async ruleDesign(req, buildingId) {
+      const { design, ctx } = ruleDesignOf(await loadDesign(buildingId, req.project.id))
+      return { design, ctx }
     },
 
     async validate(req, buildingId, branchId = null) {

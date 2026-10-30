@@ -27,6 +27,9 @@ export const ACTIONS = {
   MANAGE_USERS_SETTINGS_CATALOGUE: 'manage_users_settings_catalogue',
   // Field help / tooltips (v2.3 §4.3; M7a-2): Org Admin only.
   MANAGE_TOOLTIPS: 'manage_tooltips',
+  // Custom validation rules of a project (D11; M7b-5): the Architect's. The
+  // organisation's are the Org Admin's (MANAGE_USERS_SETTINGS_CATALOGUE).
+  MANAGE_PROJECT_VALIDATION_RULES: 'manage_project_validation_rules',
   INVITE_PROJECT_MEMBERS: 'invite_project_members',
   CREATE_BUILDINGS_SET_TARGETS: 'create_buildings_set_targets',
   FILL_SURVEY_UPLOAD_PHOTOS: 'fill_survey_upload_photos',
@@ -112,6 +115,7 @@ const MATRIX = {
   [ACTIONS.RAISE_BLOCKER]: ['pm', 'architect', 'reviewer', 'external_reviewer', 'field_engineer', 'viewer'],
   [ACTIONS.VIEW_AS]: ['org_admin'],
   [ACTIONS.MANAGE_TOOLTIPS]: ['org_admin'],
+  [ACTIONS.MANAGE_PROJECT_VALIDATION_RULES]: ['architect'],
   [ACTIONS.IMPORT_CMO]: ['org_admin', 'pm'],
   [ACTIONS.ASSIGN_CMO_DEVICE]: ['pm'],
   [ACTIONS.EDIT_SITE_STRUCTURE]: ['org_admin', 'pm', 'architect', 'field_engineer'],
