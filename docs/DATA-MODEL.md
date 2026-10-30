@@ -113,7 +113,7 @@ Run in CI against a replica set, with two organisations of two projects each.
 
 **`invitations`** [C]
 
-- `organisationId` · `projectId` (R) · `email` (R, case-insensitive) · `role` (R) · `scopes[]` (as above) · `invitedBy` (R) · `tokenHash` (R, unique; SHA-256 of a 32-byte random token, as in §5.5) · `expiresAt` (Date, R) · `status` (`pending` / `accepted` / `expired` / `revoked`, R) · `acceptedAt` (Date, O).
+- `organisationId` · `projectId` (R) · `email` (R, case-insensitive) · `role` (R) · `scopes[]` (as above) · `invitedBy` (R) · `tokenHash` (R, unique; SHA-256 of a 32-byte random token, as in §5.5) · `expiresAt` (Date, R) · `status` (`pending` / `accepted` / `expired` / `revoked`, R) · `acceptedAt` (Date, O) · `name` (O; from a tester list, used if the person types none when accepting).
 - Accepting an invitation creates a membership. An expired or revoked invitation cannot be accepted.
 
 **`viewAsSessions`** [C; brief-adjacent audit requirement]
@@ -1172,6 +1172,10 @@ The delivery side of §5.21. Interim kit lives only for the cutover; existing ge
 **CMDB:** each record carries `modeState` and `modeLabel` (the project's word), the screen a Mode column and filter, the Excel export and the CMDB extract (CSV, PDF, JSON) a Mode column after Legacy hostname — Rackium's value stored, the configured label exported (core rule).
 
 **Demo data** (dev:local): B003 and B004 each have two CMO switches — one kept in the FMO, one replaced by the new Edge — and an interim switch with an IMO link to the Border. B004's LLD is approved, so its kept switch shows "old → new", with the reprint task.
+
+### 5.23 Server operations (release prep)
+
+**`opsMigrations`** (not tenant-scoped): one document per data migration that has finished: `_id` (the migration's id), `finishedAt` (Date), `result` (what it reported). `rackium-deploy` runs the list in `server/src/ops/migrations.js` in order; each runs once, and a failure stops the deploy and is not recorded. The first is the phase history backfill.
 
 ---
 
