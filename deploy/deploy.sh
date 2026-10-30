@@ -13,7 +13,9 @@ REPO_DIR="$HOME_DIR/repo.git"
 RELEASES="$HOME_DIR/releases"
 KEEP_RELEASES=4
 REF="${1:-$DEPLOY_REF}"
-as_rackium() { sudo -u rackium env HOME="$HOME_DIR" PM2_HOME="$HOME_DIR/.pm2" PATH="/usr/bin:/bin:/usr/local/bin" "$@"; }
+# A clean environment: nothing of the caller's reaches the app (a stray XDG_CONFIG_HOME
+# stops Chrome from starting).
+as_rackium() { sudo -u rackium env -i HOME="$HOME_DIR" PM2_HOME="$HOME_DIR/.pm2" PATH="/usr/bin:/bin:/usr/local/bin" LANG=C.UTF-8 "$@"; }
 step() { printf '\n== %s\n' "$*"; }
 
 exec 9>/run/lock/rackium-deploy.lock

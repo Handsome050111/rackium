@@ -30,6 +30,7 @@ HOME_DIR=/opt/rackium
 ETC=/etc/rackium
 step() { printf '\n== %s\n' "$*"; }
 secret() { openssl rand -hex "${1:-32}"; }
+as_rackium() { sudo -u rackium env -i HOME="$HOME_DIR" PM2_HOME="$HOME_DIR/.pm2" PATH="/usr/bin:/bin:/usr/local/bin" LANG=C.UTF-8 "$@"; }
 
 step "Packages"
 export DEBIAN_FRONTEND=noninteractive
@@ -204,8 +205,8 @@ ufw status verbose
 
 step "PM2 starts on boot, its logs rotate"
 env PATH="$PATH:/usr/bin" pm2 startup systemd -u rackium --hp "$HOME_DIR" >/dev/null
-sudo -u rackium env PM2_HOME="$HOME_DIR/.pm2" pm2 install pm2-logrotate >/dev/null
-sudo -u rackium env PM2_HOME="$HOME_DIR/.pm2" pm2 set pm2-logrotate:retain 14 >/dev/null
+as_rackium pm2 install pm2-logrotate >/dev/null
+as_rackium pm2 set pm2-logrotate:retain 14 >/dev/null
 
 cat <<EOF
 

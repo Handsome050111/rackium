@@ -20,7 +20,7 @@ mongo_admin() {
   . /etc/rackium/mongo-admin.env
   mongosh --quiet --norc "mongodb://127.0.0.1:27017/rackium?replicaSet=rs0&authSource=admin" -u rackium_admin -p "$MONGO_ADMIN_PASSWORD" --eval "$1"
 }
-as_rackium() { sudo -u rackium env HOME=/opt/rackium PM2_HOME=/opt/rackium/.pm2 PATH="/usr/bin:/bin:/usr/local/bin" "$@"; }
+as_rackium() { sudo -u rackium env -i HOME=/opt/rackium PM2_HOME=/opt/rackium/.pm2 PATH="/usr/bin:/bin:/usr/local/bin" LANG=C.UTF-8 "$@"; }
 
 step "The kernel check"
 for good in 6.8.0-88-generic 6.17.0-5-azure 6.18.9 7.0.14-azure 7.1.0; do
@@ -239,6 +239,21 @@ rackium-rollback "$FIRST_RELEASE"
 [ "$(web "https://$DOMAIN/health")" = '{"status":"ok","app":"up","database":"up"}' ] || fail "not healthy after the rollback"
 [ "$(echo "$(as_rackium pm2 jlist)" | jq '[.[] | select(.name=="rackium-api")] | length')" = 1 ] || fail "not one process after the rollback"
 ok "rollback"
+
+step "After a reboot"
+systemctl is-enabled --quiet mongod || fail "mongod does not start on boot"
+systemctl is-enabled --quiet nginx || fail "Nginx does not start on boot"
+systemctl is-enabled --quiet pm2-rackium || fail "the app does not start on boot"
+as_rackium pm2 kill >/dev/null
+systemctl restart pm2-rackium
+UP=0
+for _ in $(seq 1 30); do
+  if curl -fsS --max-time 2 http://127.0.0.1:4000/health >/dev/null 2>&1; then UP=1; break; fi
+  sleep 2
+done
+[ "$UP" = 1 ] || fail "the app did not come back the way a reboot brings it back"
+(cd /opt/rackium/current && as_rackium node server/scripts/check-pdf.mjs) >/dev/null 2>&1 || fail "PDFs after a restart"
+ok "the app, the database and Nginx start on boot"
 
 step "Migrations are recorded, and do not run twice"
 mongo_admin 'if (db.opsMigrations.countDocuments({ _id: "2026-10-phase-history-backfill" }) !== 1) throw new Error("the backfill is not recorded")'

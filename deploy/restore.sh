@@ -24,7 +24,9 @@ done
 
 HOME_DIR=/opt/rackium
 FILES_DIR="$(sed -n 's/^FILE_STORAGE_DIR=//p' /etc/rackium/rackium.env)"
-as_rackium() { sudo -u rackium env HOME="$HOME_DIR" PM2_HOME="$HOME_DIR/.pm2" PATH="/usr/bin:/bin:/usr/local/bin" "$@"; }
+# A clean environment: nothing of the caller's reaches the app (a stray XDG_CONFIG_HOME
+# stops Chrome from starting).
+as_rackium() { sudo -u rackium env -i HOME="$HOME_DIR" PM2_HOME="$HOME_DIR/.pm2" PATH="/usr/bin:/bin:/usr/local/bin" LANG=C.UTF-8 "$@"; }
 umask 077
 WORK="$(mktemp -d /var/lib/rackium/.restore.XXXXXX)"
 TEMP_PORT=27099
