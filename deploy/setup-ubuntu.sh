@@ -4,16 +4,18 @@
 #   sudo deploy/setup-ubuntu.sh --domain test.example.com --email you@example.com --repo git@github.com:owner/repo.git
 # Safe to run again: what exists is kept, secrets above all. Secrets are generated
 # here, written only to root-readable files, and never printed.
-#   --self-signed  a self-signed certificate instead of Let's Encrypt (CI only)
+#   --self-signed     a self-signed certificate instead of Let's Encrypt (CI only)
+#   --accept-kernel   skip the kernel check (CI only: its runner cannot change kernel)
 set -euo pipefail
 
-DOMAIN="" EMAIL="" REPO="" SELF_SIGNED=0
+DOMAIN="" EMAIL="" REPO="" SELF_SIGNED=0 ACCEPT_KERNEL=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --domain) DOMAIN="$2"; shift 2 ;;
     --email) EMAIL="$2"; shift 2 ;;
     --repo) REPO="$2"; shift 2 ;;
     --self-signed) SELF_SIGNED=1; shift ;;
+    --accept-kernel) ACCEPT_KERNEL=1; shift ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -22,6 +24,8 @@ done
 [ "$SELF_SIGNED" = 1 ] || [ -n "$EMAIL" ] || { echo "--email is required for Let's Encrypt." >&2; exit 2; }
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Before anything is installed: MongoDB would only fail much later.
+[ "$ACCEPT_KERNEL" = 1 ] || bash "$HERE/check-kernel.sh"
 HOME_DIR=/opt/rackium
 ETC=/etc/rackium
 step() { printf '\n== %s\n' "$*"; }

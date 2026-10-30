@@ -64,6 +64,10 @@ jobs:
       - name: Build (client)
         run: npm run build
 
+      # What a server deploys: real mode only, refused if prototype code is in it.
+      - name: Build (release)
+        run: npm run build:release
+
       # Mock-mode projects (desktop/iPad/tablet/phone) and the real-mode
       # project (client/e2e-real/, server/e2e/testServer.mjs + an in-memory
       # Mongo replica set) in one run — see playwright.config.js.

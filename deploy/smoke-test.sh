@@ -22,14 +22,37 @@ mongo_admin() {
 }
 as_rackium() { sudo -u rackium env HOME=/opt/rackium PM2_HOME=/opt/rackium/.pm2 PATH="/usr/bin:/bin:/usr/local/bin" "$@"; }
 
+step "The kernel check"
+for good in 6.8.0-88-generic 6.17.0-5-azure 6.18.9 7.0.14-azure 7.1.0; do
+  bash "$CHECKOUT/deploy/check-kernel.sh" "$good" 2>/dev/null || fail "kernel $good was refused"
+done
+for bad in 6.19.0 6.19.3-azure 7.0.0-1009-azure 7.0.13-generic; do
+  if bash "$CHECKOUT/deploy/check-kernel.sh" "$bad" 2>/dev/null; then fail "kernel $bad was accepted"; fi
+done
+ok "kernels 6.19 to 7.0.13 are refused, others accepted"
+KERNEL="$(uname -r)"
+echo "This runner: $KERNEL"
+ACCEPT_KERNEL=()
+if ! bash "$CHECKOUT/deploy/check-kernel.sh" 2>/dev/null; then
+  if "$CHECKOUT/deploy/setup-ubuntu.sh" --domain "$DOMAIN" --repo /nowhere --self-signed >/dev/null 2>&1; then fail "setup ran on a refused kernel"; fi
+  [ ! -d /opt/rackium ] || fail "setup installed something before refusing the kernel"
+  ok "setup refuses this kernel before installing anything"
+  # CI only, and not MongoDB's documented way: this runner's kernel cannot be
+  # changed. A real server runs a kernel MongoDB accepts (the check above).
+  mkdir -p /etc/systemd/system/mongod.service.d
+  printf '[Service]\nEnvironment=GLIBC_TUNABLES=glibc.pthread.rseq=1\n' >/etc/systemd/system/mongod.service.d/ci-kernel.conf
+  export GLIBC_TUNABLES=glibc.pthread.rseq=1
+  ACCEPT_KERNEL=(--accept-kernel)
+fi
+
 step "Setup"
 # CI only: this root user also works in folders owned by others.
 git config --global --add safe.directory "*"
 git clone --quiet --bare "$CHECKOUT" "$SRC"
 git --git-dir="$SRC" update-ref refs/heads/smoke "$(git -C "$CHECKOUT" rev-parse HEAD)"
-"$CHECKOUT/deploy/setup-ubuntu.sh" --domain "$DOMAIN" --repo "$SRC" --self-signed
+"$CHECKOUT/deploy/setup-ubuntu.sh" --domain "$DOMAIN" --repo "$SRC" --self-signed "${ACCEPT_KERNEL[@]}"
 chown -R rackium:rackium "$SRC"
-"$CHECKOUT/deploy/setup-ubuntu.sh" --domain "$DOMAIN" --repo "$SRC" --self-signed >/dev/null
+"$CHECKOUT/deploy/setup-ubuntu.sh" --domain "$DOMAIN" --repo "$SRC" --self-signed "${ACCEPT_KERNEL[@]}" >/dev/null
 ok "setup runs twice"
 FIRST_JWT="$(grep -c JWT_SECRET /etc/rackium/rackium.env)"
 [ "$FIRST_JWT" = 1 ] || fail "env file"
@@ -167,6 +190,11 @@ step "Live restore: back to the backup"
 BEFORE_ORGS="$(mongo_admin 'print(db.organisations.countDocuments())')"
 mongo_admin 'db.organisations.insertOne({ name: "after the backup" }); db.users.deleteMany({ email: "viewer@example.com" })'
 as_rackium sh -c 'rm /var/lib/rackium/files/smoke-marker'
+# Like a new server: its database passwords are not the ones in the backup.
+NEW_APP_PASSWORD="$(openssl rand -hex 32)"
+OLD_APP_PASSWORD="$(sed -n 's/^MONGO_APP_PASSWORD=//p' /etc/rackium/mongo-admin.env)"
+mongo_admin "db.getSiblingDB('rackium').changeUserPassword('rackium', '$NEW_APP_PASSWORD')"
+sed -i "s/$OLD_APP_PASSWORD/$NEW_APP_PASSWORD/" /etc/rackium/mongo-admin.env /etc/rackium/rackium.env
 if rackium-restore --live "$BACKUP" >/dev/null 2>&1; then fail "a live restore ran without the confirmation"; fi
 curl -fsS http://127.0.0.1:4000/health >/dev/null || fail "the refused restore touched the app"
 rackium-restore --live "$BACKUP" --yes-replace-everything

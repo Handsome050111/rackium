@@ -104,6 +104,16 @@ mongosh --quiet --norc --port "$TEMP_PORT" --eval '
   if (!db.hello().isWritablePrimary) throw new Error("no primary")
 '
 restore_into_temp
+# The backup brought its users with the passwords of the server it came from.
+# This server's settings win, so a restore onto a new server just works.
+# shellcheck disable=SC1091
+. /etc/rackium/mongo-admin.env
+env MONGO_ADMIN_PASSWORD="$MONGO_ADMIN_PASSWORD" MONGO_APP_PASSWORD="$MONGO_APP_PASSWORD" MONGO_BACKUP_PASSWORD="$MONGO_BACKUP_PASSWORD" mongosh --quiet --norc --port "$TEMP_PORT" --eval '
+  const admin = db.getSiblingDB("admin")
+  admin.changeUserPassword("rackium_admin", process.env.MONGO_ADMIN_PASSWORD)
+  admin.changeUserPassword("rackium_backup", process.env.MONGO_BACKUP_PASSWORD)
+  db.getSiblingDB("rackium").changeUserPassword("rackium", process.env.MONGO_APP_PASSWORD)
+'
 stop_temp
 systemctl start mongod
 for _ in $(seq 1 60); do mongosh --quiet --norc --eval 'db.runCommand({ping:1}).ok' >/dev/null 2>&1 && break; sleep 1; done
