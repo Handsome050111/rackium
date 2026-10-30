@@ -49,7 +49,7 @@ export default function PortScheduleTab({ portSchedule, buildingCode }) {
           <table className="w-full min-w-max text-left text-xs">
             <thead>
               <tr className="border-b border-border bg-surface-muted text-text-secondary">
-                {['Device', 'Interface', 'Type', 'Speed', 'Status', 'Connected To', 'Cable ID', 'VLAN (mock)', 'PoE'].map((h) => (
+                {['Device', 'Interface', 'Type', 'Speed', 'Status', 'Connected To', 'Cable ID', 'VLAN', 'PoE'].map((h) => (
                   <th key={h} className="whitespace-nowrap px-3 py-2 font-medium">
                     {h}
                   </th>

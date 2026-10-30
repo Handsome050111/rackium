@@ -8,13 +8,17 @@ import { OfflineProvider } from './lib/OfflineContext.jsx'
 import { AuthProvider } from './lib/AuthContext.jsx'
 import { ViewAsProvider } from './lib/ViewAsContext.jsx'
 import { hydrateAll, startAutosave } from './lib/persistentStore.js'
-import './e2eTestApi.js'
+import { API_MODE } from './lib/apiMode.js'
 
-// Importing App.jsx above has already pulled in and registered every
-// api/*.js mock store (ES module imports are resolved eagerly) — hydrateAll
-// restores all of them from IndexedDB before the first render, so every
-// screen is consistent with the last save instead of racing it.
+// hydrateAll restores every registered api/*.js store from IndexedDB before the
+// first render, so every screen is consistent with the last save instead of racing it.
 async function start() {
+  // Mock mode: its screens and stores before the stores are restored, and the
+  // mock e2e suite's hooks. A release build has none of them (MODE is inlined).
+  if (import.meta.env.MODE !== 'release' && API_MODE !== 'real') {
+    await import('./mockRoutes.jsx')
+    await import('./e2eTestApi.js')
+  }
   await hydrateAll()
 
   // import.meta.env.BASE_URL mirrors vite.config.js's `base` (VITE_BASE_PATH)

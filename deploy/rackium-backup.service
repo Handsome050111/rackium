@@ -1,0 +1,9 @@
+[Unit]
+Description=Rackium encrypted backup
+Wants=network-online.target
+After=network-online.target mongod.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/rackium-backup
+Nice=10

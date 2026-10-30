@@ -9,6 +9,7 @@ import {
   inviteAcceptBody,
 } from '@rackium/shared/contracts.js'
 import { validate } from '../http/validate.js'
+import { forbidden } from '../http/errors.js'
 import { authLimiter } from '../http/rateLimits.js'
 import { REFRESH_COOKIE, setSessionCookies, clearSessionCookies } from '../http/cookies.js'
 import { membershipsForUser } from '../auth/service.js'
@@ -31,6 +32,8 @@ export function authRoutes({ config, auth, rateLimits }) {
     authLimiter({ ...rateLimits.signup, enabled: rateLimits.enabled }),
     validate({ body: signUpBody }),
     async (req, res) => {
+      // Off in production unless asked for: a new organisation is by invitation there.
+      if (!config.SIGNUP_ENABLED) throw forbidden('Sign-up is closed on this server — ask your administrator for an invitation')
       res.status(202).json(await auth.signUp(req.input.body))
     }
   )

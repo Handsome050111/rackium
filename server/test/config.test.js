@@ -1,3 +1,4 @@
+import path from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { loadConfig, ConfigError } from '../src/config/index.js'
 
@@ -13,6 +14,10 @@ const prod = {
   CLIENT_ORIGIN: 'https://demo.example.com',
   EMAIL_PROVIDER: 'resend',
   RESEND_API_KEY: 're_test_key',
+  TRUST_PROXY: '1',
+  // Any file that exists: the check is that the path is real.
+  CHROMIUM_PATH: process.execPath,
+  FILE_STORAGE_DIR: path.resolve('var/test-files'),
 }
 
 const issuesFor = (env) => {
@@ -63,6 +68,31 @@ describe('config', () => {
     const cfg = loadConfig(prod)
     expect(cfg.IS_PRODUCTION).toBe(true)
     expect(Object.isFrozen(cfg)).toBe(true)
+  })
+
+  it('production also needs: CLIENT_ORIGIN https and the same origin as the public app; TRUST_PROXY 1; a real CHROMIUM_PATH; an absolute file store', () => {
+    expect(issuesFor({ ...prod, CLIENT_ORIGIN: 'http://demo.example.com' })).toContain('CLIENT_ORIGIN')
+    expect(issuesFor({ ...prod, CLIENT_ORIGIN: 'https://other.example.com' })).toContain('CLIENT_ORIGIN')
+    expect(issuesFor({ ...prod, TRUST_PROXY: '0' })).toContain('TRUST_PROXY')
+    expect(issuesFor({ ...prod, TRUST_PROXY: '2' })).toContain('TRUST_PROXY')
+    expect(issuesFor({ ...prod, CHROMIUM_PATH: undefined })).toContain('CHROMIUM_PATH')
+    expect(issuesFor({ ...prod, CHROMIUM_PATH: '/no/such/chrome' })).toContain('CHROMIUM_PATH')
+    expect(issuesFor({ ...prod, FILE_STORAGE_DIR: 'var/files' })).toContain('FILE_STORAGE_DIR')
+  })
+
+  it('sign-up is closed in production unless asked for, open in development; the banner is off unless set', () => {
+    expect(loadConfig(prod).SIGNUP_ENABLED).toBe(false)
+    expect(loadConfig({ ...prod, SIGNUP_ENABLED: 'true' }).SIGNUP_ENABLED).toBe(true)
+    expect(loadConfig(base).SIGNUP_ENABLED).toBe(true)
+    expect(loadConfig({ ...base, SIGNUP_ENABLED: 'false' }).SIGNUP_ENABLED).toBe(false)
+    expect(loadConfig(prod).ENV_BANNER).toBe(null)
+    expect(loadConfig({ ...prod, ENV_BANNER: ' Test environment ' }).ENV_BANNER).toBe('Test environment')
+  })
+
+  it('in production the app listens on localhost unless told otherwise; in development, as before', () => {
+    expect(loadConfig(prod).LISTEN_HOST).toBe('127.0.0.1')
+    expect(loadConfig({ ...prod, LISTEN_HOST: '10.0.0.5' }).LISTEN_HOST).toBe('10.0.0.5')
+    expect(loadConfig(base).LISTEN_HOST).toBeUndefined()
   })
 
   it('rejects a CLIENT_ORIGIN that is not a URL', () => {

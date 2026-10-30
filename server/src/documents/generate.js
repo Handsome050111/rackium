@@ -12,6 +12,7 @@ import { topologySvg } from '@rackium/shared/documents/svg.js'
 import { canSeePrices } from '@rackium/shared/policy.js'
 import { SurveyTabRecord } from '../models/surveyTabRecord.js'
 import { File } from '../models/file.js'
+import { conflict } from '../http/errors.js'
 import { Room } from '../models/room.js'
 import { Rack } from '../models/rack.js'
 import { Device } from '../models/device.js'
@@ -163,13 +164,13 @@ export async function generate({ job, req, building, services, storage, branding
     }
     case 'lld-document': {
       const v = await services.lld.view(req, building.id)
-      if (!v.started) throw new Error('This building has no LLD yet')
+      if (!v.started) throw conflict('not_ready', 'This building has no LLD yet')
       return pdf(A.lldDocument(ctx, v, { headings: settings.headings }))
     }
     case 'cable-matrix': {
       const dep = await services.deployment.view(req, building.id)
       const v = await services.lld.view(req, building.id)
-      if (!v.started) throw new Error('This building has no LLD yet')
+      if (!v.started) throw conflict('not_ready', 'This building has no LLD yet')
       // As built where installed: the cable IDs and lengths recorded on site.
       const installedById = new Map((dep.connections ?? []).map((c) => [c.id, c]))
       const connections = v.connections.map((c) => {
@@ -198,7 +199,7 @@ export async function generate({ job, req, building, services, storage, branding
     }
     case 'deployment-report': {
       const dep = await services.deployment.view(req, building.id)
-      if (!dep.started) throw new Error('This building has no LLD yet')
+      if (!dep.started) throw conflict('not_ready', 'This building has no LLD yet')
       const files = await File.find({ buildingId: building.id, deletedAt: null, 'attachedTo.type': 'device', mimeType: /^image\// }, { attachedTo: 1 }).lean()
       const photos = {}
       for (const f of files) (photos[String(f.attachedTo.id)] ??= []).push(String(f._id))
@@ -210,7 +211,7 @@ export async function generate({ job, req, building, services, storage, branding
     }
     case 'as-built': {
       const dep = await services.deployment.view(req, building.id)
-      if (!dep.started) throw new Error('This building has no LLD yet')
+      if (!dep.started) throw conflict('not_ready', 'This building has no LLD yet')
       return pdf(A.asBuiltComparison(ctx, dep))
     }
     case 'cmdb-extract': {
@@ -252,11 +253,11 @@ export async function generate({ job, req, building, services, storage, branding
       return { buffer: await renderZip(await photoPack(storage, building, services, req)) }
     case 'cable-labels': {
       const size = labelSize(options.labelSize)
-      if (!size) throw new Error('Choose a label size')
+      if (!size) throw conflict('not_ready', 'Choose a label size')
       const dep = await services.deployment.view(req, building.id)
       const chosen = new Set((options.connectionIds ?? []).map(String))
       const connections = (dep.connections ?? []).filter((c) => chosen.has(c.id)).map((c) => ({ id: c.id, segments: c.segments.map((s) => ({ cableId: s.installed?.cableId ?? s.cableId, from: { name: s.from.name, portId: s.from.portId }, to: { name: s.to.name, portId: s.to.portId } })) }))
-      if (!connections.length) throw new Error('None of the chosen connections is in this building')
+      if (!connections.length) throw conflict('not_ready', 'None of the chosen connections is in this building')
       const qr = new Map()
       for (const c of connections) qr.set(c.id, await QRCode.toString(`${appUrl()}${connectionPath(req.org.id, req.project.id, c.id)}`, { type: 'svg', margin: 0, errorCorrectionLevel: 'M' }))
       onStep('Printing labels')
@@ -264,7 +265,7 @@ export async function generate({ job, req, building, services, storage, branding
       return { buffer }
     }
     default:
-      throw new Error(`${typeOf(job.typeKey)?.name ?? job.typeKey} cannot be generated here`)
+      throw conflict('not_ready', `${typeOf(job.typeKey)?.name ?? job.typeKey} cannot be generated here`)
   }
 }
 

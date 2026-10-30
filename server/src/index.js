@@ -45,7 +45,7 @@ async function main() {
 
   const mailer = createEmailSender({ provider: config.EMAIL_PROVIDER, from: config.EMAIL_FROM, apiKey: config.RESEND_API_KEY, logger })
   const app = createApp({ config, logger, mailer })
-  const server = app.listen(config.PORT, () => logger.info({ port: config.PORT }, 'api listening'))
+  const server = app.listen(config.PORT, config.LISTEN_HOST, () => logger.info({ port: config.PORT, host: config.LISTEN_HOST }, 'api listening'))
 
   // Scheduled jobs (M5b): notification mail, task reminders, the daily digest.
   const scheduler = createScheduler({

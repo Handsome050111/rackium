@@ -77,11 +77,13 @@ export default defineConfig({
       // needed). --outDir dist-real keeps this build separate from the mock
       // build's dist/. VITE_API_TARGET points this preview's /api proxy
       // (vite.config.js) at the test server.
-      command: 'npm run build -- --outDir dist-real && npm run preview -- --outDir dist-real --port 5174',
+      // A release build: what a server runs (real mode only, no prototype
+      // screens), served under Nginx's security headers.
+      command: 'npx vite build --mode release --outDir dist-real && node scripts/assert-release.mjs dist-real && npm run preview -- --outDir dist-real --port 5174',
       url: 'http://localhost:5174',
       reuseExistingServer: false,
       timeout: 120000,
-      env: { VITE_API_MODE: 'real', VITE_API_TARGET: 'http://localhost:4100' },
+      env: { VITE_API_MODE: 'real', VITE_API_TARGET: 'http://localhost:4100', RACKIUM_PREVIEW_SECURITY_HEADERS: '1' },
     },
   ],
   projects: [

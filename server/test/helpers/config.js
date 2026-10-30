@@ -17,5 +17,7 @@ export const testConfig = (overrides = {}) => ({
   FILE_STORAGE_DIR: testFilesDir(),
   // API tests run the document queue themselves (deterministic).
   DOCUMENTS_AUTO_PROCESS: false,
+  SIGNUP_ENABLED: true,
+  ENV_BANNER: null,
   ...overrides,
 })

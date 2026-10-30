@@ -44,7 +44,7 @@ function DeviceGroup({ label, devices, selectedId, onSelect }) {
               selectedId === d.id ? 'border-brand bg-brand/5 text-brand' : 'border-border text-text hover:border-brand/40'
             }`}
           >
-            <TopologyIcon role={d.role} size={14} />
+            <TopologyIcon role={d.role} size={14} className="text-brand" />
             {/* Whole names, wrapped (M7b-3): a renamed device reads "old → new". */}
             <span className="min-w-0 flex-1 break-all">
               <span className="font-medium">{d.label}</span>

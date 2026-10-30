@@ -560,10 +560,11 @@ export const meResponse = z.object({
   memberships: z.array(membershipSummary),
 })
 
+export const clientConfigResponse = z.object({ banner: z.string().nullable(), signupEnabled: z.boolean() })
 export const healthResponse = z.object({
   status: z.enum(['ok', 'degraded']),
+  app: z.literal('up'),
   database: z.enum(['up', 'down']),
-  version: z.string(),
 })
 
 export const accepted = z.object({

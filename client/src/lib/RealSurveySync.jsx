@@ -11,8 +11,8 @@ const RealSurveySyncContext = createContext(null)
 const isNetworkError = (err) => err?.status === 0 || err?.code === 'network'
 
 // Real-mode survey editing with the "already-open" offline mode (brief v2.3
-// §5.2). Offline = the TopBar's offline simulation switch, or the browser
-// actually losing its connection. Online, edits go straight to the API;
+// §5.2). Offline = the browser actually losing its connection (or, in the
+// prototype only, the top bar's simulation switch). Online, edits go straight to the API;
 // offline (or when a request cannot reach the server) they are queued in
 // IndexedDB with the tab's base timestamp. On reconnect, queued photos
 // upload first (resuming), then the edits sync in order; the server applies

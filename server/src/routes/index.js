@@ -1,5 +1,5 @@
-import { healthResponse } from '@rackium/shared/contracts.js'
-import { databaseIsUp } from '../db/connect.js'
+import { healthResponse, clientConfigResponse } from '@rackium/shared/contracts.js'
+import { databaseResponds } from '../db/connect.js'
 import { recordingRouter, joinRoutePath } from '../http/routeRecorder.js'
 import { authRoutes } from './auth.js'
 import { organisationRoutes } from './organisations.js'
@@ -27,17 +27,27 @@ import { insightRoutes, orgInsightRoutes } from './insights.js'
 
 export const API_VERSION = '1'
 
-export function apiRouter({ config, validationRules, auth, org, auditLog, hierarchy, blockers, viewAs, dashboard, catalogue, cmo, survey, files, hld, lld, delivery, tasks, notifications, deployment, cmdb, documents, handover, schedule, search, dguv, fieldHelp, insights, reportSchedules, rateLimits, openapiDocument, version }) {
+// The app is up and the database answers: for the deploy script and monitors.
+// Nothing else: no version, host or connection details.
+export async function healthHandler(req, res) {
+  const up = await databaseResponds()
+  res.status(up ? 200 : 503).json(healthResponse.parse({ status: up ? 'ok' : 'degraded', app: 'up', database: up ? 'up' : 'down' }))
+}
+
+export function apiRouter({ config, validationRules, auth, org, auditLog, hierarchy, blockers, viewAs, dashboard, catalogue, cmo, survey, files, hld, lld, delivery, tasks, notifications, deployment, cmdb, documents, handover, schedule, search, dguv, fieldHelp, insights, reportSchedules, rateLimits, openapiDocument }) {
   const r = recordingRouter()
 
-  r.get('/health', (req, res) => {
-    const database = databaseIsUp() ? 'up' : 'down'
-    const body = healthResponse.parse({ status: database === 'up' ? 'ok' : 'degraded', database, version })
-    res.status(database === 'up' ? 200 : 503).json(body)
+  r.get('/health', healthHandler)
+
+  // What the client needs before anyone signs in; nothing sensitive.
+  r.get('/client-config', (req, res) => {
+    res.json(clientConfigResponse.parse({ banner: config.ENV_BANNER ?? null, signupEnabled: config.SIGNUP_ENABLED }))
   })
 
+  // The API's map is for development: not published by a production server.
   r.get('/openapi.json', (req, res) => {
-    res.json(openapiDocument())
+    if (config.IS_PRODUCTION) return res.status(404).json({ error: { code: 'not_found', message: 'Route not found', requestId: req.id } })
+    return res.json(openapiDocument())
   })
 
   // Each mount below is paired with its own prefix here, so r.__routes (read

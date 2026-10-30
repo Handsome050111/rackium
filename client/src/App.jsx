@@ -1,6 +1,6 @@
-import { Routes, Route, Navigate, Link } from 'react-router-dom'
+import { lazy, Suspense } from 'react'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './lib/AuthContext.jsx'
-import AppShell from './components/AppShell.jsx'
 import RealAppShell from './components/RealAppShell.jsx'
 import ProjectsList from './pages/ProjectsList.jsx'
 import ProjectWizard from './pages/ProjectWizard.jsx'
@@ -25,6 +25,7 @@ import RealConnectionLink from './pages/RealConnectionLink.jsx'
 import RealSolutionPackage from './pages/RealSolutionPackage.jsx'
 import RealClientApproval from './pages/RealClientApproval.jsx'
 import { API_MODE } from './lib/apiMode.js'
+import EnvBanner from './components/EnvBanner.jsx'
 import OrganisationSettings from './pages/OrganisationSettings.jsx'
 import RealTasks from './pages/RealTasks.jsx'
 import RealSchedule from './pages/RealSchedule.jsx'
@@ -39,45 +40,13 @@ import NotificationPreferences from './pages/NotificationPreferences.jsx'
 import Catalogue from './pages/Catalogue.jsx'
 import CatalogueItem from './pages/CatalogueItem.jsx'
 import CatalogueItemForm from './pages/CatalogueItemForm.jsx'
-import BuildingOverview from './pages/BuildingOverview.jsx'
-import Lld from './pages/Lld.jsx'
-import RackiumEditor from './pages/RackiumEditor.jsx'
-import SiteStructure from './pages/SiteStructure.jsx'
-import SurveyRackLayout from './pages/SurveyRackLayout.jsx'
-import RoomDetails from './pages/RoomDetails.jsx'
-import Hld from './pages/Hld.jsx'
-import Bom from './pages/Bom.jsx'
-import SolutionPackage from './pages/SolutionPackage.jsx'
-import ClientApproval from './pages/ClientApproval.jsx'
 import Login from './pages/Login.jsx'
-import DemoGuide from './pages/DemoGuide.jsx'
 import SignUp from './pages/SignUp.jsx'
 import VerifyEmail from './pages/VerifyEmail.jsx'
 import { PasswordResetRequest, PasswordResetConfirm } from './pages/PasswordReset.jsx'
 import InviteAccept from './pages/InviteAccept.jsx'
 import RequireAuth from './components/RequireAuth.jsx'
 import Team from './pages/Team.jsx'
-import Settings from './pages/Settings.jsx'
-import Activity from './pages/Activity.jsx'
-import Deployment from './pages/Deployment.jsx'
-import Cmdb from './pages/Cmdb.jsx'
-import Cmo from './pages/Cmo.jsx'
-import Handover from './pages/Handover.jsx'
-
-// Shown for any /b/:buildingId/:segment that is not a known screen.
-function PageNotFound() {
-  return (
-    <div className="p-6">
-      <div className="rounded-xl border border-border bg-surface p-8 text-center">
-        <h1 className="text-base font-semibold text-text">Page not found</h1>
-        <p className="mt-2 text-sm text-text-secondary">This page does not exist in the prototype.</p>
-        <Link to="/b/b001" className="mt-4 inline-block text-sm font-medium text-brand hover:underline">
-          Back to the building overview
-        </Link>
-      </div>
-    </div>
-  )
-}
 
 // Mock mode goes straight to the prototype's one building. Real mode goes to
 // the signed-in user's projects, once memberships have loaded.
@@ -90,8 +59,24 @@ function Home() {
   return <Navigate to={orgId ? `/orgs/${orgId}/projects` : '/login'} replace />
 }
 
+// Real mode has no prototype screens: they live in mockRoutes.jsx, which a
+// release build does not import at all (scripts/assert-release.mjs checks).
+const MOCK_MODE = import.meta.env.MODE !== 'release' && API_MODE !== 'real'
+let MockBuilding = null
+let MockDemoGuide = null
+let MockClientApproval = null
+// MODE is inlined at build time: a release build drops this block, and the import with it.
+if (import.meta.env.MODE !== 'release') {
+  const screen = (name) => lazy(() => import('./mockRoutes.jsx').then((m) => ({ default: m[name] })))
+  MockBuilding = screen('MockBuildingRoutes')
+  MockDemoGuide = screen('DemoGuide')
+  MockClientApproval = screen('ClientApproval')
+}
+
 export default function App() {
   return (
+    <>
+    <EnvBanner />
     <Routes>
       <Route path="/" element={<Home />} />
       <Route path="/login" element={<Login />} />
@@ -101,31 +86,13 @@ export default function App() {
       <Route path="/password-reset/confirm" element={<PasswordResetConfirm />} />
       <Route path="/invite" element={<InviteAccept />} />
       <Route path="/team" element={<RequireAuth><Team /></RequireAuth>} />
-      <Route path="/demo-guide" element={<DemoGuide />} />
+      {MOCK_MODE && <Route path="/demo-guide" element={<Suspense fallback={null}><MockDemoGuide /></Suspense>} />}
       {/* The public client approval page: the real one on the backend (M5a), the prototype's in mock mode. */}
-      <Route path="/approve/:token" element={API_MODE === 'real' ? <RealClientApproval /> : <ClientApproval />} />
+      <Route path="/approve/:token" element={MOCK_MODE ? <Suspense fallback={null}><MockClientApproval /></Suspense> : <RealClientApproval />} />
       {/* M6b: documents shared by a download link (no login), and a cable label's QR code (sign-in required). */}
       <Route path="/download/:token" element={<RealDocumentDownload />} />
       <Route path="/l/:orgId/:projectId/c/:connectionId" element={<RequireAuth><RealConnectionLink /></RequireAuth>} />
-      <Route path="/b/:buildingId" element={<RequireAuth><AppShell /></RequireAuth>}>
-        <Route index element={<BuildingOverview />} />
-        <Route path="cmo" element={<Cmo />} />
-        <Route path="lld" element={<Lld />} />
-        <Route path="lld/editor" element={<RackiumEditor />} />
-        <Route path="survey" element={<SiteStructure mode="building" />} />
-        <Route path="survey/campus" element={<SiteStructure mode="campus" />} />
-        <Route path="survey/rack" element={<SurveyRackLayout />} />
-        <Route path="survey/room" element={<RoomDetails />} />
-        <Route path="hld" element={<Hld />} />
-        <Route path="bom" element={<Bom />} />
-        <Route path="solution-package" element={<SolutionPackage />} />
-        <Route path="deployment" element={<Deployment />} />
-        <Route path="cmdb" element={<Cmdb />} />
-        <Route path="handover" element={<Handover />} />
-        <Route path="settings" element={<Settings />} />
-        <Route path="activity" element={<Activity />} />
-        <Route path="*" element={<PageNotFound />} />
-      </Route>
+      {MOCK_MODE && <Route path="/b/:buildingId/*" element={<Suspense fallback={null}><MockBuilding /></Suspense>} />}
 
       <Route path="/orgs/:orgId" element={<RequireAuth><RealAppShell /></RequireAuth>}>
         <Route path="projects" element={<ProjectsList />} />
@@ -166,6 +133,9 @@ export default function App() {
         <Route path="catalogue/:itemId" element={<CatalogueItem />} />
         <Route path="catalogue/:itemId/edit" element={<CatalogueItemForm key="edit" />} />
       </Route>
+      {/* Real mode: an unknown address goes home rather than to a blank page. */}
+      {!MOCK_MODE && <Route path="*" element={<Navigate to="/" replace />} />}
     </Routes>
+    </>
   )
 }

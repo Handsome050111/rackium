@@ -277,6 +277,8 @@ export function createAuthService({ config, mailer, logger }) {
       if (!invitation) throw invalidLink()
 
       let user = await User.findOne({ email: invitation.email }).select('+passwordHash')
+      // The accept form may leave the name to what the inviter already gave.
+      name ||= invitation.name ?? undefined
       if (user) {
         if (!(await verifyPassword(user.passwordHash, password))) throw invalidCredentials()
       } else {

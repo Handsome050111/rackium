@@ -1172,6 +1172,85 @@ Found and fixed (each with a test):
   500 and a field of that name passed the "known field" check. Lookups use own
   keys now. Tests: `api.m7b5.test.js` "refuses unknown objects…",
   `shared/src/m7b5.test.js` "own keys only…".
+## Part 21: Release prep — the test server
+
+Security sweep over every route, the server scripts run for real on a clean
+Ubuntu 24.04 in CI (`.github/workflows/deploy-smoke.yml`, `deploy/smoke-test.sh`).
+Most of what follows only showed up by running them there.
+
+### Found by running the runbook on Ubuntu
+
+- **Every PDF failed after the security upgrade.** `npm audit` required
+  `pdfjs-dist` 6, which removed `doc.destroy()`; the table of contents pass
+  threw. Now `loadingTask.destroy()`. Tests: the PDF group (`api.m6b` and others).
+- **Nginx refused its config.** `http2 on;` needs Nginx 1.25; Ubuntu 24.04 has
+  1.24. Now `listen 443 ssl http2;`. Test: the smoke job; both configs through `nginx -t`.
+- **Chrome crashed when started by the scripts.** The caller's environment
+  reached the `rackium` user; a stray `XDG_CONFIG_HOME` pointing at another
+  user's home makes Chrome die with SIGTRAP. Everything runs as `rackium` from
+  a clean environment now. A deploy also checks that a PDF can be made
+  (`server/scripts/check-pdf.mjs`) before it switches. Tests: the smoke job
+  (deploy, 13 documents rendered, PDFs after a restart).
+- **MongoDB 8 stops at startup on Linux kernels 6.19 to 7.0.13** (its release
+  notes), and left nothing in its log. Setup now refuses such a kernel before
+  installing anything and says what to do, and prints the service's error if
+  MongoDB does not start. Test: the smoke job (`deploy/check-kernel.sh`, table of
+  versions; setup refused on the runner). The runner's own kernel is in that
+  range and cannot be changed, so the job alone uses
+  `GLIBC_TUNABLES=glibc.pthread.rseq=1`, which MongoDB does not document.
+
+### Found by reading and by the new tests
+
+- **A restore onto a new server locked the app out.** A backup carries the old
+  server's database users; restore now sets their passwords from this server's
+  settings. Test: the smoke job (live restore with changed passwords).
+- **The app listened on every address**, with only the firewall in front of port
+  4000: anyone reaching it directly could forge the client address the rate
+  limits count. Localhost in production now (`LISTEN_HOST`). Tests:
+  `config.test.js`, the smoke job.
+- **Generated documents showed internal error text.** The raw exception (paths,
+  connection strings, "Cannot start Chromium…") went to the API, the handover
+  tooltip and the audit log. Only messages written for people pass now; the rest
+  stays in the server log. Test: `api.m6b` "an unexpected failure".
+- **Real mode offered the prototype's controls:** Demo controls, offline
+  simulation, demo guide and Reset demo data in the user menu. Test: `release.spec.js`.
+- **Prototype routes and test hooks were in every build**, and unknown addresses
+  were a blank page in real mode. Prototype code is now left out of the release
+  build, `scripts/assert-release.mjs` fails the build if it is there, and unknown
+  addresses go home. Tests: the assertion, `release.spec.js`.
+- **Public sign-up was open in production.** Closed by default there
+  (`SIGNUP_ENABLED`), on the API and the screens. Tests: `api.security`, `release.spec.js`.
+- **The demo password in the repo would have worked on a server.** The test
+  server's seed generates its own and writes it to one private file. Test: the smoke job.
+- **`/openapi.json` was public in production.** 404 there now. Test: `api.security`.
+- **`X-Request-Id` was accepted in any shape** and written to the logs. Only
+  a safe shape now. Test: `api.security`.
+- **Mail to demo users would have bounced** and hurt the sending domain. Reserved
+  addresses are skipped. Test: `api.security`.
+- **`/health` only read the connection state**, so a hung database looked up. It
+  pings now. Tests: `api.permissions`, the smoke job.
+- **Two topology icon uses were not Rackium blue** (CMDB tree, LLD device selector).
+- **The search speed test failed on a busy machine, develop included:** five requests
+  in a row share one burst of load. The 500 ms target stands; what is over it is
+  measured again up to three times, apart. Checked that a limit below the real
+  response time still fails.
+
+### Route audit (`api.security.test.js`)
+
+Every route: no session answers 401 except a named public list; a member of
+another organisation gets 403 or 404. A Viewer tried all 148 project write routes:
+114 answer 403, 10 answer 404, and 24 validate the body first and check the role in
+the service. Those 24 are pinned by name and were read one by one. None succeeds,
+none answers 500. A new route that behaves differently fails the test.
+
+### Found, not changed
+
+- **The topology icons remain the client's filled drawings.** They have no outline to
+  set to 1.65; their colour is Rackium blue.
+- **Tests run MongoDB 8.2 (mongodb-memory-server's default), the server 8.0.** Same
+  major version; the smoke job runs the app on 8.0 itself.
+- **Not exercised in CI:** Let's Encrypt and a real rclone remote need a public
+  domain and an account; a real reboot is simulated by restarting the services.
 
 ## Backlog for the final cleanup
 

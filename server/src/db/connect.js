@@ -19,3 +19,18 @@ export async function disconnectDatabase() {
 export function databaseIsUp() {
   return mongoose.connection.readyState === 1
 }
+
+// Does the database answer now? A connection can look open while the server
+// behind it is gone, so this pings, briefly.
+export async function databaseResponds(timeoutMs = 2000) {
+  if (!databaseIsUp()) return false
+  let timer
+  try {
+    await Promise.race([mongoose.connection.db.admin().ping(), new Promise((_, reject) => (timer = setTimeout(() => reject(new Error('timeout')), timeoutMs)))])
+    return true
+  } catch {
+    return false
+  } finally {
+    clearTimeout(timer)
+  }
+}

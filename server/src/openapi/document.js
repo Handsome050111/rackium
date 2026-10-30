@@ -16,14 +16,20 @@ export function buildRegistry() {
   registry.registerPath({
     method: 'get',
     path: '/api/v1/openapi.json',
-    summary: 'This document',
+    summary: 'This document (not served in production)',
     responses: { 200: ok('OpenAPI 3.0.3 document', z.any()) },
   })
   registry.registerPath({
     method: 'get',
     path: '/api/v1/health',
-    summary: 'Liveness and database status',
+    summary: 'The app is up and the database answers; no version, host or connection details',
     responses: { 200: ok('Healthy', C.healthResponse), 503: ok('Degraded', C.healthResponse) },
+  })
+  registry.registerPath({
+    method: 'get',
+    path: '/api/v1/client-config',
+    summary: 'What the client needs before sign-in: the environment banner, whether sign-up is open',
+    responses: { 200: ok('Client configuration', C.clientConfigResponse) },
   })
   registry.registerPath({
     method: 'post',

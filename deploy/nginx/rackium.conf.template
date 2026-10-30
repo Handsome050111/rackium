@@ -1,0 +1,87 @@
+# Rackium behind Nginx: HTTPS, the built client, the API on localhost.
+# setup-ubuntu.sh replaces @DOMAIN@ and installs this as
+# /etc/nginx/sites-available/rackium, and security-headers.conf as
+# /etc/nginx/snippets/rackium-security-headers.conf.
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name @DOMAIN@;
+    server_tokens off;
+
+    # Certificate renewal (certbot --webroot), everything else to HTTPS.
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    # Ubuntu 24.04's Nginx is 1.24: "http2 on;" came in 1.25.
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name @DOMAIN@;
+    server_tokens off;
+
+    ssl_certificate     /etc/letsencrypt/live/@DOMAIN@/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/@DOMAIN@/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:rackium_ssl:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+
+    # The active release's built client.
+    root /opt/rackium/current/client/dist;
+    index index.html;
+
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css text/csv application/javascript application/json image/svg+xml application/manifest+json;
+
+    # Matches the API's own limits (server/src/app.js, routes/files.js): JSON
+    # imports and logos up to 6 MB; uploads arrive in chunks of up to 2 MB, and
+    # their whole size is checked against the organisation's limits (photos
+    # 15 MB, PDFs 25 MB, sheets 10 MB) by the API. A little over, so that the
+    # API, not Nginx, answers with its own message.
+    client_max_body_size 8m;
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:4000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        # Replaces whatever the client sent: with TRUST_PROXY=1 this is the
+        # address rate limits count. Never append here.
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+        # Large documents and reports take time.
+        proxy_read_timeout 120s;
+    }
+
+    location = /health {
+        proxy_pass http://127.0.0.1:4000/health;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header Connection "";
+        access_log off;
+    }
+
+    # Hashed file names: a new release has new names.
+    location /assets/ {
+        include snippets/rackium-security-headers.conf;
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        try_files $uri =404;
+    }
+
+    # Single-page app: any other address is the app, never cached, so a new
+    # release is picked up on the next load.
+    location / {
+        include snippets/rackium-security-headers.conf;
+        add_header Cache-Control "no-cache" always;
+        try_files $uri $uri/ /index.html;
+    }
+}

@@ -150,7 +150,7 @@ export function PhoneSearch({ orgId }) {
         {open ? <X size={20} strokeWidth={2} /> : <Search size={20} strokeWidth={2} />}
       </button>
       {open && (
-        <div className="fixed inset-x-0 top-16 z-40 border-b border-border bg-surface p-3 shadow-md sm:hidden" data-testid="phone-search">
+        <div className="fixed inset-x-0 top-[calc(4rem+var(--env-banner-h,0px))] z-40 border-b border-border bg-surface p-3 shadow-md sm:hidden" data-testid="phone-search">
           <SearchBox orgId={orgId} autoFocus onDone={() => setOpen(false)} />
         </div>
       )}

@@ -44,7 +44,8 @@ import { configurePdf } from './documents/render/chromium.js'
 import { createNotificationService } from './notifications/service.js'
 import { configureNotifications } from './notifications/notify.js'
 import { createAuditLogService } from './audit/log.js'
-import { apiRouter, API_VERSION } from './routes/index.js'
+import { apiRouter, API_VERSION, healthHandler } from './routes/index.js'
+import { authLimiter } from './http/rateLimits.js'
 import { requireUser } from './http/middleware.js'
 import { membershipSummary, userSummary } from './routes/summaries.js'
 import { membershipsForUser } from './auth/service.js'
@@ -71,6 +72,9 @@ export const DEFAULT_RATE_LIMITS = {
   invite: { windowMs: 15 * 60 * 1000, limit: 10, message: 'Too many attempts. Try again later.' },
   // M5a: the public client-approval page (each link also locks itself after wrong passwords).
   shareLink: { windowMs: 15 * 60 * 1000, limit: 60, message: 'Too many requests. Try again later.' },
+  // Every API call, per client address: a ceiling against runaway clients, high
+  // enough for an office behind one address. Sign-in and the like have their own, above.
+  api: { windowMs: 60 * 1000, limit: 1200, message: 'Too many requests. Try again in a minute.' },
 }
 
 export function createApp({ config, logger, mailer, rateLimits = DEFAULT_RATE_LIMITS }) {
@@ -81,7 +85,9 @@ export function createApp({ config, logger, mailer, rateLimits = DEFAULT_RATE_LI
     pinoHttp({
       logger,
       genReqId: (req, res) => {
-        const id = req.get('x-request-id') ?? crypto.randomUUID()
+        // A caller's id only in a safe shape: it goes into logs and responses.
+        const sent = req.get('x-request-id')
+        const id = sent && /^[\w-]{1,64}$/.test(sent) ? sent : crypto.randomUUID()
         res.setHeader('X-Request-Id', id)
         return id
       },
@@ -99,6 +105,10 @@ export function createApp({ config, logger, mailer, rateLimits = DEFAULT_RATE_LI
       allowedHeaders: ['Content-Type', 'X-Request-Id', 'X-View-As-Session'],
     })
   )
+  // Monitors and the deploy script; also under /api/v1. Before the rate limit.
+  app.get('/health', healthHandler)
+  app.get('/api/v1/health', healthHandler)
+  app.use('/api', authLimiter({ ...rateLimits.api, enabled: rateLimits.enabled }))
   // Imports post their parsed rows as JSON (the file is read in the browser),
   // so only those routes get a larger body limit; everything else stays small.
   const smallJson = express.json({ limit: '100kb' })
@@ -154,7 +164,7 @@ export function createApp({ config, logger, mailer, rateLimits = DEFAULT_RATE_LI
   docServices.handover = handover
   const insights = createInsightsService({ lld, storage })
   const reportSchedules = createReportScheduleService()
-  const api = apiRouter({ config, validationRules, auth, org, auditLog, hierarchy, blockers, viewAs, dashboard, catalogue, cmo, survey, files, hld, lld, delivery, tasks, notifications, deployment, cmdb, documents, handover, schedule, search, dguv, fieldHelp, insights, reportSchedules, rateLimits, openapiDocument, version: VERSION })
+  const api = apiRouter({ config, validationRules, auth, org, auditLog, hierarchy, blockers, viewAs, dashboard, catalogue, cmo, survey, files, hld, lld, delivery, tasks, notifications, deployment, cmdb, documents, handover, schedule, search, dguv, fieldHelp, insights, reportSchedules, rateLimits, openapiDocument })
   api.get('/me', requireUser(config), async (req, res) => {
     const memberships = await membershipsForUser(req.user._id)
     res.json({ user: userSummary(req.user), memberships: memberships.map(membershipSummary) })

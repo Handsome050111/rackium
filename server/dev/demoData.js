@@ -48,7 +48,8 @@ async function call(agent, method, url, body, status) {
 // agent(): a new cookie-keeping supertest agent on the app; mailer: the app's
 // memory sender (verification and invitation links); processDocuments(): runs
 // the document queue once (the handover package).
-export async function seedDemo({ agent, mailer, processDocuments, log = () => {} }) {
+// `password`: every user's (the test server generates its own; dev:local's is public).
+export async function seedDemo({ agent, mailer, processDocuments, log = () => {}, password = DEMO_PASSWORD }) {
   const tokenFor = (email) => {
     const message = mailer.lastTo(email)
     if (!message) throw new Error(`no email to ${email}`)
@@ -56,12 +57,12 @@ export async function seedDemo({ agent, mailer, processDocuments, log = () => {}
   }
   const signIn = async (email) => {
     const a = agent()
-    return { a, body: await call(a, 'post', '/api/v1/auth/login', { email, password: DEMO_PASSWORD }, 200) }
+    return { a, body: await call(a, 'post', '/api/v1/auth/login', { email, password }, 200) }
   }
 
   // The organisation, its Org Admin, the project and its team.
   const [owner, ...members] = DEMO_USERS
-  await call(agent(), 'post', '/api/v1/auth/signup', { organisationName: DEMO_ORGANISATION, name: owner.name, email: owner.email, password: DEMO_PASSWORD }, 202)
+  await call(agent(), 'post', '/api/v1/auth/signup', { organisationName: DEMO_ORGANISATION, name: owner.name, email: owner.email, password }, 202)
   await call(agent(), 'post', '/api/v1/auth/verify-email', { token: tokenFor(owner.email) }, 200)
   const signedIn = await signIn(owner.email)
   const orgId = signedIn.body.memberships.find((m) => m.level === 'organisation').organisationId
@@ -75,7 +76,7 @@ export async function seedDemo({ agent, mailer, processDocuments, log = () => {}
   const userIds = { admin: signedIn.body.user.id }
   for (const u of members) {
     await call(admin, 'post', `/api/v1/orgs/${orgId}/invitations`, { email: u.email, role: u.role, projectId: project.id, scopes: [] }, 201)
-    await call(agent(), 'post', '/api/v1/auth/invitations/accept', { organisationId: orgId, token: tokenFor(u.email), name: u.name, password: DEMO_PASSWORD }, 201)
+    await call(agent(), 'post', '/api/v1/auth/invitations/accept', { organisationId: orgId, token: tokenFor(u.email), name: u.name, password }, 201)
     const member = await signIn(u.email)
     people[u.key] = member.a
     userIds[u.key] = member.body.user.id
