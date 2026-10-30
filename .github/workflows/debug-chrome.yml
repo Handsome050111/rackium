@@ -9,6 +9,7 @@ jobs:
     steps:
       - name: Variants
         run: |
+          set +e
           uname -r
           google-chrome-stable --version
           which -a google-chrome-stable
