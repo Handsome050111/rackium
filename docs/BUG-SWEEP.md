@@ -1230,13 +1230,17 @@ Most of what follows only showed up by running them there.
 - **`/health` only read the connection state**, so a hung database looked up. It
   pings now. Tests: `api.permissions`, the smoke job.
 - **Two topology icon uses were not Rackium blue** (CMDB tree, LLD device selector).
+- **The search speed test failed on a busy machine, develop included:** five requests
+  in a row share one burst of load. The 500 ms target stands; what is over it is
+  measured again up to three times, apart. Checked that a limit below the real
+  response time still fails.
 
 ### Route audit (`api.security.test.js`)
 
 Every route: no session answers 401 except a named public list; a member of
-another organisation gets 403 or 404. A Viewer tried all 143 write routes: 110
-answer 403, 10 answer 404, and 23 validate the body first and check the role in
-the service. Those 23 are pinned by name and were read one by one. None succeeds,
+another organisation gets 403 or 404. A Viewer tried all 148 project write routes:
+114 answer 403, 10 answer 404, and 24 validate the body first and check the role in
+the service. Those 24 are pinned by name and were read one by one. None succeeds,
 none answers 500. A new route that behaves differently fails the test.
 
 ### Found, not changed
