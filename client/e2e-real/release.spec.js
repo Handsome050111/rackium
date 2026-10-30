@@ -45,6 +45,21 @@ test('the banner is on the sign-in page, under the production security headers',
   expect(csp).toContain("frame-ancestors 'none'")
   expect(res.headers()['x-frame-options']).toBe('DENY')
   await expect(page.getByTestId('env-banner')).toHaveText(BANNER)
+  await expect(page.getByTestId('env-banner')).toHaveRole('note') // always there: not a live region announcing news
+  // The one warning every tester must read: WCAG AA contrast, measured.
+  const contrast = await page.getByTestId('env-banner').evaluate((el) => {
+    const style = getComputedStyle(el)
+    const luminance = (css) => {
+      const [r, g, b] = css.match(/[\d.]+/g).slice(0, 3).map((n) => {
+        const c = Number(n) / 255
+        return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+      })
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b
+    }
+    const [a, b] = [luminance(style.color), luminance(style.backgroundColor)].sort((x, y) => y - x)
+    return (a + 0.05) / (b + 0.05)
+  })
+  expect(contrast).toBeGreaterThanOrEqual(4.5)
   await everyWidth('release-login', async () => expect(page.getByTestId('env-banner')).toBeVisible())
 })
 

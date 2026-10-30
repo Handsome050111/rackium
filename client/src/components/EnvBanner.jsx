@@ -15,7 +15,7 @@ export default function EnvBanner() {
   }, [banner])
   if (!banner) return null
   return (
-    <div role="status" data-testid="env-banner" title={banner} style={{ height: HEIGHT }} className="flex items-center justify-center bg-status-amber px-3 text-xs font-semibold text-black">
+    <div role="note" data-testid="env-banner" title={banner} style={{ height: HEIGHT }} className="flex items-center justify-center bg-status-amber px-3 text-xs font-semibold text-black">
       <span className="truncate">{banner}</span>
     </div>
   )
