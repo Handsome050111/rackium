@@ -97,6 +97,8 @@ for h in 'content-security-policy:' 'x-content-type-options: nosniff' 'x-frame-o
   echo "$HEADERS" | grep -qi "^$h" || fail "header missing: $h"
 done
 ok "security headers on the app's pages"
+if echo "$HEADERS" | grep -qiE '^server: nginx/'; then fail "Nginx names its version"; fi
+ok "Nginx does not name its version"
 web "https://$DOMAIN/orgs/x/projects" | grep -q 'id="root"' || fail "SPA routing"
 ok "SPA routing"
 ASSET="$(web "https://$DOMAIN/" | grep -o '/assets/[^"]*\.js' | head -n 1)"
