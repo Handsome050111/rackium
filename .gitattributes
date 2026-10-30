@@ -1,0 +1,2 @@
+# The server scripts run on Linux, whatever machine they were checked out on.
+deploy/** text eol=lf

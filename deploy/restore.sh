@@ -13,8 +13,8 @@ set -euo pipefail
 MODE="" BACKUP="" CONFIRMED=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --test) MODE=test; BACKUP="$2"; shift 2 ;;
-    --live) MODE=live; BACKUP="$2"; shift 2 ;;
+    --test) MODE="test"; BACKUP="$2"; shift 2 ;;
+    --live) MODE="live"; BACKUP="$2"; shift 2 ;;
     --yes-replace-everything) CONFIRMED=1; shift ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
   esac

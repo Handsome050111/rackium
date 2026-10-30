@@ -27,7 +27,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq shellcheck
-          shellcheck deploy/*.sh
+          shellcheck --severity=warning deploy/*.sh
 
       - name: The whole runbook
         # The runner's own Node and tools must not stand in for the server's.

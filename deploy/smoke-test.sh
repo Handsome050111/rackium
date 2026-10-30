@@ -23,6 +23,8 @@ mongo_admin() {
 as_rackium() { sudo -u rackium env HOME=/opt/rackium PM2_HOME=/opt/rackium/.pm2 PATH="/usr/bin:/bin:/usr/local/bin" "$@"; }
 
 step "Setup"
+# CI only: this root user also works in folders owned by others.
+git config --global --add safe.directory "*"
 git clone --quiet --bare "$CHECKOUT" "$SRC"
 git --git-dir="$SRC" update-ref refs/heads/smoke "$(git -C "$CHECKOUT" rev-parse HEAD)"
 "$CHECKOUT/deploy/setup-ubuntu.sh" --domain "$DOMAIN" --repo "$SRC" --self-signed
