@@ -12,6 +12,9 @@ import { useViewAs } from '../lib/ViewAsContext.jsx'
 import { useProjectRoles } from '../lib/useProjectRoles.js'
 import DocumentSettingsTab from '../components/documents/BrandingSettings.jsx'
 import ModeLabelsForm from '../components/ModeLabelsForm.jsx'
+import RulesPanel from '../components/validationRules/RulesPanel.jsx'
+import { validationRulesApi } from '../api/validationRulesApi.js'
+import { useModeLabels } from '../lib/useModeLabels.js'
 import { deliveryApi } from '../api/deliveryApi.js'
 import { rememberModeLabels } from '../lib/useModeLabels.js'
 
@@ -26,6 +29,7 @@ const TABS = [
   { id: 'phases', label: 'Work types & phases' },
   { id: 'members', label: 'Members & permissions' },
   { id: 'naming', label: 'Naming conventions' },
+  { id: 'rules', label: 'Validation rules' },
   { id: 'documents', label: 'Documents & branding' },
   { id: 'danger', label: 'Danger zone' },
   { id: 'more', label: 'More' },
@@ -91,6 +95,7 @@ export default function ProjectSettings() {
       {tab === 'phases' && <PhasesTab project={project} onSave={save} readOnly={readOnly} />}
       {tab === 'members' && <MembersTab />}
       {tab === 'naming' && <NamingTab />}
+      {tab === 'rules' && <RulesTab orgId={orgId} projectId={projectId} project={project} readOnly={readOnly} />}
       {tab === 'documents' && <DocumentSettingsTab orgId={orgId} projectId={projectId} canEdit={!readOnly && has('pm')} />}
       {tab === 'danger' && <DangerTab project={project} onSave={save} readOnly={readOnly} />}
       {tab === 'more' && <MoreTab />}
@@ -124,6 +129,32 @@ function GeneralTab({ project, onSave, readOnly }) {
       >
         Save
       </button>
+    </div>
+  )
+}
+
+// Custom validation rules (M7b-5, DATA-MODEL §3.11): the organisation's apply
+// here and are read-only; the project's own are an Architect's to write.
+function RulesTab({ orgId, projectId, project, readOnly }) {
+  const [data, setData] = useState(null)
+  const labels = useModeLabels(orgId, projectId)
+  const load = useCallback(() => validationRulesApi.project(orgId, projectId).list().then(setData), [orgId, projectId])
+  useEffect(() => {
+    load().catch(() => {})
+  }, [load])
+  if (!data) return <p className="text-sm text-text-secondary">Loading…</p>
+  const targets = (project.buildings ?? []).map((b) => ({ key: b.id, label: b.code, projectId, buildingId: b.id }))
+  return (
+    <div className="space-y-6">
+      <section className="space-y-2">
+        <h2 className="text-sm font-semibold text-text">This project's rules</h2>
+        <p className="text-xs text-text-secondary">Checks of your own, alongside the built-in rules. A Critical rule blocks submitting an HLD or LLD. A change applies from the next validation; anything already approved stays approved.</p>
+        <RulesPanel testId="project-rules" rules={data.project} labels={labels} canEdit={data.canEdit && !readOnly} api={validationRulesApi.project(orgId, projectId)} targets={targets} onPreview={(t, rule) => validationRulesApi.preview(orgId, t.projectId, { buildingId: t.buildingId, rule })} onChanged={load} empty="No project rules yet." />
+      </section>
+      <section className="space-y-2">
+        <h2 className="text-sm font-semibold text-text">From your organisation</h2>
+        <RulesPanel testId="inherited-rules" rules={data.organisation} labels={labels} canEdit={false} empty="No organisation rules." />
+      </section>
     </div>
   )
 }

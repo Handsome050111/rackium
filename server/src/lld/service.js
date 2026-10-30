@@ -15,6 +15,7 @@ import { deviceDisplayName, cleanExistingLabel, withLegacyName } from '@rackium/
 import { modeOf, isCmoDevice } from '@rackium/shared/modeState.js'
 import { decisionsOf, decisionView, hldLayerForLld, modeLabelsOf, applyCmoDecisions } from '../hld/cmoDecisions.js'
 import { createReprintTask, notifyReprintTask } from '../deployment/reprint.js'
+import { rulesInForce } from '../validation/rules.js'
 import { Device } from '../models/device.js'
 import { Connection } from '../models/connection.js'
 import { PortOccupancy } from '../models/portOccupancy.js'
@@ -88,7 +89,8 @@ async function loadLayer(buildingId, layer, projectId, session = null) {
   // The HLD's decisions on existing (CMO) gear and the state labels (DATA-MODEL §5.21).
   const decisions = await decisionsOf(buildingId, typeof layer === 'string' ? await hldLayerForLld(layer, session) : 'hld', session)
   const modeLabels = await modeLabelsOf(session)
-  return { floors, rooms, racks, existing, devices, connections, occupancy, ruStates, pathways, catalogue, settings, decisions, modeLabels }
+  const customRules = await rulesInForce(session)
+  return { floors, rooms, racks, existing, devices, connections, occupancy, ruStates, pathways, catalogue, settings, decisions, modeLabels, customRules }
 }
 
 function catalogueIndex(catalogue) {
@@ -249,10 +251,20 @@ function inputs(data) {
   return { cat, rackPos, views, deviceById, connections, ctx, occupancyByDevice }
 }
 
-function runValidation(data) {
+// The design as the rules read it; custom rules (DATA-MODEL §3.11) also read
+// its rooms, and the pathways of those rooms.
+function ruleDesignOf(data) {
   const { views, connections, ctx } = inputs(data)
-  const racks = data.racks.map((r) => ({ id: String(r._id), code: r.code, heightU: r.heightU, maxLoadKg: r.details?.maxLoadKg ?? null }))
-  const findings = validateLld({ devices: views, connections: connections.map((c) => ({ ...c, ...c.length })), racks, cmoUnplaced: [] }, ctx)
+  const racks = data.racks.map((r) => ({ id: String(r._id), roomId: String(r.roomId), code: r.code, heightU: r.heightU, maxLoadKg: r.details?.maxLoadKg ?? null }))
+  const rooms = data.rooms.map((r) => ({ id: String(r._id), code: r.code, isMainRoom: Boolean(r.isMainRoom) }))
+  const inBuilding = new Set(rooms.map((r) => r.id))
+  const pathways = data.pathways.filter((p) => inBuilding.has(p.fromRoomId) || inBuilding.has(p.toRoomId))
+  return { design: { devices: views, connections: connections.map((c) => ({ ...c, ...c.length })), racks, rooms, pathways }, ctx }
+}
+
+function runValidation(data) {
+  const { design, ctx } = ruleDesignOf(data)
+  const findings = validateLld({ ...design, cmoUnplaced: [], customRules: data.customRules }, ctx)
   return { findings, summary: summariseFindings(findings) }
 }
 
@@ -983,6 +995,12 @@ export function createLldService({ storage }) {
         // What the LLD may add to a rack (Rack Elevations).
         passiveModels: data.catalogue.filter((i) => i.kind === 'device_model' && ['patch_panel', 'cable_management', 'accessory'].includes(i.category) && i.rackMounted).map((i) => ({ key: i.key, model: i.model, category: i.category, heightU: i.heightU ?? 1 })),
       }
+    },
+
+    // The main LLD as custom rules read it (the builder's preview, DATA-MODEL §3.11).
+    async ruleDesign(req, buildingId) {
+      const { design, ctx } = ruleDesignOf(await loadLayer(buildingId, MAIN, req.project.id))
+      return { design, ctx }
     },
 
     async validate(req, buildingId, branchId = null) {
