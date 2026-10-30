@@ -14,6 +14,8 @@ import { SolutionPackage } from '../models/solutionPackage.js'
 import { BomDesign } from '../models/bomDesign.js'
 import { recordAudit, userActor } from '../audit/audit.js'
 import { AppError, badRequest, forbidden, notFound } from '../http/errors.js'
+
+const GENERATION_FAILED = 'This document could not be generated. Try again; if it keeps failing, tell your administrator.'
 import { callerAccess, requireBuilding, buildingWithScopeIds } from '../access/scope.js'
 import { runWithScope } from '../tenancy/scopeContext.js'
 import { orgTimeSettings } from '../organisations/timeSettings.js'
@@ -177,8 +179,9 @@ export function createDocumentService({ storage, services, autoProcess = true, l
         await recordAudit({ organisationId: scope.organisationId, projectId: scope.projectId, buildingId: job.buildingId, phaseKey: job.handover ? 'handover' : null, actor: userActor(job.requestedBy), action: 'document.generated', objectType: 'GeneratedDocument', objectId: String(job._id), changeType: 'system', source: 'system', comment: `${job.fileName} (${buffer.length} bytes)` })
       } catch (err) {
         logger?.warn?.({ err: err.message, document: String(job._id) }, 'document generation failed')
-        await GeneratedDocument.updateOne({ _id: job._id }, { $set: { status: 'failed', error: err.message?.slice(0, 500) ?? 'Generation failed', lockedUntil: null, finishedAt: new Date() } })
-        await recordAudit({ organisationId: scope.organisationId, projectId: scope.projectId, buildingId: job.buildingId, actor: userActor(job.requestedBy), action: 'document.failed', objectType: 'GeneratedDocument', objectId: String(job._id), changeType: 'system', source: 'system', comment: err.message?.slice(0, 300) ?? null })
+        const reason = err instanceof AppError ? err.message.slice(0, 500) : GENERATION_FAILED
+        await GeneratedDocument.updateOne({ _id: job._id }, { $set: { status: 'failed', error: reason, lockedUntil: null, finishedAt: new Date() } })
+        await recordAudit({ organisationId: scope.organisationId, projectId: scope.projectId, buildingId: job.buildingId, actor: userActor(job.requestedBy), action: 'document.failed', objectType: 'GeneratedDocument', objectId: String(job._id), changeType: 'system', source: 'system', comment: reason.slice(0, 300) })
       }
       if (job.handover && services.handover) await services.handover.documentFinished(job).catch((err) => logger?.error?.({ err: err.message }, 'handover update failed'))
     })

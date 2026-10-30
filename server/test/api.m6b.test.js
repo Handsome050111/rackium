@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest'
 import mongoose from 'mongoose'
 import crypto from 'node:crypto'
 import JSZip from 'jszip'
@@ -10,6 +10,7 @@ import { clientDecides } from './helpers/m5a.js'
 import { seedPlatformCatalogue } from '../src/catalogue/seed.js'
 import { closePdfBrowser, pdfPages } from '../src/documents/render/pdf.js'
 import { runWithScope } from '../src/tenancy/scopeContext.js'
+import { File } from '../src/models/file.js'
 import { HandoverBaseline } from '../src/models/handoverBaseline.js'
 import { GeneratedDocument } from '../src/models/generatedDocument.js'
 
@@ -140,6 +141,17 @@ describe('Document engine: background jobs, PDFs with contents, watermark and au
     await ctx.app.__documents.process()
     expect((await p.admin.agent.get(`${p.base}/documents/${failed.id}`).expect(200)).body.document).toMatchObject({ status: 'failed', error: 'This building has no LLD yet' })
     expect(await col('auditentries').findOne({ action: 'document.failed' })).toBeTruthy()
+    // An unexpected failure: the people see that it failed, the log has why.
+    const leak = 'connect ECONNREFUSED mongodb://rackium:s3cret@127.0.0.1/opt/rackium/x'
+    const spy = vi.spyOn(File, 'create').mockRejectedValueOnce(new Error(leak))
+    const broken = expectStatus(await p.admin.agent.post(`${p.base}/documents`).send({ buildingId: p.b001, typeKey: 'cable-matrix', format: 'xlsx' }), 202).body.document
+    await ctx.app.__documents.process()
+    spy.mockRestore()
+    const shown = (await p.admin.agent.get(`${p.base}/documents/${broken.id}`).expect(200)).body.document
+    expect(shown.status).toBe('failed')
+    expect(shown.error).toMatch(/could not be generated/)
+    const audit = await col('auditentries').findOne({ action: 'document.failed', objectId: broken.id })
+    expect(JSON.stringify([shown, audit])).not.toMatch(/ECONNREFUSED|s3cret|opt\/rackium/)
     // Unknown formats and types are refused up front.
     expect((await p.admin.agent.post(`${p.base}/documents`).send({ buildingId: p.b001, typeKey: 'hld-document', format: 'docx' }).expect(400)).body.error.message).toBe('HLD document is not available as DOCX')
     await p.admin.agent.post(`${p.base}/documents`).send({ buildingId: p.b001, typeKey: 'handover-package', format: 'zip' }).expect(400)

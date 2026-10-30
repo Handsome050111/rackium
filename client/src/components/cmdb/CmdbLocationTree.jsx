@@ -36,7 +36,7 @@ export default function CmdbLocationTree({ rows, buildingName, selectedId, onSel
                     selectedId === item.id ? 'bg-brand/10 text-brand' : 'text-text hover:bg-surface-muted'
                   }`}
                 >
-                  <TopologyIcon role={item.role} size={12} />
+                  <TopologyIcon role={item.role} size={12} className="text-brand" />
                   <span className="truncate">{item.hostname}</span>
                 </button>
               ))}

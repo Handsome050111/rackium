@@ -93,7 +93,17 @@ fi
 install -m 0644 "$HERE/mongod.conf" /etc/mongod.conf
 systemctl enable --quiet mongod
 systemctl restart mongod
-for _ in $(seq 1 60); do mongosh --quiet --norc --eval 'db.runCommand({ping:1}).ok' >/dev/null 2>&1 && break; sleep 1; done
+MONGO_UP=0
+for _ in $(seq 1 60); do
+  if mongosh --quiet --norc --eval 'db.runCommand({ping:1}).ok' >/dev/null 2>&1; then MONGO_UP=1; break; fi
+  sleep 1
+done
+if [ "$MONGO_UP" != 1 ]; then
+  echo "MongoDB did not start:" >&2
+  systemctl status mongod --no-pager >&2 || true
+  journalctl -u mongod --no-pager -n 40 >&2 || true
+  exit 1
+fi
 # The first user and the replica set go in through MongoDB's localhost
 # exception; passwords come from the environment, never the command line.
 mongosh --quiet --norc --file "$HERE/mongo-init.js"

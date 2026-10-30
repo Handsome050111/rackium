@@ -26,13 +26,14 @@ export async function closePdfBrowser() {
 // The text of each page (PDF text extraction) — the table of contents pass
 // and the tests read it.
 export async function pdfPages(buffer) {
-  const doc = await getDocument({ data: new Uint8Array(buffer), useSystemFonts: true, isEvalSupported: false }).promise
+  const task = getDocument({ data: new Uint8Array(buffer), useSystemFonts: true, isEvalSupported: false })
+  const doc = await task.promise
   const pages = []
   for (let i = 1; i <= doc.numPages; i++) {
     const content = await (await doc.getPage(i)).getTextContent()
     pages.push(content.items.map((x) => x.str).join(' '))
   }
-  await doc.destroy()
+  await task.destroy()
   return pages
 }
 

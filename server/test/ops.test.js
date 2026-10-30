@@ -154,7 +154,7 @@ describe('With a database', () => {
 
     // The tester accepts without typing a name: it is the one on the list.
     const token = tokenFrom(ctx.mailer, 'ana@real.test')
-    const { owner } = { owner: await mongoose.connection.db.collection('organisations').findOne({ name: 'Test Org' }) }
+    const owner = await mongoose.connection.db.collection('organisations').findOne({ name: 'Test Org' })
     const res = await ctx.agent().post('/api/v1/auth/invitations/accept').send({ organisationId: String(owner._id), token, password: 'a long enough password' })
     expect(res.status, JSON.stringify(res.body)).toBe(201)
     expect((await mongoose.connection.db.collection('users').findOne({ email: 'ana@real.test' })).name).toBe('Ana Tester')
@@ -162,19 +162,16 @@ describe('With a database', () => {
   }, 120000)
 
   it('migrations run once each, in order, and are recorded; a failing one stops the run and is not recorded', async () => {
-    t: {
-      createTestApp()
-      const ran = []
-      const list = [{ id: 'a', run: async () => ran.push('a') }, { id: 'b', run: async () => ran.push('b') }]
-      expect(await runMigrations({ migrations: list })).toEqual({ ran: ['a', 'b'], skipped: 0 })
-      expect(await runMigrations({ migrations: list })).toEqual({ ran: [], skipped: 2 })
-      expect(ran).toEqual(['a', 'b'])
-      const failing = [...list, { id: 'c', run: async () => { throw new Error('boom') } }, { id: 'd', run: async () => ran.push('d') }]
-      await expect(runMigrations({ migrations: failing })).rejects.toThrow('boom')
-      expect(ran).toEqual(['a', 'b'])
-      expect(await mongoose.connection.db.collection('opsMigrations').countDocuments({ _id: 'c' })).toBe(0)
-      break t
-    }
+    createTestApp()
+    const ran = []
+    const list = [{ id: 'a', run: async () => ran.push('a') }, { id: 'b', run: async () => ran.push('b') }]
+    expect(await runMigrations({ migrations: list })).toEqual({ ran: ['a', 'b'], skipped: 0 })
+    expect(await runMigrations({ migrations: list })).toEqual({ ran: [], skipped: 2 })
+    expect(ran).toEqual(['a', 'b'])
+    const failing = [...list, { id: 'c', run: async () => { throw new Error('boom') } }, { id: 'd', run: async () => ran.push('d') }]
+    await expect(runMigrations({ migrations: failing })).rejects.toThrow('boom')
+    expect(ran).toEqual(['a', 'b'])
+    expect(await mongoose.connection.db.collection('opsMigrations').countDocuments({ _id: 'c' })).toBe(0)
   }, 60000)
 
   it('the real list starts with the phase history backfill, which runs on an empty database and again without harm', async () => {

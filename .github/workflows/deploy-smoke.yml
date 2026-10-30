@@ -36,6 +36,9 @@ jobs:
       - name: Logs, if it failed
         if: failure()
         run: |
+          sudo systemctl status mongod --no-pager || true
+          sudo journalctl -u mongod --no-pager -n 40 || true
+          sudo ls -la /var/log/mongodb /var/lib/mongodb || true
           sudo tail -n 60 /var/log/rackium/*.log || true
           sudo tail -n 40 /var/log/mongodb/mongod.log || true
           sudo tail -n 40 /var/log/mongodb/restore.log || true
