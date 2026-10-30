@@ -24,3 +24,16 @@ body {
 #root {
   min-height: 100vh;
 }
+
+/* Icons (brief v2.2 §20.11, addendum Q16): Rackium blue, a 1.65 px rounded
+   stroke (on the icons' 24-unit grid). The exceptions keep their own colour:
+   status icons, the cable colour code (an inline colour), and icons on a filled
+   button, which stay white. Unlayered, so it wins over the text-* utilities. */
+svg.lucide {
+  stroke-width: 1.65;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+svg.lucide:not([class*='text-status-'], [class*='text-white'], [style*='color'], :is([class*='text-status-'], .text-white, .bg-brand, [style*='color']) *) {
+  color: #094f9a;
+}

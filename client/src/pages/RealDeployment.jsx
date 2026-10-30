@@ -170,7 +170,7 @@ export default function RealDeployment() {
 
       {isPhone && selected && (
         // Phone: the device record is its own screen below the top bar, with a clear way back.
-        <div className="fixed inset-x-0 bottom-0 top-16 z-30 space-y-3 overflow-y-auto bg-surface-muted p-4" data-testid="device-screen">
+        <div className="fixed inset-x-0 bottom-0 top-[calc(4rem+var(--env-banner-h,0px))] z-30 space-y-3 overflow-y-auto bg-surface-muted p-4" data-testid="device-screen">
           <button type="button" onClick={() => select(null)} className="flex h-touch items-center gap-1 rounded-lg px-2 text-sm font-medium text-brand">
             <ChevronLeft size={18} strokeWidth={2} />
             Back to devices

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:release": "vite build --mode release && node scripts/assert-release.mjs",
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "vitest run",

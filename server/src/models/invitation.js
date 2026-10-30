@@ -4,6 +4,9 @@ import { tenantScope } from '../tenancy/tenantScope.js'
 // An invitation grants a membership once accepted. The token is stored hashed.
 const invitationSchema = new mongoose.Schema({
   email: { type: String, required: true, trim: true, lowercase: true },
+  // The invitee's name when the inviter knows it (a list of testers): the
+  // accept form may leave it blank.
+  name: { type: String, trim: true, default: null },
   level: { type: String, enum: ['organisation', 'project'], required: true },
   role: { type: String, enum: ['org_admin', 'pm', 'architect', 'reviewer', 'external_reviewer', 'field_engineer', 'viewer'], required: true },
   scopes: { type: [{ type: { type: String, enum: ['country', 'sal', 'building'] }, refId: mongoose.Schema.Types.ObjectId }], default: [] },

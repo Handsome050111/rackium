@@ -100,7 +100,7 @@ export default function Catalogue() {
       {hasPlaceholders && (
         <p className="flex items-start gap-2 rounded-lg border border-status-amber/30 bg-status-amber/5 px-3 py-2 text-xs text-text-secondary">
           <AlertTriangle size={14} strokeWidth={2} className="mt-0.5 shrink-0 text-status-amber" />
-          Seeded items marked Placeholder are the prototype’s models, carried over until the supplied catalogue replaces them. Unknown values are left empty.
+          Seeded items marked Placeholder are starter models, kept until the supplied catalogue replaces them. Unknown values are left empty.
         </p>
       )}
 

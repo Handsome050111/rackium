@@ -6,7 +6,7 @@ and a free MongoDB Atlas account.
 
 ## Prerequisites
 
-- Node.js 20 or later (`node -v`).
+- Node.js 22.13 or later (`node -v`).
 - npm (ships with Node).
 - A MongoDB Atlas account (free tier is enough).
 

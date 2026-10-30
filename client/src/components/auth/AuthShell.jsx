@@ -9,7 +9,7 @@ export const authButton =
 // Shared frame for the sign-in, sign-up, reset and invitation screens.
 export default function AuthShell({ title, children, footer }) {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-surface-muted px-4 py-10">
+    <div className="flex min-h-[calc(100vh-var(--env-banner-h,0px))] items-center justify-center bg-surface-muted px-4 py-10">
       <div className="w-full max-w-sm space-y-6">
         <div className="flex flex-col items-center gap-1.5">
           <Logo className="h-9" />

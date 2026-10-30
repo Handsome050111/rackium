@@ -26,7 +26,7 @@ export default function RealAppShell() {
   const settingsTo = inProject ? `/orgs/${orgId}/projects/${projectMatch[1]}/settings` : isOrgAdmin ? `/orgs/${orgId}/settings` : null
 
   return (
-    <div className="flex h-screen flex-col">
+    <div className="flex h-[calc(100vh-var(--env-banner-h,0px))] flex-col">
       <TopBar onMenuClick={() => setMobileOpen(true)} settingsTo={settingsTo} orgId={orgId} />
       <ViewAsBanner />
       <div className="flex min-h-0 flex-1">

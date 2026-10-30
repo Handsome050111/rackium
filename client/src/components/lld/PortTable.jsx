@@ -14,7 +14,7 @@ export const PORT_COLUMNS = {
   },
   media: { label: 'Media', cell: (r) => r.media },
   speed: { label: 'Speed', cell: (r) => r.speed },
-  vlan: { label: 'VLAN (mock)', cell: (r) => r.vlan },
+  vlan: { label: 'VLAN', cell: (r) => r.vlan ?? '—' },
   poe: { label: 'PoE', cell: (r) => r.poe },
 }
 

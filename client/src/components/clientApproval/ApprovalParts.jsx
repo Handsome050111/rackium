@@ -7,7 +7,7 @@ const inputClass = 'h-10 w-full rounded-lg border border-border bg-surface px-3 
 // The public approval page's frame: no app shell (brief §5.5).
 export function ApprovalShell({ children }) {
   return (
-    <div className="flex min-h-screen items-start justify-center bg-surface-muted px-4 py-10 sm:py-16">
+    <div className="flex min-h-[calc(100vh-var(--env-banner-h,0px))] items-start justify-center bg-surface-muted px-4 py-10 sm:py-16">
       <div className="w-full max-w-2xl space-y-6">
         <Logo />
         {children}

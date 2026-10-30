@@ -1,0 +1,14 @@
+# Port 80 only, until the first certificate exists: certbot's webroot check.
+# setup-ubuntu.sh replaces it with rackium.conf.template right after.
+server {
+    listen 80;
+    listen [::]:80;
+    server_name @DOMAIN@;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+    location / {
+        return 404;
+    }
+}

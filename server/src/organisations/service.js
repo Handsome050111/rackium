@@ -159,6 +159,7 @@ export function createOrganisationService({ mailer, auth }) {
       const token = randomToken()
       const invitation = await Invitation.create({
         email: body.email,
+        name: body.name ?? null,
         level,
         role: body.role,
         scopes: body.scopes,

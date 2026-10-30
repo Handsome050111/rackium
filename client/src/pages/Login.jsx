@@ -7,6 +7,7 @@ import { authApi } from '../api/authApi.js'
 import { ApiError } from '../api/httpClient.js'
 import { useAuth } from '../lib/AuthContext.jsx'
 import { API_MODE } from '../lib/apiMode.js'
+import { useClientConfig } from '../lib/useClientConfig.js'
 
 // An explicit ?next= (set by RequireAuth, redirecting back here) always wins.
 // Without one, mock mode's demo button goes to the prototype; real mode goes
@@ -18,6 +19,7 @@ export default function Login() {
   const [params] = useSearchParams()
   const next = explicitNext(params.get('next'))
   const { signIn } = useAuth()
+  const clientConfig = useClientConfig()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState(null)
@@ -60,9 +62,12 @@ export default function Login() {
       title="Sign in"
       footer={
         <>
-          <p>
-            New here? <Link to="/signup" className="font-medium text-brand hover:underline">Create an organisation</Link>
-          </p>
+          {/* Sign-up can be closed on a server (invitations only). */}
+          {clientConfig?.signupEnabled && (
+            <p>
+              New here? <Link to="/signup" className="font-medium text-brand hover:underline">Create an organisation</Link>
+            </p>
+          )}
           <p>
             <Link to="/password-reset" className="font-medium text-brand hover:underline">Forgot your password?</Link>
           </p>

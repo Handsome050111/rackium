@@ -174,10 +174,12 @@ describe('the last Org Admin is protected and changes are audited', () => {
 })
 
 describe('HTTP contract', () => {
-  it('health reports the database and version', async () => {
+  it('health reports the app and the database, nothing else, at both paths', async () => {
     const ctx = t()
-    const res = await request(ctx.app).get('/api/v1/health').expect(200)
-    expect(res.body).toEqual({ status: 'ok', database: 'up', version: '0.1.0' })
+    for (const path of ['/api/v1/health', '/health']) {
+      const res = await request(ctx.app).get(path).expect(200)
+      expect(res.body).toEqual({ status: 'ok', app: 'up', database: 'up' })
+    }
   })
 
   it('unknown routes return the one error format', async () => {

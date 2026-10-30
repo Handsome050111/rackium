@@ -49,6 +49,9 @@ const config = {
   IS_PRODUCTION: false,
   // Survey photos uploaded during the e2e run (gitignored).
   FILE_STORAGE_DIR: path.join(here, '.runtime-files'),
+  SIGNUP_ENABLED: true,
+  // As on the test server: every real-mode spec runs with the banner on screen.
+  ENV_BANNER: 'Test environment — do not enter real customer data',
 }
 
 // Playwright force-kills its web servers on Windows (no signal reaches us), so

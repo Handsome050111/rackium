@@ -1,8 +1,17 @@
+import fs from 'node:fs'
+import path from 'node:path'
 import { z } from 'zod'
 
 // Placeholder values from .env.example. Refusing these in production stops a
 // copied example file from reaching the public server.
 const PLACEHOLDER_SECRETS = ['change-me-to-a-long-random-string-of-at-least-32-chars']
+const originOf = (url) => {
+  try {
+    return new URL(url).origin
+  } catch {
+    return null
+  }
+}
 
 const schema = z
   .object({
@@ -26,6 +35,12 @@ const schema = z
       .enum(['true', 'false'])
       .default('true')
       .transform((v) => v === 'true'),
+    // Public sign-up creates a new organisation: on by default for development,
+    // off by default in production (testers are invited).
+    SIGNUP_ENABLED: z.enum(['true', 'false']).optional(),
+    // A line shown on every screen, e.g. "Test environment — do not enter real
+    // customer data". Empty: no banner.
+    ENV_BANNER: z.string().trim().max(200).optional(),
   })
   .superRefine((cfg, ctx) => {
     if (cfg.EMAIL_PROVIDER === 'resend' && !cfg.RESEND_API_KEY) {
@@ -38,8 +53,29 @@ const schema = z
       if (!cfg.PUBLIC_APP_URL.startsWith('https://')) {
         ctx.addIssue({ code: 'custom', path: ['PUBLIC_APP_URL'], message: 'PUBLIC_APP_URL must be https in production' })
       }
+      // The server's env template (deploy/rackium.env.template) until someone fills it in.
+      if (cfg.RESEND_API_KEY === '__SET_ME__') {
+        ctx.addIssue({ code: 'custom', path: ['RESEND_API_KEY'], message: 'RESEND_API_KEY is still the template placeholder' })
+      }
       if (cfg.EMAIL_PROVIDER !== 'resend') {
         ctx.addIssue({ code: 'custom', path: ['EMAIL_PROVIDER'], message: 'EMAIL_PROVIDER must be resend in production' })
+      }
+      // The browser's origin: https, and the app the emails link to.
+      if (!cfg.CLIENT_ORIGIN.startsWith('https://') || originOf(cfg.CLIENT_ORIGIN) !== originOf(cfg.PUBLIC_APP_URL)) {
+        ctx.addIssue({ code: 'custom', path: ['CLIENT_ORIGIN'], message: 'CLIENT_ORIGIN must be https and the same origin as PUBLIC_APP_URL in production' })
+      }
+      // Exactly one proxy (Nginx): 0 puts every user behind Nginx's address for
+      // rate limits; more would trust an address the client can send.
+      if (cfg.TRUST_PROXY !== 1) {
+        ctx.addIssue({ code: 'custom', path: ['TRUST_PROXY'], message: 'TRUST_PROXY must be 1 in production (one Nginx in front)' })
+      }
+      if (!cfg.CHROMIUM_PATH) {
+        ctx.addIssue({ code: 'custom', path: ['CHROMIUM_PATH'], message: 'CHROMIUM_PATH is required in production (documents are rendered with it)' })
+      } else if (!fs.existsSync(cfg.CHROMIUM_PATH)) {
+        ctx.addIssue({ code: 'custom', path: ['CHROMIUM_PATH'], message: `CHROMIUM_PATH does not exist: ${cfg.CHROMIUM_PATH}` })
+      }
+      if (!path.isAbsolute(cfg.FILE_STORAGE_DIR)) {
+        ctx.addIssue({ code: 'custom', path: ['FILE_STORAGE_DIR'], message: 'FILE_STORAGE_DIR must be an absolute path in production (it must outlive a release)' })
       }
     }
   })
@@ -57,5 +93,7 @@ export class ConfigError extends Error {
 export function loadConfig(env = process.env) {
   const parsed = schema.safeParse(env)
   if (!parsed.success) throw new ConfigError(parsed.error.issues)
-  return Object.freeze({ ...parsed.data, IS_PRODUCTION: parsed.data.NODE_ENV === 'production' })
+  const IS_PRODUCTION = parsed.data.NODE_ENV === 'production'
+  const SIGNUP_ENABLED = parsed.data.SIGNUP_ENABLED ? parsed.data.SIGNUP_ENABLED === 'true' : !IS_PRODUCTION
+  return Object.freeze({ ...parsed.data, IS_PRODUCTION, SIGNUP_ENABLED, ENV_BANNER: parsed.data.ENV_BANNER || null })
 }

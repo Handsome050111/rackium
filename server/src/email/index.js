@@ -1,5 +1,9 @@
 import { Resend } from 'resend'
 
+// Reserved for examples (RFC 2606): nothing can arrive there, and bounces harm
+// the sender's standing. Demo users on a test server have these addresses.
+const UNDELIVERABLE = /@(example\.(com|org|net)|[^@]+\.example)$/i
+
 // One interface, two providers. The console provider writes the message to the
 // log (development only); the Resend provider sends real mail. The config
 // refuses EMAIL_PROVIDER=console in production.
@@ -8,6 +12,10 @@ export function createEmailSender({ provider, from, apiKey, logger }) {
     const client = new Resend(apiKey)
     return {
       async send({ to, subject, text, html }) {
+        if (UNDELIVERABLE.test(to)) {
+          logger.debug?.({ to, subject }, 'email not sent: reserved example address')
+          return
+        }
         const { error } = await client.emails.send({ from, to, subject, text, html })
         if (error) throw new Error(`Email send failed: ${error.message ?? error.name ?? 'unknown error'}`)
       },

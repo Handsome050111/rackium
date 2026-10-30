@@ -1,0 +1,42 @@
+name: Deploy smoke test
+
+# The server runbook (docs/DEPLOY-DEMO.md), for real, on a clean Ubuntu 24.04:
+# setup, deploy, seed, backup, restore, a failed deploy, a rollback.
+on:
+  push:
+    branches: [develop, 'feature/release-*']
+  pull_request:
+    paths:
+      - 'deploy/**'
+      - 'server/scripts/**'
+      - 'server/dev/**'
+      - 'server/src/ops/**'
+      - 'server/src/config/**'
+      - 'package-lock.json'
+      - '.github/workflows/deploy-smoke.yml'
+
+jobs:
+  smoke:
+    # Pinned: this is the server's own release, whatever ubuntu-latest becomes.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Shell scripts pass shellcheck
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck
+          shellcheck deploy/*.sh
+
+      - name: The whole runbook
+        # The runner's own Node and tools must not stand in for the server's.
+        run: sudo env PATH=/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/sbin:/usr/local/bin bash deploy/smoke-test.sh
+
+      - name: Logs, if it failed
+        if: failure()
+        run: |
+          sudo tail -n 60 /var/log/rackium/*.log || true
+          sudo tail -n 40 /var/log/mongodb/mongod.log || true
+          sudo tail -n 40 /var/log/mongodb/restore.log || true
+          sudo journalctl -u nginx --no-pager -n 30 || true

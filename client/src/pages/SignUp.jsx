@@ -5,6 +5,7 @@ import AuthShell, { authInput, authButton } from '../components/auth/AuthShell.j
 import ResendVerification from '../components/auth/ResendVerification.jsx'
 import { authApi } from '../api/authApi.js'
 import { ApiError } from '../api/httpClient.js'
+import { useClientConfig } from '../lib/useClientConfig.js'
 
 // Creates an organisation and its Org Admin. The response never says whether the
 // email was already registered, so this page cannot be used to find accounts.
@@ -13,6 +14,7 @@ export default function SignUp() {
   const [error, setError] = useState(null)
   const [done, setDone] = useState(false)
   const [busy, setBusy] = useState(false)
+  const clientConfig = useClientConfig()
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }))
 
@@ -33,6 +35,16 @@ export default function SignUp() {
     } finally {
       setBusy(false)
     }
+  }
+
+  // Closed on this server: people join by invitation.
+  if (clientConfig && !clientConfig.signupEnabled) {
+    return (
+      <AuthShell title="Sign-up is closed">
+        <p className="text-sm text-text-secondary">This server is by invitation only. Ask your administrator for an invitation.</p>
+        <Link to="/login" className="block text-center text-sm font-medium text-brand hover:underline">Go to sign in</Link>
+      </AuthShell>
+    )
   }
 
   if (done) {

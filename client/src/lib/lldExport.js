@@ -68,7 +68,7 @@ export const PORT_SCHEDULE_COLUMNS = [
   { heading: 'Status', value: (r) => r.status },
   { heading: 'Connected To', value: (r) => r.destination },
   { heading: 'Cable ID', value: (r) => r.cableId ?? '' },
-  { heading: 'VLAN (mock)', value: (r) => r.vlan },
+  { heading: 'VLAN', value: (r) => r.vlan ?? '' },
   { heading: 'PoE', value: (r) => r.poe },
 ]
 

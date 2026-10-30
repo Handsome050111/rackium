@@ -50,6 +50,9 @@ function UserMenu() {
           <div className="px-2 py-1.5 text-sm font-medium text-text">{user?.name}</div>
           <div className="mx-2 my-1 border-t border-border" />
 
+          {/* The prototype's own controls: never in real mode. */}
+          {mode === 'mock' && (
+            <>
           <div className="flex items-center gap-1.5 px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-status-amber">
             <FlaskConical size={12} strokeWidth={2} />
             Demo controls — not part of the real product
@@ -95,6 +98,8 @@ function UserMenu() {
             {isOffline && pendingCount > 0 && <span className="rounded-full bg-status-amber/10 px-1.5 text-[11px] font-medium text-status-amber">{pendingCount} pending</span>}
             {!isOffline && syncing && <span className="text-[11px] text-text-secondary">Syncing…</span>}
           </button>
+            </>
+          )}
 
           {mode === 'real' && (
             <Link to="/team" onClick={() => setOpen(false)} className="flex h-touch w-full items-center gap-2 rounded-lg px-2 text-sm text-text hover:bg-surface-muted sm:h-8">
@@ -106,6 +111,8 @@ function UserMenu() {
               Sign out
             </button>
           )}
+          {mode === 'mock' && (
+            <>
           <div className="mx-2 my-1 border-t border-border" />
           <Link
             to="/demo-guide"
@@ -127,6 +134,8 @@ function UserMenu() {
             <RotateCcw size={14} strokeWidth={2} />
             Reset demo data
           </button>
+            </>
+          )}
         </div>
       )}
     </div>
